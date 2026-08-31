@@ -1,0 +1,302 @@
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.7.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Warning: Unable to set daemon's environment variables to match the client because: 
+  There is no native integration with this operating environment.
+  If the daemon was started with a significantly different environment from the client, and your build 
+  relies on environment variables, you may experience unexpected behavior.
+Daemon will be stopped at the end of the build 
+> Task :app:preBuild UP-TO-DATE
+> Task :app:preDebugBuild UP-TO-DATE
+> Task :app:mergeDebugNativeDebugMetadata NO-SOURCE
+> Task :app:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :app:checkDebugAarMetadata FAILED
+
+[Incubating] Problems report is available at: file:///data/data/com.termux/files/home/SamuraiOS/android/build/reports/problems/problems-report.html
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':app:checkDebugAarMetadata' (registered by plugin 'com.android.internal.application').
+> Configuration `:app:debugRuntimeClasspath` contains AndroidX dependencies, but the `android.useAndroidX` property is not enabled, which may cause runtime issues.
+  Set `android.useAndroidX=true` in the `gradle.properties` file and retry.
+  The following AndroidX dependencies are detected:
+  :app:debugRuntimeClasspath -> androidx.core:core-ktx:1.15.0
+  :app:debugRuntimeClasspath -> androidx.camera:camera-view:1.4.2 -> androidx.camera:camera-video:1.4.2 -> androidx.annotation:annotation:1.8.1
+  :app:debugRuntimeClasspath -> androidx.camera:camera-view:1.4.2 -> androidx.camera:camera-video:1.4.2 -> androidx.annotation:annotation:1.8.1 -> androidx.annotation:annotation-jvm:1.8.1
+  :app:debugRuntimeClasspath -> androidx.camera:camera-view:1.4.2 -> androidx.camera:camera-video:1.4.2 -> androidx.core:core:1.15.0
+  :app:debugRuntimeClasspath -> androidx.camera:camera-view:1.4.2 -> androidx.annotation:annotation-experimental:1.4.1
+  :app:debugRuntimeClasspath -> androidx.camera:camera-view:1.4.2 -> androidx.appcompat:appcompat:1.1.0 -> androidx.collection:collection:1.4.2
+  :app:debugRuntimeClasspath -> androidx.camera:camera-view:1.4.2 -> androidx.appcompat:appcompat:1.1.0 -> androidx.collection:collection:1.4.2 -> androidx.collection:collection-jvm:1.4.2
+  :app:debugRuntimeClasspath -> androidx.camera:camera-view:1.4.2 -> androidx.camera:camera-video:1.4.2 -> androidx.concurrent:concurrent-futures:1.1.0
+  :app:debugRuntimeClasspath -> androidx.camera:camera-view:1.4.2 -> androidx.appcompat:appcompat:1.1.0 -> androidx.appcompat:appcompat-resources:1.1.0 -> androidx.vectordrawable:vectordrawable-animated:1.1.0 -> androidx.interpolator:interpolator:1.0.0
+  :app:debugRuntimeClasspath -> androidx.camera:camera-view:1.4.2 -> androidx.camera:camera-video:1.4.2 -> androidx.core:core:1.15.0 -> androidx.lifecycle:lifecycle-runtime:2.8.7
+  :app:debugRuntimeClasspath -> androidx.camera:camera-view:1.4.2 -> androidx.camera:camera-video:1.4.2 -> androidx.core:core:1.15.0 -> androidx.lifecycle:lifecycle-runtime:2.8.7 -> androidx.lifecycle:lifecycle-runtime-android:2.8.7
+  :app:debugRuntimeClasspath -> androidx.camera:camera-view:1.4.2 -> androidx.appcompat:appcompat:1.1.0 -> androidx.fragment:fragment:1.1.0 -> androidx.activity:activity:1.10.1 -> androidx.savedstate:savedstate:1.2.1 -> androidx.arch.core:core-common:2.2.0
+  :app:debugRuntimeClasspath -> androidx.camera:camera-view:1.4.2 -> androidx.appcompat:appcompat:1.1.0 -> androidx.fragment:fragment:1.1.0 -> androidx.lifecycle:lifecycle-viewmodel:2.8.7 -> androidx.lifecycle:lifecycle-viewmodel-android:2.8.7 -> androidx.lifecycle:lifecycle-livedata-core:2.8.7 -> androidx.arch.core:core-runtime:2.2.0
+  :app:debugRuntimeClasspath -> androidx.camera:camera-view:1.4.2 -> androidx.lifecycle:lifecycle-common:2.8.7
+  :app:debugRuntimeClasspath -> androidx.camera:camera-view:1.4.2 -> androidx.lifecycle:lifecycle-common:2.8.7 -> androidx.lifecycle:lifecycle-common-jvm:2.8.7
+  :app:debugRuntimeClasspath -> androidx.camera:camera-core:1.4.2 -> androidx.lifecycle:lifecycle-livedata:2.8.7
+  :app:debugRuntimeClasspath -> androidx.camera:camera-view:1.4.2 -> androidx.appcompat:appcompat:1.1.0 -> androidx.fragment:fragment:1.1.0 -> androidx.lifecycle:lifecycle-viewmodel:2.8.7 -> androidx.lifecycle:lifecycle-viewmodel-android:2.8.7 -> androidx.lifecycle:lifecycle-livedata-core:2.8.7
+  :app:debugRuntimeClasspath -> androidx.camera:camera-view:1.4.2 -> androidx.appcompat:appcompat:1.1.0 -> androidx.fragment:fragment:1.1.0 -> androidx.lifecycle:lifecycle-viewmodel:2.8.7 -> androidx.lifecycle:lifecycle-viewmodel-android:2.8.7 -> androidx.lifecycle:lifecycle-livedata-core-ktx:2.8.7
+  :app:debugRuntimeClasspath -> androidx.lifecycle:lifecycle-runtime-ktx:2.8.7
+  :app:debugRuntimeClasspath -> androidx.lifecycle:lifecycle-runtime-ktx:2.8.7 -> androidx.lifecycle:lifecycle-runtime-ktx-android:2.8.7
+  :app:debugRuntimeClasspath -> androidx.camera:camera-view:1.4.2 -> androidx.appcompat:appcompat:1.1.0 -> androidx.fragment:fragment:1.1.0 -> androidx.lifecycle:lifecycle-viewmodel:2.8.7
+  :app:debugRuntimeClasspath -> androidx.camera:camera-view:1.4.2 -> androidx.appcompat:appcompat:1.1.0 -> androidx.fragment:fragment:1.1.0 -> androidx.lifecycle:lifecycle-viewmodel:2.8.7 -> androidx.lifecycle:lifecycle-viewmodel-android:2.8.7
+  :app:debugRuntimeClasspath -> androidx.activity:activity-ktx:1.10.1 -> androidx.lifecycle:lifecycle-viewmodel-ktx:2.8.7
+  :app:debugRuntimeClasspath -> androidx.camera:camera-view:1.4.2 -> androidx.appcompat:appcompat:1.1.0 -> androidx.fragment:fragment:1.1.0 -> androidx.activity:activity:1.10.1 -> androidx.lifecycle:lifecycle-viewmodel-savedstate:2.8.7
+  :app:debugRuntimeClasspath -> androidx.camera:camera-view:1.4.2 -> androidx.appcompat:appcompat:1.1.0 -> androidx.fragment:fragment:1.1.0 -> androidx.activity:activity:1.10.1 -> androidx.savedstate:savedstate:1.2.1
+  :app:debugRuntimeClasspath -> androidx.activity:activity-ktx:1.10.1 -> androidx.savedstate:savedstate-ktx:1.2.1
+  :app:debugRuntimeClasspath -> androidx.camera:camera-view:1.4.2 -> androidx.appcompat:appcompat:1.1.0 -> androidx.fragment:fragment:1.1.0 -> androidx.activity:activity:1.10.1 -> androidx.profileinstaller:profileinstaller:1.4.0
+  :app:debugRuntimeClasspath -> androidx.camera:camera-view:1.4.2 -> androidx.appcompat:appcompat:1.1.0 -> androidx.fragment:fragment:1.1.0 -> androidx.activity:activity:1.10.1 -> androidx.profileinstaller:profileinstaller:1.4.0 -> androidx.startup:startup-runtime:1.1.1
+  :app:debugRuntimeClasspath -> androidx.camera:camera-camera2:1.4.2 -> androidx.tracing:tracing:1.2.0
+  :app:debugRuntimeClasspath -> androidx.camera:camera-lifecycle:1.4.2 -> androidx.tracing:tracing-ktx:1.2.0
+  :app:debugRuntimeClasspath -> androidx.camera:camera-view:1.4.2 -> androidx.camera:camera-video:1.4.2 -> androidx.core:core:1.15.0 -> androidx.versionedparcelable:versionedparcelable:1.1.1
+  :app:debugRuntimeClasspath -> androidx.activity:activity-ktx:1.10.1
+  :app:debugRuntimeClasspath -> androidx.camera:camera-view:1.4.2 -> androidx.appcompat:appcompat:1.1.0 -> androidx.fragment:fragment:1.1.0 -> androidx.activity:activity:1.10.1
+  :app:debugRuntimeClasspath -> androidx.camera:camera-view:1.4.2 -> androidx.appcompat:appcompat:1.1.0 -> androidx.fragment:fragment:1.1.0 -> androidx.activity:activity:1.10.1 -> androidx.core:core-viewtree:1.0.0
+  :app:debugRuntimeClasspath -> androidx.camera:camera-core:1.4.2
+  :app:debugRuntimeClasspath -> androidx.camera:camera-lifecycle:1.4.2 -> androidx.concurrent:concurrent-futures-ktx:1.1.0
+  :app:debugRuntimeClasspath -> androidx.camera:camera-core:1.4.2 -> androidx.exifinterface:exifinterface:1.3.2
+  :app:debugRuntimeClasspath -> androidx.camera:camera-camera2:1.4.2
+  :app:debugRuntimeClasspath -> androidx.camera:camera-lifecycle:1.4.2
+  :app:debugRuntimeClasspath -> androidx.camera:camera-view:1.4.2
+  :app:debugRuntimeClasspath -> androidx.camera:camera-view:1.4.2 -> androidx.appcompat:appcompat:1.1.0
+  :app:debugRuntimeClasspath -> androidx.camera:camera-view:1.4.2 -> androidx.appcompat:appcompat:1.1.0 -> androidx.cursoradapter:cursoradapter:1.0.0
+  :app:debugRuntimeClasspath -> androidx.camera:camera-view:1.4.2 -> androidx.appcompat:appcompat:1.1.0 -> androidx.fragment:fragment:1.1.0
+  :app:debugRuntimeClasspath -> androidx.camera:camera-view:1.4.2 -> androidx.appcompat:appcompat:1.1.0 -> androidx.fragment:fragment:1.1.0 -> androidx.viewpager:viewpager:1.0.0
+  :app:debugRuntimeClasspath -> androidx.camera:camera-view:1.4.2 -> androidx.appcompat:appcompat:1.1.0 -> androidx.drawerlayout:drawerlayout:1.0.0 -> androidx.customview:customview:1.0.0
+  :app:debugRuntimeClasspath -> androidx.camera:camera-view:1.4.2 -> androidx.appcompat:appcompat:1.1.0 -> androidx.fragment:fragment:1.1.0 -> androidx.loader:loader:1.0.0
+  :app:debugRuntimeClasspath -> androidx.camera:camera-view:1.4.2 -> androidx.appcompat:appcompat:1.1.0 -> androidx.appcompat:appcompat-resources:1.1.0
+  :app:debugRuntimeClasspath -> androidx.camera:camera-view:1.4.2 -> androidx.appcompat:appcompat:1.1.0 -> androidx.appcompat:appcompat-resources:1.1.0 -> androidx.vectordrawable:vectordrawable:1.1.0
+  :app:debugRuntimeClasspath -> androidx.camera:camera-view:1.4.2 -> androidx.appcompat:appcompat:1.1.0 -> androidx.appcompat:appcompat-resources:1.1.0 -> androidx.vectordrawable:vectordrawable-animated:1.1.0
+  :app:debugRuntimeClasspath -> androidx.camera:camera-view:1.4.2 -> androidx.appcompat:appcompat:1.1.0 -> androidx.drawerlayout:drawerlayout:1.0.0
+  :app:debugRuntimeClasspath -> androidx.camera:camera-view:1.4.2 -> androidx.camera:camera-video:1.4.2
+
+* Try:
+> Run with --info or --debug option to get more log output.
+> Run with --scan to get full insights from a Build Scan (powered by Develocity).
+> Get more help at https://help.gradle.org.
+
+* Exception is:
+org.gradle.api.tasks.TaskExecutionException: Execution failed for task ':app:checkDebugAarMetadata' (registered by plugin 'com.android.internal.application').
+	at org.gradle.api.internal.tasks.execution.CatchExceptionTaskExecuter.execute(CatchExceptionTaskExecuter.java:38)
+	at org.gradle.api.internal.tasks.execution.EventFiringTaskExecuter$1.executeTask(EventFiringTaskExecuter.java:77)
+	at org.gradle.api.internal.tasks.execution.EventFiringTaskExecuter$1.call(EventFiringTaskExecuter.java:55)
+	at org.gradle.api.internal.tasks.execution.EventFiringTaskExecuter$1.call(EventFiringTaskExecuter.java:52)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$CallableBuildOperationWorker.execute(DefaultBuildOperationRunner.java:210)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$CallableBuildOperationWorker.execute(DefaultBuildOperationRunner.java:205)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperationRunner.java:67)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperationRunner.java:60)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationRunner.java:167)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationRunner.java:60)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.call(DefaultBuildOperationRunner.java:54)
+	at org.gradle.api.internal.tasks.execution.EventFiringTaskExecuter.execute(EventFiringTaskExecuter.java:52)
+	at org.gradle.execution.plan.DefaultNodeExecutor.executeLocalTaskNode(DefaultNodeExecutor.java:55)
+	at org.gradle.execution.plan.DefaultNodeExecutor.execute(DefaultNodeExecutor.java:34)
+	at org.gradle.execution.taskgraph.DefaultTaskExecutionGraph$InvokeNodeExecutorsAction.execute(DefaultTaskExecutionGraph.java:355)
+	at org.gradle.execution.taskgraph.DefaultTaskExecutionGraph$InvokeNodeExecutorsAction.execute(DefaultTaskExecutionGraph.java:343)
+	at org.gradle.execution.taskgraph.DefaultTaskExecutionGraph$BuildOperationAwareExecutionAction.lambda$execute$0(DefaultTaskExecutionGraph.java:339)
+	at org.gradle.internal.operations.CurrentBuildOperationRef.with(CurrentBuildOperationRef.java:84)
+	at org.gradle.execution.taskgraph.DefaultTaskExecutionGraph$BuildOperationAwareExecutionAction.execute(DefaultTaskExecutionGraph.java:339)
+	at org.gradle.execution.taskgraph.DefaultTaskExecutionGraph$BuildOperationAwareExecutionAction.execute(DefaultTaskExecutionGraph.java:328)
+	at org.gradle.execution.plan.DefaultPlanExecutor$ExecutorWorker.execute(DefaultPlanExecutor.java:459)
+	at org.gradle.execution.plan.DefaultPlanExecutor$ExecutorWorker.run(DefaultPlanExecutor.java:376)
+	at org.gradle.execution.plan.DefaultPlanExecutor.process(DefaultPlanExecutor.java:111)
+	at org.gradle.execution.taskgraph.DefaultTaskExecutionGraph.executeWithServices(DefaultTaskExecutionGraph.java:146)
+	at org.gradle.execution.taskgraph.DefaultTaskExecutionGraph.execute(DefaultTaskExecutionGraph.java:131)
+	at org.gradle.execution.SelectedTaskExecutionAction.execute(SelectedTaskExecutionAction.java:35)
+	at org.gradle.execution.BuildOperationFiringBuildWorkerExecutor$ExecuteTasks.call(BuildOperationFiringBuildWorkerExecutor.java:54)
+	at org.gradle.execution.BuildOperationFiringBuildWorkerExecutor$ExecuteTasks.call(BuildOperationFiringBuildWorkerExecutor.java:43)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$CallableBuildOperationWorker.execute(DefaultBuildOperationRunner.java:210)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$CallableBuildOperationWorker.execute(DefaultBuildOperationRunner.java:205)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperationRunner.java:67)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperationRunner.java:60)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationRunner.java:167)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationRunner.java:60)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.call(DefaultBuildOperationRunner.java:54)
+	at org.gradle.execution.BuildOperationFiringBuildWorkerExecutor.execute(BuildOperationFiringBuildWorkerExecutor.java:40)
+	at org.gradle.internal.build.DefaultBuildLifecycleController.lambda$executeTasks$0(DefaultBuildLifecycleController.java:323)
+	at org.gradle.internal.model.StateTransitionController.doTransition(StateTransitionController.java:324)
+	at org.gradle.internal.model.StateTransitionController.lambda$tryTransition$0(StateTransitionController.java:235)
+	at org.gradle.internal.work.DefaultSynchronizer.withLock(DefaultSynchronizer.java:45)
+	at org.gradle.internal.model.StateTransitionController.tryTransition(StateTransitionController.java:235)
+	at org.gradle.internal.build.DefaultBuildLifecycleController.executeTasks(DefaultBuildLifecycleController.java:314)
+	at org.gradle.internal.build.DefaultBuildWorkGraphController$DefaultBuildWorkGraph.runWork(DefaultBuildWorkGraphController.java:220)
+	at org.gradle.internal.work.DefaultWorkerLeaseService.lambda$runAndReleaseLocks$0(DefaultWorkerLeaseService.java:302)
+	at org.gradle.internal.work.ResourceLockStatistics$1.measure(ResourceLockStatistics.java:43)
+	at org.gradle.internal.work.DefaultWorkerLeaseService.runAndReleaseLocks(DefaultWorkerLeaseService.java:300)
+	at org.gradle.internal.work.DefaultWorkerLeaseService.withLocksAcquired(DefaultWorkerLeaseService.java:296)
+	at org.gradle.internal.work.DefaultWorkerLeaseService.withLocks(DefaultWorkerLeaseService.java:288)
+	at org.gradle.internal.work.DefaultWorkerLeaseService.runAsWorkerThread(DefaultWorkerLeaseService.java:131)
+	at org.gradle.composite.internal.DefaultBuildController.doRun(DefaultBuildController.java:182)
+	at org.gradle.composite.internal.DefaultBuildController$BuildOpRunnable.lambda$run$0(DefaultBuildController.java:199)
+	at org.gradle.internal.operations.CurrentBuildOperationRef.with(CurrentBuildOperationRef.java:84)
+	at org.gradle.composite.internal.DefaultBuildController$BuildOpRunnable.run(DefaultBuildController.java:199)
+	at org.gradle.internal.concurrent.ExecutorPolicy$CatchAndRecordFailures.onExecute(ExecutorPolicy.java:65)
+	at org.gradle.internal.concurrent.AbstractManagedExecutor$1.run(AbstractManagedExecutor.java:47)
+Caused by: com.android.builder.errors.EvalIssueException: Configuration `:app:debugRuntimeClasspath` contains AndroidX dependencies, but the `android.useAndroidX` property is not enabled, which may cause runtime issues.
+Set `android.useAndroidX=true` in the `gradle.properties` file and retry.
+The following AndroidX dependencies are detected:
+:app:debugRuntimeClasspath -> androidx.core:core-ktx:1.15.0
+:app:debugRuntimeClasspath -> androidx.camera:camera-view:1.4.2 -> androidx.camera:camera-video:1.4.2 -> androidx.annotation:annotation:1.8.1
+:app:debugRuntimeClasspath -> androidx.camera:camera-view:1.4.2 -> androidx.camera:camera-video:1.4.2 -> androidx.annotation:annotation:1.8.1 -> androidx.annotation:annotation-jvm:1.8.1
+:app:debugRuntimeClasspath -> androidx.camera:camera-view:1.4.2 -> androidx.camera:camera-video:1.4.2 -> androidx.core:core:1.15.0
+:app:debugRuntimeClasspath -> androidx.camera:camera-view:1.4.2 -> androidx.annotation:annotation-experimental:1.4.1
+:app:debugRuntimeClasspath -> androidx.camera:camera-view:1.4.2 -> androidx.appcompat:appcompat:1.1.0 -> androidx.collection:collection:1.4.2
+:app:debugRuntimeClasspath -> androidx.camera:camera-view:1.4.2 -> androidx.appcompat:appcompat:1.1.0 -> androidx.collection:collection:1.4.2 -> androidx.collection:collection-jvm:1.4.2
+:app:debugRuntimeClasspath -> androidx.camera:camera-view:1.4.2 -> androidx.camera:camera-video:1.4.2 -> androidx.concurrent:concurrent-futures:1.1.0
+:app:debugRuntimeClasspath -> androidx.camera:camera-view:1.4.2 -> androidx.appcompat:appcompat:1.1.0 -> androidx.appcompat:appcompat-resources:1.1.0 -> androidx.vectordrawable:vectordrawable-animated:1.1.0 -> androidx.interpolator:interpolator:1.0.0
+:app:debugRuntimeClasspath -> androidx.camera:camera-view:1.4.2 -> androidx.camera:camera-video:1.4.2 -> androidx.core:core:1.15.0 -> androidx.lifecycle:lifecycle-runtime:2.8.7
+:app:debugRuntimeClasspath -> androidx.camera:camera-view:1.4.2 -> androidx.camera:camera-video:1.4.2 -> androidx.core:core:1.15.0 -> androidx.lifecycle:lifecycle-runtime:2.8.7 -> androidx.lifecycle:lifecycle-runtime-android:2.8.7
+:app:debugRuntimeClasspath -> androidx.camera:camera-view:1.4.2 -> androidx.appcompat:appcompat:1.1.0 -> androidx.fragment:fragment:1.1.0 -> androidx.activity:activity:1.10.1 -> androidx.savedstate:savedstate:1.2.1 -> androidx.arch.core:core-common:2.2.0
+:app:debugRuntimeClasspath -> androidx.camera:camera-view:1.4.2 -> androidx.appcompat:appcompat:1.1.0 -> androidx.fragment:fragment:1.1.0 -> androidx.lifecycle:lifecycle-viewmodel:2.8.7 -> androidx.lifecycle:lifecycle-viewmodel-android:2.8.7 -> androidx.lifecycle:lifecycle-livedata-core:2.8.7 -> androidx.arch.core:core-runtime:2.2.0
+:app:debugRuntimeClasspath -> androidx.camera:camera-view:1.4.2 -> androidx.lifecycle:lifecycle-common:2.8.7
+:app:debugRuntimeClasspath -> androidx.camera:camera-view:1.4.2 -> androidx.lifecycle:lifecycle-common:2.8.7 -> androidx.lifecycle:lifecycle-common-jvm:2.8.7
+:app:debugRuntimeClasspath -> androidx.camera:camera-core:1.4.2 -> androidx.lifecycle:lifecycle-livedata:2.8.7
+:app:debugRuntimeClasspath -> androidx.camera:camera-view:1.4.2 -> androidx.appcompat:appcompat:1.1.0 -> androidx.fragment:fragment:1.1.0 -> androidx.lifecycle:lifecycle-viewmodel:2.8.7 -> androidx.lifecycle:lifecycle-viewmodel-android:2.8.7 -> androidx.lifecycle:lifecycle-livedata-core:2.8.7
+:app:debugRuntimeClasspath -> androidx.camera:camera-view:1.4.2 -> androidx.appcompat:appcompat:1.1.0 -> androidx.fragment:fragment:1.1.0 -> androidx.lifecycle:lifecycle-viewmodel:2.8.7 -> androidx.lifecycle:lifecycle-viewmodel-android:2.8.7 -> androidx.lifecycle:lifecycle-livedata-core-ktx:2.8.7
+:app:debugRuntimeClasspath -> androidx.lifecycle:lifecycle-runtime-ktx:2.8.7
+:app:debugRuntimeClasspath -> androidx.lifecycle:lifecycle-runtime-ktx:2.8.7 -> androidx.lifecycle:lifecycle-runtime-ktx-android:2.8.7
+:app:debugRuntimeClasspath -> androidx.camera:camera-view:1.4.2 -> androidx.appcompat:appcompat:1.1.0 -> androidx.fragment:fragment:1.1.0 -> androidx.lifecycle:lifecycle-viewmodel:2.8.7
+:app:debugRuntimeClasspath -> androidx.camera:camera-view:1.4.2 -> androidx.appcompat:appcompat:1.1.0 -> androidx.fragment:fragment:1.1.0 -> androidx.lifecycle:lifecycle-viewmodel:2.8.7 -> androidx.lifecycle:lifecycle-viewmodel-android:2.8.7
+:app:debugRuntimeClasspath -> androidx.activity:activity-ktx:1.10.1 -> androidx.lifecycle:lifecycle-viewmodel-ktx:2.8.7
+:app:debugRuntimeClasspath -> androidx.camera:camera-view:1.4.2 -> androidx.appcompat:appcompat:1.1.0 -> androidx.fragment:fragment:1.1.0 -> androidx.activity:activity:1.10.1 -> androidx.lifecycle:lifecycle-viewmodel-savedstate:2.8.7
+:app:debugRuntimeClasspath -> androidx.camera:camera-view:1.4.2 -> androidx.appcompat:appcompat:1.1.0 -> androidx.fragment:fragment:1.1.0 -> androidx.activity:activity:1.10.1 -> androidx.savedstate:savedstate:1.2.1
+:app:debugRuntimeClasspath -> androidx.activity:activity-ktx:1.10.1 -> androidx.savedstate:savedstate-ktx:1.2.1
+:app:debugRuntimeClasspath -> androidx.camera:camera-view:1.4.2 -> androidx.appcompat:appcompat:1.1.0 -> androidx.fragment:fragment:1.1.0 -> androidx.activity:activity:1.10.1 -> androidx.profileinstaller:profileinstaller:1.4.0
+:app:debugRuntimeClasspath -> androidx.camera:camera-view:1.4.2 -> androidx.appcompat:appcompat:1.1.0 -> androidx.fragment:fragment:1.1.0 -> androidx.activity:activity:1.10.1 -> androidx.profileinstaller:profileinstaller:1.4.0 -> androidx.startup:startup-runtime:1.1.1
+:app:debugRuntimeClasspath -> androidx.camera:camera-camera2:1.4.2 -> androidx.tracing:tracing:1.2.0
+:app:debugRuntimeClasspath -> androidx.camera:camera-lifecycle:1.4.2 -> androidx.tracing:tracing-ktx:1.2.0
+:app:debugRuntimeClasspath -> androidx.camera:camera-view:1.4.2 -> androidx.camera:camera-video:1.4.2 -> androidx.core:core:1.15.0 -> androidx.versionedparcelable:versionedparcelable:1.1.1
+:app:debugRuntimeClasspath -> androidx.activity:activity-ktx:1.10.1
+:app:debugRuntimeClasspath -> androidx.camera:camera-view:1.4.2 -> androidx.appcompat:appcompat:1.1.0 -> androidx.fragment:fragment:1.1.0 -> androidx.activity:activity:1.10.1
+:app:debugRuntimeClasspath -> androidx.camera:camera-view:1.4.2 -> androidx.appcompat:appcompat:1.1.0 -> androidx.fragment:fragment:1.1.0 -> androidx.activity:activity:1.10.1 -> androidx.core:core-viewtree:1.0.0
+:app:debugRuntimeClasspath -> androidx.camera:camera-core:1.4.2
+:app:debugRuntimeClasspath -> androidx.camera:camera-lifecycle:1.4.2 -> androidx.concurrent:concurrent-futures-ktx:1.1.0
+:app:debugRuntimeClasspath -> androidx.camera:camera-core:1.4.2 -> androidx.exifinterface:exifinterface:1.3.2
+:app:debugRuntimeClasspath -> androidx.camera:camera-camera2:1.4.2
+:app:debugRuntimeClasspath -> androidx.camera:camera-lifecycle:1.4.2
+:app:debugRuntimeClasspath -> androidx.camera:camera-view:1.4.2
+:app:debugRuntimeClasspath -> androidx.camera:camera-view:1.4.2 -> androidx.appcompat:appcompat:1.1.0
+:app:debugRuntimeClasspath -> androidx.camera:camera-view:1.4.2 -> androidx.appcompat:appcompat:1.1.0 -> androidx.cursoradapter:cursoradapter:1.0.0
+:app:debugRuntimeClasspath -> androidx.camera:camera-view:1.4.2 -> androidx.appcompat:appcompat:1.1.0 -> androidx.fragment:fragment:1.1.0
+:app:debugRuntimeClasspath -> androidx.camera:camera-view:1.4.2 -> androidx.appcompat:appcompat:1.1.0 -> androidx.fragment:fragment:1.1.0 -> androidx.viewpager:viewpager:1.0.0
+:app:debugRuntimeClasspath -> androidx.camera:camera-view:1.4.2 -> androidx.appcompat:appcompat:1.1.0 -> androidx.drawerlayout:drawerlayout:1.0.0 -> androidx.customview:customview:1.0.0
+:app:debugRuntimeClasspath -> androidx.camera:camera-view:1.4.2 -> androidx.appcompat:appcompat:1.1.0 -> androidx.fragment:fragment:1.1.0 -> androidx.loader:loader:1.0.0
+:app:debugRuntimeClasspath -> androidx.camera:camera-view:1.4.2 -> androidx.appcompat:appcompat:1.1.0 -> androidx.appcompat:appcompat-resources:1.1.0
+:app:debugRuntimeClasspath -> androidx.camera:camera-view:1.4.2 -> androidx.appcompat:appcompat:1.1.0 -> androidx.appcompat:appcompat-resources:1.1.0 -> androidx.vectordrawable:vectordrawable:1.1.0
+:app:debugRuntimeClasspath -> androidx.camera:camera-view:1.4.2 -> androidx.appcompat:appcompat:1.1.0 -> androidx.appcompat:appcompat-resources:1.1.0 -> androidx.vectordrawable:vectordrawable-animated:1.1.0
+:app:debugRuntimeClasspath -> androidx.camera:camera-view:1.4.2 -> androidx.appcompat:appcompat:1.1.0 -> androidx.drawerlayout:drawerlayout:1.0.0
+:app:debugRuntimeClasspath -> androidx.camera:camera-view:1.4.2 -> androidx.camera:camera-video:1.4.2
+	at com.android.builder.errors.IssueReporter.reportError(IssueReporter.kt:118)
+	at com.android.builder.errors.IssueReporter.reportError$default(IssueReporter.kt:114)
+	at com.android.build.gradle.internal.dependency.AndroidXDependencyCheck$AndroidXDisabledJetifierDisabled.execute(AndroidXDependencyCheck.kt:72)
+	at com.android.build.gradle.internal.dependency.AndroidXDependencyCheck$AndroidXDisabledJetifierDisabled.execute(AndroidXDependencyCheck.kt:40)
+	at org.gradle.internal.code.DefaultUserCodeApplicationContext$CurrentApplication$1.execute(DefaultUserCodeApplicationContext.java:124)
+	at org.gradle.internal.event.BroadcastDispatch$ActionInvocationHandler.dispatch(BroadcastDispatch.java:101)
+	at org.gradle.internal.event.BroadcastDispatch$ActionInvocationHandler.dispatch(BroadcastDispatch.java:89)
+	at org.gradle.internal.event.AbstractBroadcastDispatch.dispatch(AbstractBroadcastDispatch.java:44)
+	at org.gradle.internal.event.BroadcastDispatch$SingletonDispatch.dispatch(BroadcastDispatch.java:270)
+	at org.gradle.internal.event.BroadcastDispatch$SingletonDispatch.dispatch(BroadcastDispatch.java:172)
+	at org.gradle.internal.event.AbstractBroadcastDispatch.dispatch(AbstractBroadcastDispatch.java:84)
+	at org.gradle.internal.event.AbstractBroadcastDispatch.dispatch(AbstractBroadcastDispatch.java:70)
+	at org.gradle.internal.event.BroadcastDispatch$CompositeDispatch.dispatch(BroadcastDispatch.java:382)
+	at org.gradle.internal.event.BroadcastDispatch$CompositeDispatch.dispatch(BroadcastDispatch.java:274)
+	at org.gradle.internal.event.ListenerBroadcast.dispatch(ListenerBroadcast.java:160)
+	at org.gradle.internal.event.ListenerBroadcast.dispatch(ListenerBroadcast.java:37)
+	at org.gradle.internal.dispatch.ProxyDispatchAdapter$DispatchingInvocationHandler.invoke(ProxyDispatchAdapter.java:88)
+	at jdk.proxy1/jdk.proxy1.$Proxy63.afterResolve(Unknown Source)
+	at org.gradle.api.internal.artifacts.configurations.DefaultConfiguration$1.call(DefaultConfiguration.java:678)
+	at org.gradle.api.internal.artifacts.configurations.DefaultConfiguration$1.call(DefaultConfiguration.java:662)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$CallableBuildOperationWorker.execute(DefaultBuildOperationRunner.java:210)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$CallableBuildOperationWorker.execute(DefaultBuildOperationRunner.java:205)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperationRunner.java:67)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperationRunner.java:60)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationRunner.java:167)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationRunner.java:60)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.call(DefaultBuildOperationRunner.java:54)
+	at org.gradle.api.internal.artifacts.configurations.DefaultConfiguration.resolveGraphInBuildOperation(DefaultConfiguration.java:662)
+	at org.gradle.api.internal.artifacts.configurations.DefaultConfiguration.lambda$resolveExclusivelyIfRequired$0(DefaultConfiguration.java:654)
+	at org.gradle.api.internal.project.DefaultProjectState$CalculatedModelValueImpl.update(DefaultProjectState.java:350)
+	at org.gradle.api.internal.artifacts.configurations.DefaultConfiguration.resolveExclusivelyIfRequired(DefaultConfiguration.java:649)
+	at org.gradle.api.internal.artifacts.configurations.DefaultConfiguration.resolveGraphIfRequired(DefaultConfiguration.java:642)
+	at org.gradle.api.internal.artifacts.configurations.DefaultConfiguration$ResolverResultsResolutionResultProvider.getValue(DefaultConfiguration.java:624)
+	at org.gradle.api.internal.artifacts.configurations.DefaultConfiguration$ResolverResultsResolutionResultProvider.getValue(DefaultConfiguration.java:610)
+	at org.gradle.api.internal.artifacts.configurations.ResolutionResultProvider$1.getValue(ResolutionResultProvider.java:54)
+	at org.gradle.api.internal.artifacts.configurations.ResolutionResultProviderBackedSelectedArtifactSet.visitArtifacts(ResolutionResultProviderBackedSelectedArtifactSet.java:50)
+	at org.gradle.api.internal.artifacts.ivyservice.resolveengine.artifact.SelectedArtifactSet.visitFiles(SelectedArtifactSet.java:34)
+	at org.gradle.api.internal.artifacts.configurations.ResolutionBackedFileCollection.visitContents(ResolutionBackedFileCollection.java:75)
+	at org.gradle.api.internal.file.AbstractFileCollection.visitStructure(AbstractFileCollection.java:358)
+	at org.gradle.api.internal.file.CompositeFileCollection.lambda$visitContents$0(CompositeFileCollection.java:112)
+	at org.gradle.api.internal.file.collections.UnpackingVisitor.add(UnpackingVisitor.java:66)
+	at org.gradle.api.internal.file.collections.UnpackingVisitor.add(UnpackingVisitor.java:91)
+	at org.gradle.api.internal.file.DefaultFileCollectionFactory$ResolvingFileCollection.visitChildren(DefaultFileCollectionFactory.java:311)
+	at org.gradle.api.internal.file.CompositeFileCollection.visitContents(CompositeFileCollection.java:112)
+	at org.gradle.api.internal.file.AbstractFileCollection.visitStructure(AbstractFileCollection.java:358)
+	at org.gradle.api.internal.file.CompositeFileCollection.lambda$visitContents$0(CompositeFileCollection.java:112)
+	at org.gradle.api.internal.tasks.PropertyFileCollection.visitChildren(PropertyFileCollection.java:48)
+	at org.gradle.api.internal.file.CompositeFileCollection.visitContents(CompositeFileCollection.java:112)
+	at org.gradle.api.internal.file.AbstractFileCollection.visitStructure(AbstractFileCollection.java:358)
+	at org.gradle.internal.fingerprint.impl.DefaultFileCollectionSnapshotter.snapshot(DefaultFileCollectionSnapshotter.java:48)
+	at org.gradle.internal.execution.impl.DefaultInputFingerprinter$InputCollectingVisitor.visitInputFileProperty(DefaultInputFingerprinter.java:151)
+	at org.gradle.api.internal.tasks.execution.TaskExecution.visitMutableInputs(TaskExecution.java:345)
+	at org.gradle.internal.execution.impl.DefaultInputFingerprinter.fingerprintInputProperties(DefaultInputFingerprinter.java:77)
+	at org.gradle.internal.execution.steps.CaptureMutableStateBeforeExecutionStep.captureExecutionStateWithOutputs(CaptureMutableStateBeforeExecutionStep.java:124)
+	at org.gradle.internal.execution.steps.CaptureMutableStateBeforeExecutionStep.lambda$captureExecutionState$0(CaptureMutableStateBeforeExecutionStep.java:94)
+	at org.gradle.internal.execution.steps.BuildOperationStep$1.call(BuildOperationStep.java:38)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$CallableBuildOperationWorker.execute(DefaultBuildOperationRunner.java:210)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$CallableBuildOperationWorker.execute(DefaultBuildOperationRunner.java:205)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperationRunner.java:67)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperationRunner.java:60)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationRunner.java:167)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationRunner.java:60)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.call(DefaultBuildOperationRunner.java:54)
+	at org.gradle.internal.execution.steps.BuildOperationStep.operation(BuildOperationStep.java:35)
+	at org.gradle.internal.execution.steps.CaptureMutableStateBeforeExecutionStep.captureExecutionState(CaptureMutableStateBeforeExecutionStep.java:92)
+	at org.gradle.internal.execution.steps.CaptureMutableStateBeforeExecutionStep.executeMutable(CaptureMutableStateBeforeExecutionStep.java:73)
+	at org.gradle.internal.execution.steps.CaptureMutableStateBeforeExecutionStep.execute(CaptureMutableStateBeforeExecutionStep.java:65)
+	at org.gradle.internal.execution.steps.CaptureMutableStateBeforeExecutionStep.execute(CaptureMutableStateBeforeExecutionStep.java:45)
+	at org.gradle.internal.execution.steps.SkipEmptyMutableWorkStep.executeWithNonEmptySources(SkipEmptyMutableWorkStep.java:210)
+	at org.gradle.internal.execution.steps.SkipEmptyMutableWorkStep.executeMutable(SkipEmptyMutableWorkStep.java:85)
+	at org.gradle.internal.execution.steps.SkipEmptyMutableWorkStep.executeMutable(SkipEmptyMutableWorkStep.java:53)
+	at org.gradle.internal.execution.steps.MutableStep.execute(MutableStep.java:26)
+	at org.gradle.internal.execution.steps.legacy.MarkSnapshottingInputsStartedStep.execute(MarkSnapshottingInputsStartedStep.java:38)
+	at org.gradle.internal.execution.steps.LoadPreviousExecutionStateStep.executeMutable(LoadPreviousExecutionStateStep.java:36)
+	at org.gradle.internal.execution.steps.LoadPreviousExecutionStateStep.executeMutable(LoadPreviousExecutionStateStep.java:23)
+	at org.gradle.internal.execution.steps.MutableStep.execute(MutableStep.java:26)
+	at org.gradle.internal.execution.steps.HandleStaleOutputsStep.executeMutable(HandleStaleOutputsStep.java:77)
+	at org.gradle.internal.execution.steps.HandleStaleOutputsStep.executeMutable(HandleStaleOutputsStep.java:43)
+	at org.gradle.internal.execution.steps.MutableStep.execute(MutableStep.java:26)
+	at org.gradle.internal.execution.steps.AssignMutableWorkspaceStep.lambda$executeMutable$0(AssignMutableWorkspaceStep.java:34)
+	at org.gradle.api.internal.tasks.execution.TaskExecution$4.withWorkspace(TaskExecution.java:305)
+	at org.gradle.internal.execution.steps.AssignMutableWorkspaceStep.executeMutable(AssignMutableWorkspaceStep.java:30)
+	at org.gradle.internal.execution.steps.AssignMutableWorkspaceStep.executeMutable(AssignMutableWorkspaceStep.java:21)
+	at org.gradle.internal.execution.steps.MutableStep.execute(MutableStep.java:26)
+	at org.gradle.internal.execution.steps.ChoosePipelineStep.execute(ChoosePipelineStep.java:40)
+	at org.gradle.internal.execution.steps.ChoosePipelineStep.execute(ChoosePipelineStep.java:23)
+	at org.gradle.internal.execution.steps.ExecuteWorkBuildOperationFiringStep.lambda$execute$2(ExecuteWorkBuildOperationFiringStep.java:67)
+	at org.gradle.internal.execution.steps.ExecuteWorkBuildOperationFiringStep.execute(ExecuteWorkBuildOperationFiringStep.java:67)
+	at org.gradle.internal.execution.steps.ExecuteWorkBuildOperationFiringStep.execute(ExecuteWorkBuildOperationFiringStep.java:39)
+	at org.gradle.internal.execution.steps.IdentityCacheStep.execute(IdentityCacheStep.java:46)
+	at org.gradle.internal.execution.steps.IdentityCacheStep.execute(IdentityCacheStep.java:34)
+	at org.gradle.internal.execution.steps.IdentifyStep.execute(IdentifyStep.java:56)
+	at org.gradle.internal.execution.steps.IdentifyStep.execute(IdentifyStep.java:38)
+	at org.gradle.internal.execution.impl.DefaultExecutionEngine$1.execute(DefaultExecutionEngine.java:68)
+	at org.gradle.api.internal.tasks.execution.ExecuteActionsTaskExecuter.executeIfValid(ExecuteActionsTaskExecuter.java:132)
+	at org.gradle.api.internal.tasks.execution.ExecuteActionsTaskExecuter.execute(ExecuteActionsTaskExecuter.java:121)
+	at org.gradle.api.internal.tasks.execution.ProblemsTaskPathTrackingTaskExecuter.execute(ProblemsTaskPathTrackingTaskExecuter.java:41)
+	at org.gradle.api.internal.tasks.execution.ResolveTaskExecutionModeExecuter.execute(ResolveTaskExecutionModeExecuter.java:51)
+	at org.gradle.api.internal.tasks.execution.FinalizePropertiesTaskExecuter.execute(FinalizePropertiesTaskExecuter.java:46)
+	at org.gradle.api.internal.tasks.execution.SkipTaskWithNoActionsExecuter.execute(SkipTaskWithNoActionsExecuter.java:57)
+	at org.gradle.api.internal.tasks.execution.SkipOnlyIfTaskExecuter.execute(SkipOnlyIfTaskExecuter.java:74)
+	at org.gradle.api.internal.tasks.execution.CatchExceptionTaskExecuter.execute(CatchExceptionTaskExecuter.java:36)
+	... 54 more
+
+
+Deprecated Gradle features were used in this build, making it incompatible with Gradle 10.
+
+You can use '--warning-mode all' to show the individual deprecation warnings and determine if they come from your own scripts or plugins.
+
+For more on this, please refer to https://docs.gradle.org/9.7.1/userguide/command_line_interface.html#sec:command_line_warnings in the Gradle documentation.
+
+BUILD FAILED in 1m 55s
+1 actionable task: 1 executed
