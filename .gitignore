@@ -1,0 +1,48 @@
+# ==============================
+# SamuraiOS
+# ==============================
+
+# Secrets
+.env
+.env.*
+!.env.example
+*.secret
+*.key
+*.pem
+
+# Node.js
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# SamuraiOS runtime logs
+*.log
+core/samuraios.log
+
+# Android / Gradle
+.gradle/
+build/
+**/build/
+**/.gradle/
+
+# Android local machine config
+local.properties
+
+# IDE
+.idea/
+*.iml
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.temp
+*.swp
+*.swo
+
+# Generated reports
+**/build/reports/
