@@ -1,0 +1,20 @@
+services:
+  core:
+    build:
+      context: ./core
+    restart: unless-stopped
+    env_file:
+      - ./core/.env
+    ports:
+      - "8787:8787"
+    volumes:
+      - samurai-data:/app/data
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:8787/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  samurai-data:
