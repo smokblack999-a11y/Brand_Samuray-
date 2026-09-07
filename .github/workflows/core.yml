@@ -11,6 +11,10 @@ on:
       - 'core/**'
       - 'docker-compose.yml'
       - '.github/workflows/core.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   test:
