@@ -1,23 +1,21 @@
 {
-  "name": "core",
-  "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "name": "samuraios-core",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Telegram Business AI lead automation core",
+  "main": "server.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "start": "node server.js"
+    "start": "node server.js",
+    "test": "node --test"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "type": "commonjs",
   "dependencies": {
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
-    "ethers": "^6.17.0",
     "express": "^5.2.1",
-    "input": "^1.0.1",
-    "openai": "^7.8.0",
-    "telegram": "^2.26.22"
-  }
+    "openai": "^7.8.0"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "type": "commonjs"
 }
