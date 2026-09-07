@@ -1,6 +1,6 @@
 {
-  "name": "samuraios-core",
-  "version": "2.0.0",
+  "name": "core",
+  "version": "1.0.0",
   "private": true,
   "description": "Telegram Business AI lead automation core",
   "main": "server.js",
@@ -11,8 +11,11 @@
   "dependencies": {
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
+    "ethers": "^6.17.0",
     "express": "^5.2.1",
-    "openai": "^7.8.0"
+    "input": "^1.0.1",
+    "openai": "^7.8.0",
+    "telegram": "^2.26.22"
   },
   "engines": {
     "node": ">=20"
