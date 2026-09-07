@@ -12,6 +12,10 @@ function ensure() {
 }
 function read() { ensure(); return JSON.parse(fs.readFileSync(FILE, "utf8")); }
 function write(rows) { ensure(); fs.writeFileSync(FILE, JSON.stringify(rows, null, 2) + "\n"); }
+function hasEvent(eventKey) {
+  if (!eventKey) return false;
+  return read().some(x => x.eventKey === eventKey);
+}
 function saveLead(lead) {
   const rows = read();
   const item = { id: `${Date.now()}-${Math.random().toString(36).slice(2,8)}`, createdAt: new Date().toISOString(), ...lead };
@@ -22,4 +26,4 @@ function stats() {
   const rows = read();
   return { total: rows.length, hot: rows.filter(x => x.intent === "hot").length, warm: rows.filter(x => x.intent === "warm").length, cold: rows.filter(x => x.intent === "cold").length, avgScore: rows.length ? Math.round(rows.reduce((a,x) => a + Number(x.score || 0), 0) / rows.length) : 0 };
 }
-module.exports = { saveLead, listLeads, stats };
+module.exports = { saveLead, listLeads, stats, hasEvent };
