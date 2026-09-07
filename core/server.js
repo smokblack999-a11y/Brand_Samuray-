@@ -5,16 +5,24 @@ const cors = require("cors");
 const { scoreLead } = require("./lead-engine");
 const { generateReply } = require("./openai");
 const { sendBusinessMessage } = require("./business-bot");
-const { saveLead, listLeads, stats } = require("./store");
+const { saveLead, listLeads, stats, hasEvent } = require("./store");
 
 const app = express();
 const PORT = Number(process.env.PORT || 8787);
+const API_KEY = String(process.env.CORE_API_KEY || "");
+const WEBHOOK_SECRET = String(process.env.TELEGRAM_WEBHOOK_SECRET || "");
+
 app.use(cors());
 app.use(express.json({ limit: "1mb" }));
 
-app.get("/health", (_req, res) => res.json({ ok: true, service: "SamuraiOS Core", version: "2.1.0" }));
-app.get("/api/leads", (req, res) => res.json({ ok: true, leads: listLeads(req.query.limit) }));
-app.get("/api/stats", (_req, res) => res.json({ ok: true, stats: stats() }));
+function requireApiKey(req, res, next) {
+  if (!API_KEY || req.get("X-API-Key") === API_KEY) return next();
+  return res.status(401).json({ ok: false, error: "Unauthorized" });
+}
+
+app.get("/health", (_req, res) => res.json({ ok: true, service: "SamuraiOS Core", version: "2.2.0" }));
+app.get("/api/leads", requireApiKey, (req, res) => res.json({ ok: true, leads: listLeads(req.query.limit) }));
+app.get("/api/stats", requireApiKey, (_req, res) => res.json({ ok: true, stats: stats() }));
 
 async function analyze(message, business) {
   const text = String(message || "").trim();
@@ -24,16 +32,23 @@ async function analyze(message, business) {
   return { lead, reply };
 }
 
-app.post("/api/lead/analyze", async (req, res) => {
+app.post("/api/lead/analyze", requireApiKey, async (req, res) => {
   try {
     const { message, business } = req.body || {};
     const result = await analyze(message, business);
     const saved = saveLead({ source: "api", message: String(message).trim(), ...result.lead, reply: result.reply });
     res.json({ ok: true, ...result, saved });
-  } catch (error) { console.error(error); res.status(400).json({ ok: false, error: error.message }); }
+  } catch (error) {
+    console.error(error);
+    res.status(400).json({ ok: false, error: error.message });
+  }
 });
 
 app.post("/api/telegram/webhook", async (req, res) => {
+  if (WEBHOOK_SECRET && req.get("X-Telegram-Bot-Api-Secret-Token") !== WEBHOOK_SECRET) {
+    return res.status(401).json({ ok: false, error: "Unauthorized webhook" });
+  }
+
   res.sendStatus(200);
   try {
     const update = req.body || {};
@@ -41,11 +56,20 @@ app.post("/api/telegram/webhook", async (req, res) => {
       console.log("Business connection:", update.business_connection.id);
       return;
     }
+
     const message = update.business_message;
     if (!message?.text || !message.business_connection_id || !message.chat?.id) return;
+
+    const eventKey = `telegram:${message.business_connection_id}:${message.chat.id}:${message.message_id}`;
+    if (hasEvent(eventKey)) {
+      console.log("Duplicate Telegram event ignored:", eventKey);
+      return;
+    }
+
     const result = await analyze(message.text, process.env.BUSINESS_NAME);
     const saved = saveLead({
       source: "telegram_business",
+      eventKey,
       businessConnectionId: message.business_connection_id,
       chatId: message.chat.id,
       messageId: message.message_id,
@@ -55,11 +79,14 @@ app.post("/api/telegram/webhook", async (req, res) => {
       reply: result.reply
     });
     console.log(JSON.stringify({ event: "lead", id: saved.id, chatId: message.chat.id, score: result.lead.score, intent: result.lead.intent }));
+
     if (result.reply && String(process.env.AUTO_REPLY).toLowerCase() === "true") {
       await sendBusinessMessage({ businessConnectionId: message.business_connection_id, chatId: message.chat.id, text: result.reply });
     }
-  } catch (error) { console.error("Business webhook error:", error.message); }
+  } catch (error) {
+    console.error("Business webhook error:", error.message);
+  }
 });
 
 app.use((_req, res) => res.status(404).json({ ok: false, error: "Endpoint not found" }));
-app.listen(PORT, "0.0.0.0", () => console.log(`SamuraiOS Core 2.1.0 listening on :${PORT}`));
+app.listen(PORT, "0.0.0.0", () => console.log(`SamuraiOS Core 2.2.0 listening on :${PORT}`));
