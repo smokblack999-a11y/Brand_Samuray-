@@ -38,7 +38,6 @@ import java.util.concurrent.Executors
 import kotlin.concurrent.thread
 
 class MainActivity : ComponentActivity() {
-
     private val coreUrl = "http://127.0.0.1:8787"
     private val permissionRequest = 100
     private lateinit var previewView: PreviewView
@@ -49,7 +48,6 @@ class MainActivity : ComponentActivity() {
     private lateinit var galleryContainer: LinearLayout
     private var imageCapture: ImageCapture? = null
     private var selectedPhoto: File? = null
-    private var pendingPhoto: File? = null
     private var pendingTimestamp: Long = 0L
     private var cameraExecutor: ExecutorService? = null
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -64,27 +62,20 @@ class MainActivity : ComponentActivity() {
         checkCoreStatus()
     }
 
-    override fun onDestroy() {
-        cameraExecutor?.shutdown()
-        super.onDestroy()
-    }
+    override fun onDestroy() { cameraExecutor?.shutdown(); super.onDestroy() }
 
     private fun hasPermissions(): Boolean =
         ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED &&
         ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
 
-    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == permissionRequest && hasPermissions()) startCamera()
         else showToast("Для камеры и GPS нужны разрешения")
     }
 
     private fun buildUi() {
-        val root = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(24, 24, 24, 24)
-            setBackgroundColor(Color.rgb(5, 8, 17))
-        }
+        val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(24, 24, 24, 24); setBackgroundColor(Color.rgb(5, 8, 17)) }
         statusText = TextView(this).apply { text = "SamuraiOS: запуск..."; textSize = 20f; setTextColor(Color.rgb(0, 255, 136)); setPadding(0, 0, 0, 12) }
         root.addView(statusText)
         previewView = PreviewView(this).apply { scaleType = PreviewView.ScaleType.FILL_CENTER }
@@ -125,7 +116,6 @@ class MainActivity : ComponentActivity() {
     private fun capturePhoto() {
         val capture = imageCapture ?: run { showToast("Камера ещё не готова"); return }
         val file = Vault.createPhotoFile(this)
-        pendingPhoto = file
         pendingTimestamp = System.currentTimeMillis()
         capture.takePicture(ImageCapture.OutputFileOptions.Builder(file).build(), cameraExecutor!!, object : ImageCapture.OnImageSavedCallback {
             override fun onError(exception: ImageCaptureException) { file.delete(); mainHandler.post { showToast("Ошибка камеры: ${exception.message}") } }
