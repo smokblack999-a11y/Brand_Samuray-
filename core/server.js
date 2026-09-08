@@ -1,26 +1,41 @@
 "use strict";
 require("dotenv").config();
+const crypto = require("crypto");
 const express = require("express");
 const cors = require("cors");
 const { scoreLead } = require("./lead-engine");
 const { generateReply, checkOpenAI } = require("./openai");
 const { sendBusinessMessage } = require("./business-bot");
-const { saveLead, listLeads, stats, hasEvent } = require("./store");
+const { saveLead, listLeads, stats } = require("./store");
 
 const app = express();
 const PORT = Number(process.env.PORT || 8787);
-const API_KEY = String(process.env.CORE_API_KEY || "");
-const WEBHOOK_SECRET = String(process.env.TELEGRAM_WEBHOOK_SECRET || "");
+const API_KEY = String(process.env.CORE_API_KEY || "").trim();
+const WEBHOOK_SECRET = String(process.env.TELEGRAM_WEBHOOK_SECRET || "").trim();
 
+app.disable("x-powered-by");
 app.use(cors());
-app.use(express.json({ limit: "1mb" }));
+app.use(express.json({ limit: "256kb" }));
+
+function safeEqual(expected, actual) {
+  const a = Buffer.from(String(expected || ""));
+  const b = Buffer.from(String(actual || ""));
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
 
 function requireApiKey(req, res, next) {
-  if (!API_KEY || req.get("X-API-Key") === API_KEY) return next();
+  if (!API_KEY) return res.status(503).json({ ok: false, error: "API authentication is not configured" });
+  if (safeEqual(API_KEY, req.get("X-API-Key"))) return next();
   return res.status(401).json({ ok: false, error: "Unauthorized" });
 }
 
-app.get("/health", (_req, res) => res.json({ ok: true, service: "SamuraiOS Core", version: "2.3.0" }));
+function requireWebhookSecret(req, res, next) {
+  if (!WEBHOOK_SECRET) return res.status(503).json({ ok: false, error: "Webhook authentication is not configured" });
+  if (safeEqual(WEBHOOK_SECRET, req.get("X-Telegram-Bot-Api-Secret-Token"))) return next();
+  return res.status(401).json({ ok: false, error: "Unauthorized webhook" });
+}
+
+app.get("/health", (_req, res) => res.json({ ok: true, service: "SamuraiOS Core", version: "2.4.0" }));
 app.get("/health/openai", requireApiKey, async (_req, res) => {
   if (!process.env.OPENAI_API_KEY) {
     return res.status(503).json({ ok: false, service: "openai", configured: false });
@@ -40,7 +55,9 @@ async function analyze(message, business) {
   const text = String(message || "").trim();
   if (!text) throw new Error("message обязателен");
   const lead = scoreLead(text);
-  const reply = process.env.OPENAI_API_KEY ? await generateReply({ business: business || process.env.BUSINESS_NAME, customerMessage: text, lead }) : null;
+  const reply = process.env.OPENAI_API_KEY
+    ? await generateReply({ business: business || process.env.BUSINESS_NAME, customerMessage: text, lead })
+    : null;
   return { lead, reply };
 }
 
@@ -57,11 +74,7 @@ app.post("/api/lead/analyze", requireApiKey, async (req, res) => {
   }
 });
 
-app.post("/api/telegram/webhook", async (req, res) => {
-  if (WEBHOOK_SECRET && req.get("X-Telegram-Bot-Api-Secret-Token") !== WEBHOOK_SECRET) {
-    return res.status(401).json({ ok: false, error: "Unauthorized webhook" });
-  }
-
+app.post("/api/telegram/webhook", requireWebhookSecret, async (req, res) => {
   res.sendStatus(200);
   try {
     const update = req.body || {};
@@ -74,11 +87,6 @@ app.post("/api/telegram/webhook", async (req, res) => {
     if (!message?.text || !message.business_connection_id || !message.chat?.id) return;
 
     const eventKey = `telegram:${message.business_connection_id}:${message.chat.id}:${message.message_id}`;
-    if (hasEvent(eventKey)) {
-      console.log(JSON.stringify({ event: "duplicate_telegram_event", eventKey }));
-      return;
-    }
-
     const result = await analyze(message.text, process.env.BUSINESS_NAME);
     const saved = saveLead({
       source: "telegram_business",
@@ -102,6 +110,6 @@ app.post("/api/telegram/webhook", async (req, res) => {
 });
 
 app.use((_req, res) => res.status(404).json({ ok: false, error: "Endpoint not found" }));
-app.listen(PORT, "0.0.0.0", () => console.log(`SamuraiOS Core 2.3.0 listening on :${PORT}`));
+app.listen(PORT, "0.0.0.0", () => console.log(`SamuraiOS Core 2.4.0 listening on :${PORT}`));
 
 module.exports = { app };
