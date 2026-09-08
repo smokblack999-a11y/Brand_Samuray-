@@ -13,6 +13,23 @@ android {
         targetSdk 35
         versionCode 4
         versionName '1.2.1'
+
+        def configuredCoreUrl = project.findProperty('CORE_BASE_URL') ?: 'https://core.example.invalid'
+        buildConfigField 'String', 'CORE_BASE_URL', '"' + configuredCoreUrl.replace('"', '\\"') + '"'
+    }
+
+    buildFeatures {
+        buildConfig true
+    }
+
+    buildTypes {
+        debug {
+            buildConfigField 'String', 'CORE_BASE_URL', '"http://10.0.2.2:8787"'
+        }
+        release {
+            minifyEnabled false
+            buildConfigField 'String', 'CORE_BASE_URL', '"https://core.example.invalid"'
+        }
     }
 
     compileOptions {
