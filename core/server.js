@@ -12,9 +12,11 @@ const app = express();
 const PORT = Number(process.env.PORT || 8787);
 const API_KEY = String(process.env.CORE_API_KEY || "").trim();
 const WEBHOOK_SECRET = String(process.env.TELEGRAM_WEBHOOK_SECRET || "").trim();
+const MAX_MESSAGE_CHARS = Math.max(100, Math.min(Number(process.env.MAX_MESSAGE_CHARS || 4000), 10000));
+const CORS_ORIGIN = String(process.env.CORS_ORIGIN || "").trim();
 
 app.disable("x-powered-by");
-app.use(cors());
+app.use(cors(CORS_ORIGIN ? { origin: CORS_ORIGIN } : { origin: false }));
 app.use(express.json({ limit: "256kb" }));
 
 function safeEqual(expected, actual) {
@@ -35,7 +37,7 @@ function requireWebhookSecret(req, res, next) {
   return res.status(401).json({ ok: false, error: "Unauthorized webhook" });
 }
 
-app.get("/health", (_req, res) => res.json({ ok: true, service: "SamuraiOS Core", version: "2.4.0" }));
+app.get("/health", (_req, res) => res.json({ ok: true, service: "SamuraiOS Core", version: "2.5.0" }));
 app.get("/health/openai", requireApiKey, async (_req, res) => {
   if (!process.env.OPENAI_API_KEY) {
     return res.status(503).json({ ok: false, service: "openai", configured: false });
@@ -54,6 +56,7 @@ app.get("/api/stats", requireApiKey, (_req, res) => res.json({ ok: true, stats: 
 async function analyze(message, business) {
   const text = String(message || "").trim();
   if (!text) throw new Error("message обязателен");
+  if (text.length > MAX_MESSAGE_CHARS) throw new Error(`message слишком длинный (максимум ${MAX_MESSAGE_CHARS} символов)`);
   const lead = scoreLead(text);
   const reply = process.env.OPENAI_API_KEY
     ? await generateReply({ business: business || process.env.BUSINESS_NAME, customerMessage: text, lead })
@@ -110,6 +113,6 @@ app.post("/api/telegram/webhook", requireWebhookSecret, async (req, res) => {
 });
 
 app.use((_req, res) => res.status(404).json({ ok: false, error: "Endpoint not found" }));
-app.listen(PORT, "0.0.0.0", () => console.log(`SamuraiOS Core 2.4.0 listening on :${PORT}`));
+app.listen(PORT, "0.0.0.0", () => console.log(`SamuraiOS Core 2.5.0 listening on :${PORT}`));
 
 module.exports = { app };
