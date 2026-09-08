@@ -7,13 +7,30 @@ const { spawn } = require('node:child_process');
 
 const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'samurai-core-'));
 const port = 18000 + Math.floor(Math.random() * 1000);
+const API_KEY = 'test-core-api-key-123456';
+const WEBHOOK_SECRET = 'test-webhook-secret-123456';
 
 let child;
+
+async function api(pathname, options = {}) {
+  return fetch(`http://127.0.0.1:${port}${pathname}`, {
+    ...options,
+    headers: { 'X-API-Key': API_KEY, ...(options.headers || {}) }
+  });
+}
 
 test.before(async () => {
   child = spawn(process.execPath, ['server.js'], {
     cwd: path.resolve(__dirname, '..'),
-    env: { ...process.env, PORT: String(port), DATA_DIR: dataDir, AUTO_REPLY: 'false', OPENAI_API_KEY: '' },
+    env: {
+      ...process.env,
+      PORT: String(port),
+      DATA_DIR: dataDir,
+      AUTO_REPLY: 'false',
+      OPENAI_API_KEY: '',
+      CORE_API_KEY: API_KEY,
+      TELEGRAM_WEBHOOK_SECRET: WEBHOOK_SECRET
+    },
     stdio: ['ignore', 'pipe', 'pipe']
   });
   await new Promise((resolve, reject) => {
@@ -38,10 +55,16 @@ test('health endpoint', async () => {
   const body = await r.json();
   assert.equal(body.ok, true);
   assert.equal(body.service, 'SamuraiOS Core');
+  assert.equal(body.version, '2.4.0');
+});
+
+test('protected API rejects missing key', async () => {
+  const r = await fetch(`http://127.0.0.1:${port}/api/stats`);
+  assert.equal(r.status, 401);
 });
 
 test('lead analysis persists and stats update', async () => {
-  const r = await fetch(`http://127.0.0.1:${port}/api/lead/analyze`, {
+  const r = await api('/api/lead/analyze', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ message: 'Сколько стоит? Хочу купить сегодня' })
@@ -52,13 +75,59 @@ test('lead analysis persists and stats update', async () => {
   assert.ok(body.saved.id);
   assert.ok(body.lead.score >= 0 && body.lead.score <= 100);
 
-  const stats = await (await fetch(`http://127.0.0.1:${port}/api/stats`)).json();
+  const stats = await (await api('/api/stats')).json();
   assert.equal(stats.ok, true);
   assert.equal(stats.stats.total, 1);
 
-  const leads = await (await fetch(`http://127.0.0.1:${port}/api/leads`)).json();
+  const leads = await (await api('/api/leads')).json();
   assert.equal(leads.ok, true);
   assert.equal(leads.leads.length, 1);
+});
+
+test('OpenAI health reports unconfigured without exposing secrets', async () => {
+  const r = await api('/health/openai');
+  assert.equal(r.status, 503);
+  const body = await r.json();
+  assert.equal(body.configured, false);
+  assert.equal('apiKey' in body, false);
+});
+
+test('Telegram webhook requires secret and deduplicates business messages', async () => {
+  const update = {
+    business_message: {
+      business_connection_id: 'bc-test',
+      message_id: 77,
+      chat: { id: 123 },
+      from: { id: 456 },
+      text: 'Хочу купить сегодня'
+    }
+  };
+
+  const denied = await fetch(`http://127.0.0.1:${port}/api/telegram/webhook`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'X-Telegram-Bot-Api-Secret-Token': 'wrong-secret' },
+    body: JSON.stringify(update)
+  });
+  assert.equal(denied.status, 401);
+
+  const first = await fetch(`http://127.0.0.1:${port}/api/telegram/webhook`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'X-Telegram-Bot-Api-Secret-Token': WEBHOOK_SECRET },
+    body: JSON.stringify(update)
+  });
+  assert.equal(first.status, 200);
+
+  const second = await fetch(`http://127.0.0.1:${port}/api/telegram/webhook`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'X-Telegram-Bot-Api-Secret-Token': WEBHOOK_SECRET },
+    body: JSON.stringify(update)
+  });
+  assert.equal(second.status, 200);
+
+  await new Promise(resolve => setTimeout(resolve, 100));
+  const stats = await (await api('/api/stats')).json();
+  assert.equal(stats.stats.total, 2);
+  assert.equal(stats.stats.hot + stats.stats.warm + stats.stats.cold, 2);
 });
 
 test('unknown route returns JSON 404', async () => {
