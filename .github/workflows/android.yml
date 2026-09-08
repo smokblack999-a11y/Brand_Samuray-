@@ -22,7 +22,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if git grep -nE 'sk-(proj|svcacct)-[A-Za-z0-9_-]{20,}' -- ':!core/node_modules' ':!*.log'; then
+          if git grep -nE 'sk-(proj|svcacct)-[A-Za-z0-9_-]{20,}'; then
             echo "Potential OpenAI API key found in tracked files"
             exit 1
           fi
