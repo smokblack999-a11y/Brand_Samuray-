@@ -3,7 +3,7 @@ require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
 const { scoreLead } = require("./lead-engine");
-const { generateReply } = require("./openai");
+const { generateReply, checkOpenAI } = require("./openai");
 const { sendBusinessMessage } = require("./business-bot");
 const { saveLead, listLeads, stats, hasEvent } = require("./store");
 
@@ -20,7 +20,19 @@ function requireApiKey(req, res, next) {
   return res.status(401).json({ ok: false, error: "Unauthorized" });
 }
 
-app.get("/health", (_req, res) => res.json({ ok: true, service: "SamuraiOS Core", version: "2.2.0" }));
+app.get("/health", (_req, res) => res.json({ ok: true, service: "SamuraiOS Core", version: "2.3.0" }));
+app.get("/health/openai", requireApiKey, async (_req, res) => {
+  if (!process.env.OPENAI_API_KEY) {
+    return res.status(503).json({ ok: false, service: "openai", configured: false });
+  }
+  try {
+    await checkOpenAI();
+    return res.json({ ok: true, service: "openai", configured: true });
+  } catch (error) {
+    console.error(JSON.stringify({ event: "openai_health_failed", error: error.message }));
+    return res.status(503).json({ ok: false, service: "openai", configured: true, error: error.message });
+  }
+});
 app.get("/api/leads", requireApiKey, (req, res) => res.json({ ok: true, leads: listLeads(req.query.limit) }));
 app.get("/api/stats", requireApiKey, (_req, res) => res.json({ ok: true, stats: stats() }));
 
@@ -39,8 +51,9 @@ app.post("/api/lead/analyze", requireApiKey, async (req, res) => {
     const saved = saveLead({ source: "api", message: String(message).trim(), ...result.lead, reply: result.reply });
     res.json({ ok: true, ...result, saved });
   } catch (error) {
-    console.error(error);
-    res.status(400).json({ ok: false, error: error.message });
+    console.error(JSON.stringify({ event: "lead_analyze_failed", error: error.message }));
+    const status = /authentication|rate limit|temporarily unavailable|timed out/.test(error.message) ? 503 : 400;
+    res.status(status).json({ ok: false, error: error.message });
   }
 });
 
@@ -53,7 +66,7 @@ app.post("/api/telegram/webhook", async (req, res) => {
   try {
     const update = req.body || {};
     if (update.business_connection) {
-      console.log("Business connection:", update.business_connection.id);
+      console.log(JSON.stringify({ event: "business_connection", id: update.business_connection.id }));
       return;
     }
 
@@ -62,7 +75,7 @@ app.post("/api/telegram/webhook", async (req, res) => {
 
     const eventKey = `telegram:${message.business_connection_id}:${message.chat.id}:${message.message_id}`;
     if (hasEvent(eventKey)) {
-      console.log("Duplicate Telegram event ignored:", eventKey);
+      console.log(JSON.stringify({ event: "duplicate_telegram_event", eventKey }));
       return;
     }
 
@@ -84,9 +97,11 @@ app.post("/api/telegram/webhook", async (req, res) => {
       await sendBusinessMessage({ businessConnectionId: message.business_connection_id, chatId: message.chat.id, text: result.reply });
     }
   } catch (error) {
-    console.error("Business webhook error:", error.message);
+    console.error(JSON.stringify({ event: "business_webhook_error", error: error.message }));
   }
 });
 
 app.use((_req, res) => res.status(404).json({ ok: false, error: "Endpoint not found" }));
-app.listen(PORT, "0.0.0.0", () => console.log(`SamuraiOS Core 2.2.0 listening on :${PORT}`));
+app.listen(PORT, "0.0.0.0", () => console.log(`SamuraiOS Core 2.3.0 listening on :${PORT}`));
+
+module.exports = { app };
