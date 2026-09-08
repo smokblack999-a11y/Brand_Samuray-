@@ -41,6 +41,14 @@ jobs:
             exit 1
           fi
           echo "Secret scan: PASS"
+      - name: Syntax check
+        run: |
+          node --check server.js
+          node --check openai.js
+          node --check business-bot.js
+          node --check store.js
+          node --check scripts/set-webhook.js
+          node --check scripts/verify-config.js
       - run: npm test
 
   openai-smoke:
