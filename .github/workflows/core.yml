@@ -2,6 +2,7 @@ name: SamuraiOS Core CI
 
 on:
   push:
+    branches: [ "main", "master" ]
     paths:
       - 'core/**'
       - 'docker-compose.yml'
@@ -19,6 +20,7 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: core
@@ -30,10 +32,49 @@ jobs:
           cache: npm
           cache-dependency-path: core/package-lock.json
       - run: npm ci
+      - name: Secret pattern scan
+        working-directory: .
+        run: |
+          set -euo pipefail
+          if git grep -nE 'sk-(proj|svcacct)-[A-Za-z0-9_-]{20,}' -- ':!core/node_modules' ':!*.log'; then
+            echo "Potential OpenAI API key found in tracked files"
+            exit 1
+          fi
+          echo "Secret scan: PASS"
       - run: npm test
+
+  openai-smoke:
+    if: github.event_name != 'pull_request'
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Verify secret exists without printing it
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "${OPENAI_API_KEY:-}" || { echo "OPENAI_API_KEY is missing from GitHub Secrets"; exit 1; }
+          echo "OPENAI_API_KEY is configured"
+      - name: OpenAI authentication smoke test
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          set -euo pipefail
+          code="$(curl -sS -o /tmp/openai.json -w '%{http_code}' --connect-timeout 5 --max-time 20 \
+            -H "Authorization: Bearer ${OPENAI_API_KEY}" \
+            https://api.openai.com/v1/models)"
+          if [ "$code" != "200" ]; then
+            echo "OpenAI smoke test failed (HTTP ${code})"
+            rm -f /tmp/openai.json
+            exit 1
+          fi
+          rm -f /tmp/openai.json
+          echo "OpenAI authentication: PASS"
 
   docker:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     needs: test
     steps:
       - uses: actions/checkout@v4
