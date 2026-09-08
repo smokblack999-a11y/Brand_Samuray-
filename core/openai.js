@@ -51,8 +51,11 @@ async function generateReply({ business, customerMessage, lead }) {
       input: customerMessage
     });
 
-    return response.output_text.trim();
+    const text = String(response.output_text || "").trim();
+    if (!text) throw new Error("OpenAI returned an empty reply");
+    return text.slice(0, 4096);
   } catch (error) {
+    if (error?.message === "OpenAI returned an empty reply") throw error;
     throw publicOpenAIError(error);
   }
 }
