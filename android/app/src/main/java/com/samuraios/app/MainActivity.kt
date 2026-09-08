@@ -33,12 +33,13 @@ import java.io.OutputStream
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
+import java.util.UUID
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import kotlin.concurrent.thread
 
 class MainActivity : ComponentActivity() {
-    private val coreUrl = "http://127.0.0.1:8787"
+    private val coreUrl = BuildConfig.CORE_BASE_URL.trimEnd('/')
     private val permissionRequest = 100
     private lateinit var previewView: PreviewView
     private lateinit var statusText: TextView
@@ -151,7 +152,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun checkCoreStatus() = apiGet("/api/status") { result -> mainHandler.post { if (result.startsWith("ERROR:")) statusText.text = "Core: OFFLINE" else statusText.text = "Camera/Gallery + Core ONLINE"; outputText.text = result } }
+    private fun checkCoreStatus() = apiGet("/health") { result -> mainHandler.post { if (result.startsWith("ERROR:")) statusText.text = "Core: OFFLINE" else statusText.text = "Camera/Gallery + Core ONLINE"; outputText.text = result } }
     private fun loadMe() = apiGet("/api/telegram/me") { result -> mainHandler.post { outputText.text = result } }
     private fun loadDialogs() = apiGet("/api/telegram/dialogs?limit=20") { result -> mainHandler.post { outputText.text = result } }
 
@@ -185,7 +186,11 @@ class MainActivity : ComponentActivity() {
         thread {
             var connection: HttpURLConnection? = null
             try {
-                connection = (URL(coreUrl + path).openConnection() as HttpURLConnection).apply { requestMethod = "GET"; connectTimeout = 5000; readTimeout = 10000; useCaches = false }
+                connection = (URL(coreUrl + path).openConnection() as HttpURLConnection).apply {
+                    requestMethod = "GET"; connectTimeout = 5000; readTimeout = 10000; useCaches = false
+                    setRequestProperty("Accept", "application/json")
+                    setRequestProperty("X-Request-ID", UUID.randomUUID().toString())
+                }
                 val code = connection.responseCode; val stream = if (code in 200..299) connection.inputStream else connection.errorStream; val body = stream?.bufferedReader()?.use { it.readText() } ?: ""
                 callback(if (code in 200..299) body else "ERROR: HTTP $code\n$body")
             } catch (e: Exception) { callback("ERROR: ${e.javaClass.simpleName}: ${e.message}") } finally { connection?.disconnect() }
@@ -196,7 +201,11 @@ class MainActivity : ComponentActivity() {
         thread {
             var connection: HttpURLConnection? = null
             try {
-                connection = (URL(coreUrl + path).openConnection() as HttpURLConnection).apply { requestMethod = "POST"; connectTimeout = 5000; readTimeout = 30000; useCaches = false; doOutput = true; setRequestProperty("Content-Type", "application/json; charset=UTF-8"); setRequestProperty("Accept", "application/json") }
+                connection = (URL(coreUrl + path).openConnection() as HttpURLConnection).apply {
+                    requestMethod = "POST"; connectTimeout = 5000; readTimeout = 30000; useCaches = false; doOutput = true
+                    setRequestProperty("Content-Type", "application/json; charset=UTF-8"); setRequestProperty("Accept", "application/json")
+                    setRequestProperty("X-Request-ID", UUID.randomUUID().toString())
+                }
                 connection.outputStream.use { output: OutputStream -> output.write(json.toByteArray(Charsets.UTF_8)); output.flush() }
                 val code = connection.responseCode; val stream = if (code in 200..299) connection.inputStream else connection.errorStream; val body = stream?.bufferedReader()?.use { it.readText() } ?: ""
                 callback(if (code in 200..299) body else "ERROR: HTTP $code\n$body")
