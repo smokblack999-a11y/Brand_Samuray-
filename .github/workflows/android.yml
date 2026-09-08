@@ -6,13 +6,27 @@ on:
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Secret pattern scan
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git grep -nE 'sk-(proj|svcacct)-[A-Za-z0-9_-]{20,}' -- ':!core/node_modules' ':!*.log'; then
+            echo "Potential OpenAI API key found in tracked files"
+            exit 1
+          fi
+          echo "Secret scan: PASS"
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
