@@ -56,7 +56,15 @@ test('health endpoint', async () => {
   const body = await r.json();
   assert.equal(body.ok, true);
   assert.equal(body.service, 'SamuraiOS Core');
-  assert.equal(body.version, '2.5.0');
+  assert.equal(body.version, '2.6.0');
+});
+
+test('readiness endpoint verifies critical configuration', async () => {
+  const r = await fetch(`http://127.0.0.1:${port}/ready`);
+  assert.equal(r.status, 200);
+  const body = await r.json();
+  assert.equal(body.ok, true);
+  assert.equal(body.ready, true);
 });
 
 test('protected API rejects missing key', async () => {
@@ -74,11 +82,13 @@ test('lead analysis persists and stats update', async () => {
   const body = await r.json();
   assert.equal(body.ok, true);
   assert.ok(body.saved.id);
+  assert.ok(body.requestId);
   assert.ok(body.lead.score >= 0 && body.lead.score <= 100);
 
   const stats = await (await api('/api/stats')).json();
   assert.equal(stats.ok, true);
   assert.equal(stats.stats.total, 1);
+  assert.equal(stats.stats.completed, 1);
 
   const leads = await (await api('/api/leads')).json();
   assert.equal(leads.ok, true);
@@ -128,6 +138,7 @@ test('Telegram webhook requires secret and deduplicates business messages', asyn
     body: JSON.stringify(update)
   });
   assert.equal(first.status, 200);
+  assert.ok(first.headers.get('x-request-id'));
 
   const second = await fetch(`http://127.0.0.1:${port}/api/telegram/webhook`, {
     method: 'POST',
@@ -139,6 +150,9 @@ test('Telegram webhook requires secret and deduplicates business messages', asyn
   await new Promise(resolve => setTimeout(resolve, 100));
   const stats = await (await api('/api/stats')).json();
   assert.equal(stats.stats.total, 2);
+  assert.equal(stats.stats.completed, 2);
+  assert.equal(stats.stats.processing, 0);
+  assert.equal(stats.stats.failed, 0);
   assert.equal(stats.stats.hot + stats.stats.warm + stats.stats.cold, 2);
 });
 
