@@ -29,7 +29,8 @@ test.before(async () => {
       AUTO_REPLY: 'false',
       OPENAI_API_KEY: '',
       CORE_API_KEY: API_KEY,
-      TELEGRAM_WEBHOOK_SECRET: WEBHOOK_SECRET
+      TELEGRAM_WEBHOOK_SECRET: WEBHOOK_SECRET,
+      MAX_MESSAGE_CHARS: '4000'
     },
     stdio: ['ignore', 'pipe', 'pipe']
   });
@@ -55,7 +56,7 @@ test('health endpoint', async () => {
   const body = await r.json();
   assert.equal(body.ok, true);
   assert.equal(body.service, 'SamuraiOS Core');
-  assert.equal(body.version, '2.4.0');
+  assert.equal(body.version, '2.5.0');
 });
 
 test('protected API rejects missing key', async () => {
@@ -82,6 +83,17 @@ test('lead analysis persists and stats update', async () => {
   const leads = await (await api('/api/leads')).json();
   assert.equal(leads.ok, true);
   assert.equal(leads.leads.length, 1);
+});
+
+test('message length is bounded before scoring or AI', async () => {
+  const r = await api('/api/lead/analyze', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ message: 'x'.repeat(4001) })
+  });
+  assert.equal(r.status, 400);
+  const body = await r.json();
+  assert.match(body.error, /максимум 4000/);
 });
 
 test('OpenAI health reports unconfigured without exposing secrets', async () => {
