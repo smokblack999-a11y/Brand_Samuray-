@@ -16,7 +16,9 @@ function read() {
 }
 function write(rows) {
   ensure();
-  fs.writeFileSync(FILE, JSON.stringify(rows, null, 2) + "\n");
+  const tmp = `${FILE}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify(rows, null, 2) + "\n");
+  fs.renameSync(tmp, FILE);
 }
 function hasEvent(eventKey) {
   if (!eventKey) return false;
@@ -31,11 +33,43 @@ function saveLead(lead) {
   const item = {
     id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     createdAt: new Date().toISOString(),
+    status: lead?.status || "completed",
     ...lead
   };
   rows.push(item);
   write(rows);
   return item;
+}
+function claimEvent(eventKey, lead = {}) {
+  if (!eventKey) throw new Error("eventKey обязателен");
+  const rows = read();
+  const existing = rows.find(x => x.eventKey === eventKey);
+  if (existing && existing.status !== "failed") return { claimed: false, item: existing };
+  if (existing) {
+    existing.status = "processing";
+    existing.updatedAt = new Date().toISOString();
+    write(rows);
+    return { claimed: true, item: existing };
+  }
+  const item = {
+    id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    status: "processing",
+    eventKey,
+    ...lead
+  };
+  rows.push(item);
+  write(rows);
+  return { claimed: true, item };
+}
+function updateLead(id, patch) {
+  const rows = read();
+  const index = rows.findIndex(x => x.id === id);
+  if (index === -1) throw new Error("lead not found");
+  rows[index] = { ...rows[index], ...patch, updatedAt: new Date().toISOString() };
+  write(rows);
+  return rows[index];
 }
 function listLeads(limit = 100) {
   return read().slice(-Math.max(1, Math.min(Number(limit) || 100, 1000))).reverse();
@@ -44,6 +78,9 @@ function stats() {
   const rows = read();
   return {
     total: rows.length,
+    processing: rows.filter(x => x.status === "processing").length,
+    failed: rows.filter(x => x.status === "failed").length,
+    completed: rows.filter(x => x.status === "completed").length,
     hot: rows.filter(x => x.intent === "hot").length,
     warm: rows.filter(x => x.intent === "warm").length,
     cold: rows.filter(x => x.intent === "cold").length,
@@ -52,4 +89,4 @@ function stats() {
       : 0
   };
 }
-module.exports = { saveLead, listLeads, stats, hasEvent };
+module.exports = { saveLead, claimEvent, updateLead, listLeads, stats, hasEvent };
