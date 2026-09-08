@@ -7,23 +7,27 @@ SamuraiOS Core превращает входящие Telegram Business сооб�
 ## Что уже есть
 
 - Telegram Business webhook endpoint: `POST /api/telegram/webhook`
+- Проверка Telegram webhook secret
+- Дедупликация событий по business connection + chat + message ID
 - Детектор и score лида 0–100
 - Hot / warm / cold intent
 - OpenAI Responses API integration
 - Модель по умолчанию: `gpt-5.6-luna`
+- Таймауты для OpenAI и Telegram API
+- Защита административных API через `X-API-Key`
 - Безопасный режим по умолчанию: `AUTO_REPLY=false`
-- Автоответ включается только явно через `AUTO_REPLY=true`
 - Health endpoint: `GET /health`
-- Smoke tests для lead engine
+- OpenAI readiness check: `GET /health/openai`
+- Smoke и E2E-подобные тесты для API, auth и Telegram webhook
 
-Telegram Bot API поддерживает `business_connection` и `business_message`, а connected Business Bots могут обрабатывать сообщения бизнеса и отвечать от его имени.
+Telegram Bot API поддерживает `business_connection` и `business_message`; connected Business Bots могут обрабатывать сообщения бизнеса и отвечать от его имени. urlTelegram Bot APIhttps://core.telegram.org/bots/api
 
 ## Быстрый запуск
 
 ```bash
 cd core
 cp .env.example .env
-npm install
+npm ci
 npm test
 npm start
 ```
@@ -33,11 +37,20 @@ npm start
 ```env
 OPENAI_API_KEY=...
 TELEGRAM_BOT_TOKEN=...
+TELEGRAM_WEBHOOK_URL=https://YOUR-DOMAIN.example.com/api/telegram/webhook
+TELEGRAM_WEBHOOK_SECRET=replace-with-random-secret
+CORE_API_KEY=replace-with-admin-api-key
 BUSINESS_NAME=My Business
 AUTO_REPLY=false
 ```
 
-Ключи не коммитить. Использовать GitHub/VPS secrets или переменные окружения.
+Для webhook нужен публичный HTTPS endpoint. После запуска зарегистрировать webhook:
+
+```bash
+npm run set-webhook
+```
+
+Ключи и секреты не коммитить. Использовать GitHub/VPS secrets или переменные окружения.
 
 ## MVP commercial gate
 
