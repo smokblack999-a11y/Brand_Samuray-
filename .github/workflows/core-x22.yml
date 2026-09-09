@@ -1,0 +1,45 @@
+name: SamuraiOS Core X22 CI
+
+on:
+  push:
+    branches: [ "main", "master", "x22-core-ci" ]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Secret pattern scan
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git grep -nE 'sk-(proj|svcacct)-[A-Za-z0-9_-]{20,}'; then
+            echo "Potential OpenAI API key found in tracked files"
+            exit 1
+          fi
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: core/package-lock.json
+      - name: Install dependencies
+        working-directory: core
+        run: npm ci
+      - name: Syntax check
+        working-directory: core
+        run: |
+          node --check server.js
+          node --check rate-limit.js
+          node --check openai.js
+          node --check lead-engine.js
+      - name: Unit tests
+        working-directory: core
+        run: npm test
