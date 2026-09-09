@@ -23,9 +23,7 @@ if (process.env.NODE_ENV === "production") {
   const missing = [];
   if (!API_KEY) missing.push("CORE_API_KEY");
   if (!WEBHOOK_SECRET) missing.push("TELEGRAM_WEBHOOK_SECRET");
-  if (missing.length) {
-    throw new Error(`Production startup blocked: missing ${missing.join(", ")}`);
-  }
+  if (missing.length) throw new Error(`Production startup blocked: missing ${missing.join(", ")}`);
 }
 
 app.disable("x-powered-by");
@@ -68,17 +66,14 @@ app.use((req, res, next) => {
   next();
 });
 
-const leadRateLimit = createRateLimiter({
-  windowMs: LEAD_RATE_LIMIT_WINDOW_MS,
-  max: LEAD_RATE_LIMIT_MAX
-});
+const leadRateLimit = createRateLimiter({ windowMs: LEAD_RATE_LIMIT_WINDOW_MS, max: LEAD_RATE_LIMIT_MAX });
 
 app.get("/health", (_req, res) => res.json({ ok: true, service: "SamuraiOS Core", version: "2.7.0" }));
-app.get("/ready", (_req, res) => {
+app.get("/ready", (req, res) => {
   try {
     const current = stats();
     const ready = Boolean(API_KEY && WEBHOOK_SECRET && current && Number.isFinite(current.total));
-    return res.status(ready ? 200 : 503).json({ ok: ready, service: "SamuraiOS Core", ready });
+    return res.status(ready ? 200 : 503).json({ ok: ready, service: "SamuraiOS Core", ready, requestId: req.requestId });
   } catch (_error) {
     return res.status(503).json(errorBody("NOT_READY", "Service is not ready", req.requestId));
   }
@@ -109,9 +104,7 @@ async function analyze(message, business) {
     throw error;
   }
   const lead = scoreLead(text);
-  const reply = process.env.OPENAI_API_KEY
-    ? await generateReply({ business: business || process.env.BUSINESS_NAME, customerMessage: text, lead })
-    : null;
+  const reply = process.env.OPENAI_API_KEY ? await generateReply({ business: business || process.env.BUSINESS_NAME, customerMessage: text, lead }) : null;
   return { lead, reply };
 }
 
@@ -139,32 +132,19 @@ app.post("/api/telegram/webhook", requireWebhookSecret, async (req, res) => {
       console.log(JSON.stringify({ event: "business_connection", id: update.business_connection.id, requestId: req.requestId }));
       return;
     }
-
     const message = update.business_message;
     if (!message?.text || !message.business_connection_id || !message.chat?.id || !Number.isInteger(message.message_id)) return;
-
     const eventKey = `telegram:${message.business_connection_id}:${message.chat.id}:${message.message_id}`;
-    const claim = claimEvent(eventKey, {
-      source: "telegram_business",
-      businessConnectionId: message.business_connection_id,
-      chatId: message.chat.id,
-      messageId: message.message_id,
-      customer: message.from?.id || null,
-      message: message.text
-    });
+    const claim = claimEvent(eventKey, { source: "telegram_business", businessConnectionId: message.business_connection_id, chatId: message.chat.id, messageId: message.message_id, customer: message.from?.id || null, message: message.text });
     if (!claim.claimed) {
       console.log(JSON.stringify({ event: "duplicate_telegram_event", eventKey, requestId: req.requestId }));
       return;
     }
-
     try {
       const result = await analyze(message.text, process.env.BUSINESS_NAME);
       const saved = updateLead(claim.item.id, { ...result.lead, reply: result.reply, status: "completed" });
       console.log(JSON.stringify({ event: "lead", id: saved.id, chatId: message.chat.id, score: result.lead.score, intent: result.lead.intent, requestId: req.requestId }));
-
-      if (result.reply && String(process.env.AUTO_REPLY).toLowerCase() === "true") {
-        await sendBusinessMessage({ businessConnectionId: message.business_connection_id, chatId: message.chat.id, text: result.reply });
-      }
+      if (result.reply && String(process.env.AUTO_REPLY).toLowerCase() === "true") await sendBusinessMessage({ businessConnectionId: message.business_connection_id, chatId: message.chat.id, text: result.reply });
     } catch (error) {
       updateLead(claim.item.id, { status: "failed", error: error.message });
       throw error;
@@ -174,7 +154,7 @@ app.post("/api/telegram/webhook", requireWebhookSecret, async (req, res) => {
   }
 });
 
-app.use((_req, res) => res.status(404).json(errorBody("NOT_FOUND", "Endpoint not found", req.requestId)));
+app.use((req, res) => res.status(404).json(errorBody("NOT_FOUND", "Endpoint not found", req.requestId)));
 
 const server = app.listen(PORT, "0.0.0.0", () => console.log(`SamuraiOS Core 2.7.0 listening on :${PORT}`));
 server.requestTimeout = REQUEST_TIMEOUT_MS;
