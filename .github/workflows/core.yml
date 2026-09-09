@@ -25,15 +25,22 @@ jobs:
       run:
         working-directory: core
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: core/package-lock.json
-      - run: npm ci
+
+      - name: Install dependencies
+        run: npm ci
+
       - name: Secret pattern scan
         working-directory: .
+        shell: bash
         run: |
           set -euo pipefail
           if git grep -nE 'sk-(proj|svcacct)-[A-Za-z0-9_-]{20,}' -- ':!core/node_modules' ':!*.log'; then
@@ -41,15 +48,20 @@ jobs:
             exit 1
           fi
           echo "Secret scan: PASS"
+
       - name: Syntax check
         run: |
           node --check server.js
+          node --check rate-limit.js
           node --check openai.js
           node --check business-bot.js
           node --check store.js
+          node --check lead-engine.js
           node --check scripts/set-webhook.js
           node --check scripts/verify-config.js
-      - run: npm test
+
+      - name: Unit tests
+        run: npm test
 
   openai-smoke:
     if: github.event_name != 'pull_request'
@@ -60,13 +72,16 @@ jobs:
       - name: Verify secret exists without printing it
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        shell: bash
         run: |
           set -euo pipefail
           test -n "${OPENAI_API_KEY:-}" || { echo "OPENAI_API_KEY is missing from GitHub Secrets"; exit 1; }
           echo "OPENAI_API_KEY is configured"
+
       - name: OpenAI authentication smoke test
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        shell: bash
         run: |
           set -euo pipefail
           code="$(curl -sS -o /tmp/openai.json -w '%{http_code}' --connect-timeout 5 --max-time 20 \
@@ -85,9 +100,12 @@ jobs:
     timeout-minutes: 10
     needs: test
     steps:
-      - uses: actions/checkout@v4
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/build-push-action@v6
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Build Core image
+        uses: docker/build-push-action@v6
         with:
           context: ./core
           push: false
