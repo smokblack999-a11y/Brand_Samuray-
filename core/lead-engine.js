@@ -6,11 +6,13 @@ function scoreLead(text) {
   let score = 10;
   const signals = [];
 
+  // Explicit purchase/transaction signals carry enough weight to classify
+  // an otherwise ordinary buying-intent sentence as hot.
   const strong = ["купить", "заказать", "цена", "стоимость", "сколько стоит", "оплат", "записать", "забронировать", "доставка", "сегодня", "сейчас"];
   const medium = ["интересует", "хочу", "нужен", "нужна", "нужно", "можно", "есть ли", "условия", "наличие"];
   const noise = ["спасибо", "понятно", "ок", "хорошо", "привет"];
 
-  for (const word of strong) if (lower.includes(word)) { score += 15; signals.push(word); }
+  for (const word of strong) if (lower.includes(word)) { score += 25; signals.push(word); }
   for (const word of medium) if (lower.includes(word)) { score += 8; signals.push(word); }
   for (const word of noise) if (lower === word) score -= 5;
   if (/\d/.test(value)) score += 5;
