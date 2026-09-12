@@ -163,6 +163,45 @@ test('Telegram webhook requires secret and deduplicates business messages', asyn
   assert.equal(stats.stats.hot + stats.stats.warm + stats.stats.cold, 2);
 });
 
+test('funnel and outcome endpoints turn leads into measurable commercial proof', async () => {
+  const created = await (await api('/api/lead/analyze', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ message: 'Сколько стоит? Хочу заказать завтра' })
+  })).json();
+  assert.equal(created.ok, true);
+
+  const outcome = await (await api(`/api/leads/${created.saved.id}/outcome`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ status: 'won', revenue: 1500 })
+  })).json();
+  assert.equal(outcome.ok, true);
+  assert.equal(outcome.lead.outcome, 'won');
+  assert.equal(outcome.lead.revenue, 1500);
+
+  const funnel = await (await api('/api/funnel')).json();
+  assert.equal(funnel.ok, true);
+  assert.equal(funnel.funnel.won, 1);
+  assert.equal(funnel.funnel.attributedRevenue, 1500);
+  assert.ok(funnel.funnel.conversionRate > 0);
+
+  const readiness = await (await api('/api/sales-readiness')).json();
+  assert.equal(readiness.ok, true);
+  assert.ok(readiness.readiness.score >= 80);
+  assert.ok(readiness.readiness.missing.some(x => x.key === 'pilot') === false);
+  assert.ok(readiness.readiness.missing.some(x => x.key === 'roi') === false);
+});
+
+test('invalid commercial outcomes fail closed', async () => {
+  const r = await api('/api/leads/missing/outcome', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ status: 'won', revenue: -1 })
+  });
+  assert.equal(r.status, 404);
+});
+
 test('unknown route returns JSON 404', async () => {
   const r = await fetch(`http://127.0.0.1:${port}/does-not-exist`);
   assert.equal(r.status, 404);
