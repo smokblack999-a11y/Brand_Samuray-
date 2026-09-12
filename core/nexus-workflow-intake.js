@@ -20,7 +20,8 @@ function normalizeWorkflowRun(payload = {}) {
     runId,
     runUrl: String(run.html_url || ""),
     headSha: String(run.head_sha || ""),
-    baseSha: String(run.head_branch || ""),
+    baseBranch: String(run.base_branch || ""),
+    headBranch: String(run.head_branch || ""),
     conclusion: String(run.conclusion || "failure"),
     status: "QUEUED",
     dedupeKey: crypto.createHash("sha256").update(`${repository}:${runId}`).digest("hex")
