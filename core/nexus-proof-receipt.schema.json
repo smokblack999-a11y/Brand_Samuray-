@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nexus.invalid/schemas/proof-receipt-v1.json",
+  "title": "NEXUS Proof Receipt v1",
+  "type": "object",
+  "required": ["version", "proofId", "jobId", "repository", "baseSha", "patchSha", "risk", "decision", "receiptHash"],
+  "properties": {
+    "version": { "const": 1 },
+    "proofId": { "type": "string", "pattern": "^NXS-" },
+    "jobId": { "type": "string", "minLength": 1 },
+    "repository": { "type": "string", "minLength": 1 },
+    "baseSha": { "type": "string" },
+    "patchSha": { "type": "string" },
+    "risk": { "enum": ["LOW", "MEDIUM", "HIGH", "CRITICAL"] },
+    "tests": { "type": "object" },
+    "security": { "enum": ["PASS", "FAIL", "UNKNOWN"] },
+    "critic": { "type": "object" },
+    "policy": { "type": "string" },
+    "evidence": { "type": "array" },
+    "decision": { "enum": ["SHIP", "BLOCKED", "HUMAN_REVIEW"] },
+    "humanRequired": { "type": "boolean" },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "receiptHash": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+  }
+}

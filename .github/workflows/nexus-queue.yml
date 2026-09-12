@@ -1,0 +1,42 @@
+name: NEXUS Queue
+
+on:
+  push:
+    paths:
+      - "core/nexus-job-store.js"
+      - "core/nexus-workflow-intake.js"
+      - "core/nexus-webhook.js"
+      - "core/nexus-worker.js"
+      - "core/nexus-queue.test.js"
+      - "core/nexus-worker.test.js"
+      - "core/nexus-webhook.test.js"
+      - ".github/workflows/nexus-queue.yml"
+  pull_request:
+    paths:
+      - "core/nexus-job-store.js"
+      - "core/nexus-workflow-intake.js"
+      - "core/nexus-webhook.js"
+      - "core/nexus-worker.js"
+      - "core/nexus-queue.test.js"
+      - "core/nexus-worker.test.js"
+      - "core/nexus-webhook.test.js"
+      - ".github/workflows/nexus-queue.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  queue:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: core
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: core/package-lock.json
+      - run: npm ci
+      - run: node --test nexus-queue.test.js nexus-worker.test.js nexus-webhook.test.js proof-engine.test.js nexus-policy.test.js
