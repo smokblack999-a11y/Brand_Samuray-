@@ -4,6 +4,7 @@ const crypto = require("crypto");
 const express = require("express");
 const cors = require("cors");
 const { scoreLead } = require("./lead-engine");
+const { commercialReadiness } = require("./commercial-readiness");
 const { generateReply, checkOpenAI } = require("./openai");
 const { sendBusinessMessage } = require("./business-bot");
 const { saveLead, claimEvent, updateLead, listLeads, stats } = require("./store");
@@ -90,6 +91,35 @@ app.get("/health/openai", requireApiKey, async (req, res) => {
 });
 app.get("/api/leads", requireApiKey, (req, res) => res.json({ ok: true, leads: listLeads(req.query.limit), requestId: req.requestId }));
 app.get("/api/stats", requireApiKey, (req, res) => res.json({ ok: true, stats: stats(), requestId: req.requestId }));
+
+app.get("/api/commercial/readiness", requireApiKey, (req, res) => {
+  const current = stats();
+  const evidence = {
+    ci: false,
+    tests: true,
+    android: false,
+    api: true,
+    telegram: true,
+    security: Boolean(API_KEY && WEBHOOK_SECRET),
+    safe_defaults: String(process.env.AUTO_REPLY || "false").toLowerCase() !== "true",
+    deduplication: true,
+    rate_limit: true,
+    observability: true,
+    persistence: Boolean(current && Number.isFinite(current.total)),
+    ai_fallback: true,
+    pilot_gate: false,
+    revenue: false,
+    repeatability: false
+  };
+  const readiness = commercialReadiness(evidence);
+  res.json({
+    ok: true,
+    service: "SamuraiOS Commercial Readiness",
+    readiness,
+    evidence,
+    note: "The score measures productization evidence. It is not a mathematically valid probability of sale."
+  });
+});
 
 async function analyze(message, business) {
   const text = String(message || "").trim();
