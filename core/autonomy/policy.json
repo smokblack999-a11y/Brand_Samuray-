@@ -1,5 +1,5 @@
 {
-  "version": "1.0.0",
+  "version": "1.1.0",
   "mission": "Turn reproducible CI failures into evidence-backed, reviewable repair proposals without autonomous production deployment.",
   "maxAttempts": 2,
   "requiredEvidence": [
@@ -11,11 +11,15 @@
   ],
   "blockedPaths": [
     ".github/workflows/",
+    ".github/actions/",
+    ".git/",
     ".env",
     "*.pem",
     "*.key",
     "*.secret",
-    "package-lock.json"
+    "package-lock.json",
+    "docker-compose.yml",
+    "Dockerfile"
   ],
   "riskRules": {
     "autoPatch": false,
