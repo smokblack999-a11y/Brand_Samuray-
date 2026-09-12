@@ -1,0 +1,35 @@
+{
+  "version": "1.0.0",
+  "mission": "Turn reproducible CI failures into evidence-backed, reviewable repair proposals without autonomous production deployment.",
+  "maxAttempts": 2,
+  "requiredEvidence": [
+    "failure_signature",
+    "failing_step",
+    "reproduction_or_explicit_nonreproducible_reason",
+    "changed_files",
+    "test_result"
+  ],
+  "blockedPaths": [
+    ".github/workflows/",
+    ".env",
+    "*.pem",
+    "*.key",
+    "*.secret",
+    "package-lock.json"
+  ],
+  "riskRules": {
+    "autoPatch": false,
+    "autoMerge": false,
+    "autoDeploy": false,
+    "requireHumanApprovalForSensitiveChanges": true,
+    "maxChangedFiles": 8,
+    "maxChangedLines": 400
+  },
+  "killCritic": {
+    "enabled": true,
+    "rejectIfTestsMissing": true,
+    "rejectIfSecretsTouched": true,
+    "rejectIfScopeExpands": true,
+    "rejectIfFailureSignatureChangesWithoutEvidence": true
+  }
+}
