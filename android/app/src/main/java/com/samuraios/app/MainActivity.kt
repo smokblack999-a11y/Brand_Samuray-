@@ -28,6 +28,7 @@ import androidx.camera.video.VideoRecordEvent
 import androidx.camera.view.PreviewView
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
 import com.google.android.gms.tasks.CancellationTokenSource
@@ -237,16 +238,18 @@ class MainActivity : ComponentActivity() {
 
     private fun videoThumbnail(file: File) = runCatching { MediaMetadataRetriever().use { r -> r.setDataSource(file.absolutePath); r.getFrameAtTime(0, MediaMetadataRetriever.OPTION_CLOSEST_SYNC) } }.getOrNull()
 
+    private fun mediaUri(file: File): Uri = FileProvider.getUriForFile(this, "${BuildConfig.APPLICATION_ID}.fileprovider", file)
+
     private fun openMedia(file: File) {
         val type = if (file.extension.equals("mp4", true)) "video/mp4" else "image/jpeg"
-        val intent = Intent(Intent.ACTION_VIEW).apply { setDataAndType(Uri.fromFile(file), type); addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION) }
+        val intent = Intent(Intent.ACTION_VIEW).apply { setDataAndType(mediaUri(file), type); addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION) }
         runCatching { startActivity(intent) }.onFailure { showToast("Нет приложения для открытия файла") }
     }
 
     private fun shareSelectedMedia() {
         val media = selectedMedia ?: run { showToast("Сначала выберите фото или видео"); return }
         val type = if (media.extension.equals("mp4", true)) "video/mp4" else "image/jpeg"
-        val intent = Intent(Intent.ACTION_SEND).apply { this.type = type; putExtra(Intent.EXTRA_STREAM, Uri.fromFile(media)); addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION) }
+        val intent = Intent(Intent.ACTION_SEND).apply { this.type = type; putExtra(Intent.EXTRA_STREAM, mediaUri(media)); addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION) }
         runCatching { startActivity(Intent.createChooser(intent, "Отправить через Telegram или другое приложение")) }.onFailure { showToast("Не удалось открыть меню отправки") }
     }
 
