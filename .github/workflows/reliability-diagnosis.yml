@@ -1,0 +1,92 @@
+name: Reliability Diagnosis
+
+on:
+  workflow_run:
+    workflows:
+      - Build SamuraiOS APK
+      - Core CI
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: 'GitHub Actions run ID to diagnose'
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+  issues: write
+
+jobs:
+  diagnose:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'failure' &&
+       github.event.workflow_run.head_repository.full_name == github.repository)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: core/package-lock.json
+
+      - name: Install core dependencies
+        working-directory: core
+        run: npm ci
+
+      - name: Collect failed logs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_RUN_ID: ${{ github.event.workflow_run.id }}
+          INPUT_RUN_ID: ${{ inputs.run_id }}
+        run: |
+          set -euo pipefail
+          RUN_ID="${INPUT_RUN_ID:-${EVENT_RUN_ID:-}}"
+          test -n "$RUN_ID"
+          gh run view "$RUN_ID" --repo "$GITHUB_REPOSITORY" --log-failed > /tmp/ci-failure.log || true
+          test -s /tmp/ci-failure.log || printf '%s\n' 'No failed log was returned; diagnosis must stop.' > /tmp/ci-failure.log
+          wc -c /tmp/ci-failure.log
+
+      - name: Diagnose with OpenAI
+        id: diagnose
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_MODEL: ${{ vars.OPENAI_MODEL }}
+          WORKFLOW: ${{ github.event.workflow_run.name || 'manual' }}
+          GIT_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+        run: |
+          set -euo pipefail
+          if [ -z "${OPENAI_API_KEY:-}" ]; then
+            echo 'OPENAI_API_KEY is not configured; skipping model diagnosis safely.'
+            exit 0
+          fi
+          export CI_LOG="$(cat /tmp/ci-failure.log)"
+          node core/autonomy/diagnose.js | tee /tmp/diagnosis.json
+
+      - name: Create evidence issue
+        if: success() && hashFiles('/tmp/diagnosis.json') != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.event.workflow_run.id || inputs.run_id }}
+        run: |
+          set -euo pipefail
+          {
+            echo '## Automated CI diagnosis'
+            echo
+            echo "Run: $RUN_ID"
+            echo
+            echo '```json'
+            cat /tmp/diagnosis.json
+            echo
+            echo '```'
+            echo
+            echo '> Safety gate: diagnosis only. No automatic patch, merge, or deployment is performed.'
+          } > /tmp/issue.md
+          gh issue create --repo "$GITHUB_REPOSITORY" --title "CI diagnosis: run $RUN_ID" --body-file /tmp/issue.md
