@@ -6,7 +6,7 @@ import java.security.MessageDigest
 import org.json.JSONObject
 
 object Vault {
-    private const val DIRECTORY = "photos"
+    private const val DIRECTORY = "gallery"
     private const val PREFS = "samurai_camera_settings"
     private const val GPS = "gps_enabled"
     private const val TIME = "time_enabled"
@@ -16,11 +16,11 @@ object Vault {
     fun directory(context: Context): File = File(context.filesDir, DIRECTORY).apply { if (!exists()) mkdirs() }
 
     fun createPhotoFile(context: Context): File = File(directory(context), "samurai_${java.util.UUID.randomUUID()}.jpg")
-
-    fun metadataFile(photo: File): File = File(photo.parentFile, "${photo.nameWithoutExtension}.json")
+    fun createVideoFile(context: Context): File = File(directory(context), "samurai_${java.util.UUID.randomUUID()}.mp4")
+    fun metadataFile(media: File): File = File(media.parentFile, "${media.nameWithoutExtension}.json")
 
     fun saveMetadata(
-        photo: File,
+        media: File,
         latitude: Double?,
         longitude: Double?,
         accuracy: Float?,
@@ -31,9 +31,9 @@ object Vault {
         includeSha256: Boolean
     ) {
         val json = JSONObject().apply {
-            put("version", 1)
-            put("type", "PHOTO")
-            put("fileName", photo.name)
+            put("version", 2)
+            put("type", if (media.extension.equals("mp4", true)) "VIDEO" else "PHOTO")
+            put("fileName", media.name)
             if (includeTime) put("timestamp", timestamp)
             if (includeGps && latitude != null && longitude != null) {
                 put("latitude", latitude)
@@ -42,23 +42,28 @@ object Vault {
             }
             if (includeAuthenticity) {
                 put("authenticity", "SHA-256")
-                if (includeSha256) put("sha256", sha256(photo))
+                if (includeSha256) put("sha256", sha256(media))
             }
         }
-        metadataFile(photo).writeText(json.toString())
+        metadataFile(media).writeText(json.toString())
     }
 
-    fun metadata(photo: File): JSONObject? = runCatching { JSONObject(metadataFile(photo).readText()) }.getOrNull()
+    fun metadata(media: File): JSONObject? = runCatching { JSONObject(metadataFile(media).readText()) }.getOrNull()
 
-    fun listPhotos(context: Context): List<File> = directory(context).listFiles()
-        ?.filter { it.isFile && it.extension.lowercase() == "jpg" }
+    fun listMedia(context: Context): List<File> = directory(context).listFiles()
+        ?.filter { it.isFile && (it.extension.equals("jpg", true) || it.extension.equals("mp4", true)) }
         ?.sortedByDescending { it.lastModified() }
         ?: emptyList()
 
-    fun deletePhoto(file: File): Boolean {
+    fun listPhotos(context: Context): List<File> = listMedia(context).filter { it.extension.equals("jpg", true) }
+    fun listVideos(context: Context): List<File> = listMedia(context).filter { it.extension.equals("mp4", true) }
+
+    fun deleteMedia(file: File): Boolean {
         metadataFile(file).delete()
         return file.delete()
     }
+
+    fun deletePhoto(file: File): Boolean = deleteMedia(file)
 
     fun sha256(file: File): String {
         val digest = MessageDigest.getInstance("SHA-256")
