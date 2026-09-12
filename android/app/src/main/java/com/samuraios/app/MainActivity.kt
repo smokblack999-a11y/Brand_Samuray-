@@ -28,7 +28,6 @@ import java.io.File
 import java.io.OutputStream
 import java.net.HttpURLConnection
 import java.net.URL
-import java.net.URLEncoder
 import java.util.UUID
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
@@ -42,6 +41,10 @@ class MainActivity : ComponentActivity() {
     private lateinit var outputText: TextView
     private lateinit var chatIdInput: EditText
     private lateinit var galleryContainer: LinearLayout
+    private lateinit var gpsSwitch: Switch
+    private lateinit var timeSwitch: Switch
+    private lateinit var authSwitch: Switch
+    private lateinit var shaSwitch: Switch
     private var imageCapture: ImageCapture? = null
     private var selectedPhoto: File? = null
     private var cameraExecutor: ExecutorService? = null
@@ -60,8 +63,12 @@ class MainActivity : ComponentActivity() {
     override fun onDestroy() { cameraExecutor?.shutdown(); super.onDestroy() }
 
     private fun requestMissingPermissions() {
-        val missing = arrayOf(Manifest.permission.CAMERA, Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
-            .filter { ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED }
+        val requested = mutableListOf(Manifest.permission.CAMERA)
+        if (Vault.isGpsEnabled(this)) {
+            requested += Manifest.permission.ACCESS_FINE_LOCATION
+            requested += Manifest.permission.ACCESS_COARSE_LOCATION
+        }
+        val missing = requested.filter { ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED }
         if (missing.isEmpty()) startCamera() else ActivityCompat.requestPermissions(this, missing.toTypedArray(), permissionRequest)
     }
 
@@ -89,7 +96,27 @@ class MainActivity : ComponentActivity() {
         root.addView(statusText)
         previewView = PreviewView(this).apply { scaleType = PreviewView.ScaleType.FILL_CENTER }
         root.addView(previewView, LinearLayout.LayoutParams(-1, 520))
-        root.addView(Button(this).apply { text = "СНЯТЬ ФОТО + КООРДИНАТЫ"; setOnClickListener { capturePhoto() } })
+
+        val settingsTitle = TextView(this).apply {
+            text = "СЪЁМКА · МЕТАДАННЫЕ"
+            textSize = 18f
+            setTextColor(Color.WHITE)
+            setPadding(0, 14, 0, 4)
+        }
+        root.addView(settingsTitle)
+        gpsSwitch = settingSwitch("📍 Координаты GPS", Vault.isGpsEnabled(this)) { enabled ->
+            Vault.setGpsEnabled(this, enabled)
+            if (enabled && ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+                ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION), permissionRequest)
+            }
+            updateModeText()
+        }
+        timeSwitch = settingSwitch("🕒 Время съёмки", Vault.isTimeEnabled(this)) { enabled -> Vault.setTimeEnabled(this, enabled); updateModeText() }
+        authSwitch = settingSwitch("🛡 Защита подлинности", Vault.isAuthEnabled(this)) { enabled -> Vault.setAuthEnabled(this, enabled); updateModeText() }
+        shaSwitch = settingSwitch("🔐 SHA-256 отпечаток", Vault.isSha256Enabled(this)) { enabled -> Vault.setSha256Enabled(this, enabled); updateModeText() }
+        root.addView(gpsSwitch); root.addView(timeSwitch); root.addView(authSwitch); root.addView(shaSwitch)
+
+        root.addView(Button(this).apply { text = "СНЯТЬ ФОТО"; setOnClickListener { capturePhoto() } })
         root.addView(Button(this).apply { text = "ОБНОВИТЬ ГАЛЕРЕЮ"; setOnClickListener { refreshGallery() } })
         root.addView(TextView(this).apply {
             text = "GALLERY · PHOTO + GPS · TELEGRAM"
@@ -109,16 +136,33 @@ class MainActivity : ComponentActivity() {
         }
         root.addView(chatIdInput, LinearLayout.LayoutParams(-1, -2))
         root.addView(Button(this).apply { text = "ПРОВЕРИТЬ TELEGRAM"; setOnClickListener { loadMe() } })
-        root.addView(Button(this).apply { text = "ОТПРАВИТЬ ВЫБРАННОЕ ФОТО + GPS"; setOnClickListener { sendSelectedPhoto() } })
-        root.addView(Button(this).apply { text = "ОТПРАВИТЬ ТОЛЬКО GPS"; setOnClickListener { sendSelectedLocation() } })
+        root.addView(Button(this).apply { text = "ОТПРАВИТЬ ВЫБРАННОЕ ФОТО"; setOnClickListener { sendSelectedPhoto() } })
+        root.addView(Button(this).apply { text = "ОТПРАВИТЬ GPS"; setOnClickListener { sendSelectedLocation() } })
         outputText = TextView(this).apply {
-            text = "Выберите фото в галерее. Фото можно открыть на карте и отправить в Telegram вместе с координатами."
             textSize = 14f
             setTextColor(Color.LTGRAY)
             setPadding(0, 18, 0, 18)
         }
         root.addView(outputText)
         setContentView(ScrollView(this).apply { addView(root) })
+        updateModeText()
+    }
+
+    private fun settingSwitch(label: String, initial: Boolean, onChange: (Boolean) -> Unit): Switch = Switch(this).apply {
+        text = label
+        isChecked = initial
+        textSize = 15f
+        setTextColor(Color.LTGRAY)
+        setPadding(0, 4, 0, 4)
+        setOnCheckedChangeListener { _, checked -> onChange(checked) }
+    }
+
+    private fun updateModeText() {
+        val gps = if (Vault.isGpsEnabled(this)) "GPS ON" else "GPS OFF"
+        val time = if (Vault.isTimeEnabled(this)) "TIME ON" else "TIME OFF"
+        val auth = if (Vault.isAuthEnabled(this)) "AUTH ON" else "AUTH OFF"
+        val sha = if (Vault.isSha256Enabled(this)) "SHA ON" else "SHA OFF"
+        statusText.text = "SAMURAI CAMERA · $gps · $time · $auth · $sha"
     }
 
     private fun startCamera() {
@@ -130,7 +174,7 @@ class MainActivity : ComponentActivity() {
                 imageCapture = ImageCapture.Builder().setJpegQuality(88).build()
                 provider.unbindAll()
                 provider.bindToLifecycle(this, CameraSelector.DEFAULT_BACK_CAMERA, preview, imageCapture)
-                statusText.text = "SAMURAI CAMERA · ONLINE"
+                updateModeText()
             } catch (e: Exception) { statusText.text = "CAMERA ERROR: ${e.message}" }
         }, ContextCompat.getMainExecutor(this))
     }
@@ -141,30 +185,31 @@ class MainActivity : ComponentActivity() {
         val timestamp = System.currentTimeMillis()
         capture.takePicture(ImageCapture.OutputFileOptions.Builder(file).build(), cameraExecutor!!, object : ImageCapture.OnImageSavedCallback {
             override fun onError(exception: ImageCaptureException) { file.delete(); showToast("Ошибка камеры: ${exception.message}") }
-            override fun onImageSaved(outputFileResults: ImageCapture.OutputFileResults) { saveLocation(file, timestamp) }
+            override fun onImageSaved(outputFileResults: ImageCapture.OutputFileResults) {
+                if (Vault.isGpsEnabled(this@MainActivity)) saveLocation(file, timestamp)
+                else saveWithoutLocation(file, timestamp)
+            }
         })
+    }
+
+    private fun saveWithoutLocation(photo: File, timestamp: Long) {
+        Vault.saveMetadata(photo, null, null, null, timestamp, false, Vault.isTimeEnabled(this), Vault.isAuthEnabled(this), Vault.isSha256Enabled(this))
+        mainHandler.post { refreshGallery(); outputText.text = "Фото сохранено · GPS OFF" }
     }
 
     private fun saveLocation(photo: File, timestamp: Long) {
         val fine = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
         val coarse = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
-        if (!fine && !coarse) {
-            Vault.saveMetadata(photo, null, null, null, timestamp)
-            mainHandler.post { refreshGallery(); outputText.text = "Фото сохранено. GPS выключен/разрешение не дано." }
-            return
-        }
+        if (!fine && !coarse) { saveWithoutLocation(photo, timestamp); return }
         locationClient.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, CancellationTokenSource().token)
             .addOnSuccessListener { location ->
-                Vault.saveMetadata(photo, location?.latitude, location?.longitude, location?.accuracy, timestamp)
+                Vault.saveMetadata(photo, location?.latitude, location?.longitude, location?.accuracy, timestamp, location != null, Vault.isTimeEnabled(this), Vault.isAuthEnabled(this), Vault.isSha256Enabled(this))
                 mainHandler.post {
                     refreshGallery()
-                    outputText.text = if (location != null) "Сохранено: %.6f, %.6f · точность %.1f м".format(location.latitude, location.longitude, location.accuracy) else "Фото сохранено без GPS fix"
+                    outputText.text = if (location != null) "Сохранено · %.6f, %.6f · ±%.1f м".format(location.latitude, location.longitude, location.accuracy) else "Фото сохранено без GPS fix"
                 }
             }
-            .addOnFailureListener {
-                Vault.saveMetadata(photo, null, null, null, timestamp)
-                mainHandler.post { refreshGallery(); outputText.text = "Фото сохранено, GPS fix недоступен" }
-            }
+            .addOnFailureListener { saveWithoutLocation(photo, timestamp) }
     }
 
     private fun refreshGallery() {
@@ -180,20 +225,25 @@ class MainActivity : ComponentActivity() {
             val top = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
             val image = ImageView(this).apply { setImageURI(Uri.fromFile(photo)); scaleType = ImageView.ScaleType.CENTER_CROP }
             top.addView(image, LinearLayout.LayoutParams(180, 130))
-            val hasGps = meta?.has("latitude") == true && !meta.isNull("latitude") && meta.has("longitude") && !meta.isNull("longitude")
+            val hasGps = meta?.has("latitude") == true && meta.has("longitude") && !meta.isNull("latitude") && !meta.isNull("longitude")
+            val hasTime = meta?.has("timestamp") == true
             val details = TextView(this).apply {
-                text = if (hasGps) "${photo.name}\n%.6f, %.6f\n± %.1f м".format(meta!!.getDouble("latitude"), meta.getDouble("longitude"), meta.optDouble("accuracyMeters", 0.0)) else "${photo.name}\nGPS: нет"
-                setTextColor(Color.LTGRAY)
-                setPadding(12, 0, 0, 0)
+                text = buildString {
+                    append(photo.name)
+                    append("\nGPS: "); append(if (hasGps) "ON" else "OFF")
+                    if (hasGps) append("\n%.6f, %.6f".format(meta!!.getDouble("latitude"), meta.getDouble("longitude")))
+                    append("\nTIME: "); append(if (hasTime) "ON" else "OFF")
+                    append("\nAUTH: "); append(if (meta?.has("authenticity") == true) "ON" else "OFF")
+                    if (meta?.has("sha256") == true) append("\nSHA: ${meta.getString("sha256").take(12)}…")
+                }
+                setTextColor(Color.LTGRAY); setPadding(12, 0, 0, 0)
             }
-            top.addView(details, LinearLayout.LayoutParams(0, -2, 1f))
-            row.addView(top)
+            top.addView(details, LinearLayout.LayoutParams(0, -2, 1f)); row.addView(top)
             val actions = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
             actions.addView(Button(this).apply { text = "ВЫБРАТЬ"; setOnClickListener { selectedPhoto = photo; outputText.text = "Выбрано: ${photo.name}" } }, LinearLayout.LayoutParams(0, -2, 1f))
             actions.addView(Button(this).apply { text = "КАРТА"; isEnabled = hasGps; setOnClickListener { openMap(meta!!.getDouble("latitude"), meta.getDouble("longitude")) } }, LinearLayout.LayoutParams(0, -2, 1f))
             actions.addView(Button(this).apply { text = "УДАЛИТЬ"; setOnClickListener { Vault.deletePhoto(photo); if (selectedPhoto == photo) selectedPhoto = null; refreshGallery() } }, LinearLayout.LayoutParams(0, -2, 1f))
-            row.addView(actions)
-            galleryContainer.addView(row)
+            row.addView(actions); galleryContainer.addView(row)
         }
     }
 
@@ -213,10 +263,15 @@ class MainActivity : ComponentActivity() {
             try {
                 val meta = Vault.metadata(photo)
                 val base64 = Base64.encodeToString(photo.readBytes(), Base64.NO_WRAP)
-                val hasGps = meta?.has("latitude") == true && !meta.isNull("latitude") && meta.has("longitude") && !meta.isNull("longitude")
+                val hasGps = meta?.has("latitude") == true && meta.has("longitude") && !meta.isNull("latitude") && !meta.isNull("longitude")
                 val lat = if (hasGps) meta!!.getDouble("latitude") else null
-                val lon = if (hasGps) meta!!.getDouble("longitude") else null
-                val caption = if (hasGps) "SAMURAI CAMERA\n📍 %.6f, %.6f\nТочность: ± %.1f м".format(lat, lon, meta!!.optDouble("accuracyMeters", 0.0)) else "SAMURAI CAMERA\nGPS: нет fix"
+                val lon = if (hasGps) meta.getDouble("longitude") else null
+                val caption = buildString {
+                    append("SAMURAI CAMERA")
+                    if (hasGps) append("\n📍 %.6f, %.6f".format(lat, lon))
+                    if (meta?.has("timestamp") == true) append("\n🕒 ${meta.getLong("timestamp")}")
+                    if (meta?.has("sha256") == true) append("\n🛡 SHA-256: ${meta.getString("sha256").take(16)}…")
+                }
                 val body = JSONObject().apply {
                     put("chatId", chatId); put("fileName", photo.name); put("caption", caption); put("base64", base64)
                     if (lat != null && lon != null) { put("latitude", lat); put("longitude", lon) }
@@ -236,7 +291,7 @@ class MainActivity : ComponentActivity() {
         apiPost("/api/telegram/send-location", body) { result -> mainHandler.post { outputText.text = result } }
     }
 
-    private fun checkCoreStatus() = apiGet("/health") { result -> mainHandler.post { statusText.text = if (result.startsWith("ERROR:")) "SAMURAI CAMERA · CORE OFFLINE" else "SAMURAI CAMERA · CORE ONLINE" } }
+    private fun checkCoreStatus() = apiGet("/health") { result -> mainHandler.post { if (result.startsWith("ERROR:")) statusText.text = "SAMURAI CAMERA · CORE OFFLINE" else updateModeText() } }
 
     private fun apiGet(path: String, callback: (String) -> Unit) {
         thread {
