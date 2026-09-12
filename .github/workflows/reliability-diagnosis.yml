@@ -71,12 +71,16 @@ jobs:
           node core/autonomy/diagnose.js | tee /tmp/diagnosis.json
 
       - name: Create evidence issue
-        if: success() && hashFiles('/tmp/diagnosis.json') != ''
+        if: success()
         env:
           GH_TOKEN: ${{ github.token }}
           RUN_ID: ${{ github.event.workflow_run.id || inputs.run_id }}
         run: |
           set -euo pipefail
+          if [ ! -s /tmp/diagnosis.json ]; then
+            echo 'No model diagnosis was produced; nothing to publish.'
+            exit 0
+          fi
           {
             echo '## Automated CI diagnosis'
             echo
