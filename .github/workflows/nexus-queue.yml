@@ -9,6 +9,7 @@ on:
       - "core/nexus-worker.js"
       - "core/nexus-queue.test.js"
       - "core/nexus-worker.test.js"
+      - "core/nexus-webhook.test.js"
       - ".github/workflows/nexus-queue.yml"
   pull_request:
     paths:
@@ -18,6 +19,7 @@ on:
       - "core/nexus-worker.js"
       - "core/nexus-queue.test.js"
       - "core/nexus-worker.test.js"
+      - "core/nexus-webhook.test.js"
       - ".github/workflows/nexus-queue.yml"
 
 permissions:
@@ -37,4 +39,4 @@ jobs:
           cache: npm
           cache-dependency-path: core/package-lock.json
       - run: npm ci
-      - run: node --test nexus-queue.test.js nexus-worker.test.js proof-engine.test.js nexus-policy.test.js
+      - run: node --test nexus-queue.test.js nexus-worker.test.js nexus-webhook.test.js proof-engine.test.js nexus-policy.test.js
