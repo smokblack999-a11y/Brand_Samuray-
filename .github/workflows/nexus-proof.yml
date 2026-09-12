@@ -7,6 +7,10 @@ on:
       - "core/proof-engine.test.js"
       - "core/nexus-policy.js"
       - "core/nexus-policy.test.js"
+      - "core/nexus-controller.js"
+      - "core/nexus-controller.test.js"
+      - "core/nexus-intake.js"
+      - "core/nexus-intake.test.js"
       - "core/nexus-proof-receipt.schema.json"
       - ".github/workflows/nexus-proof.yml"
   pull_request:
@@ -15,6 +19,10 @@ on:
       - "core/proof-engine.test.js"
       - "core/nexus-policy.js"
       - "core/nexus-policy.test.js"
+      - "core/nexus-controller.js"
+      - "core/nexus-controller.test.js"
+      - "core/nexus-intake.js"
+      - "core/nexus-intake.test.js"
       - "core/nexus-proof-receipt.schema.json"
       - ".github/workflows/nexus-proof.yml"
 
@@ -35,4 +43,4 @@ jobs:
           cache: npm
           cache-dependency-path: core/package-lock.json
       - run: npm ci
-      - run: node --test proof-engine.test.js nexus-policy.test.js
+      - run: node --test proof-engine.test.js nexus-policy.test.js nexus-controller.test.js nexus-intake.test.js
