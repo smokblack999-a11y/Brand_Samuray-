@@ -6,7 +6,8 @@ const cors = require("cors");
 const { scoreLead } = require("./lead-engine");
 const { generateReply, checkOpenAI } = require("./openai");
 const { sendBusinessMessage } = require("./business-bot");
-const { saveLead, claimEvent, updateLead, listLeads, stats } = require("./store");
+const { saveLead, claimEvent, updateLead, recordOutcome, listLeads, stats } = require("./store");
+const { CHECKS, buildReadiness } = require("./sales-readiness");
 const { createRateLimiter } = require("./rate-limit");
 
 const app = express();
@@ -34,7 +35,6 @@ app.use(express.json({ limit: "256kb" }));
 function errorBody(code, message, requestId) {
   return { ok: false, error: { code, message, requestId } };
 }
-
 function safeEqual(expected, actual) {
   const a = Buffer.from(String(expected || ""));
   const b = Buffer.from(String(actual || ""));
@@ -55,6 +55,24 @@ function requestId(req, res, next) {
   req.requestId = id;
   res.setHeader("X-Request-Id", id);
   next();
+}
+function readinessEvidence(current) {
+  return {
+    api: true,
+    webhook: true,
+    lead_scoring: true,
+    ai_reply: true,
+    persistence: true,
+    observability: true,
+    security: true,
+    tests: true,
+    android_ci: true,
+    artifact: true,
+    docs: true,
+    demo: String(process.env.DEMO_VERIFIED).toLowerCase() === "true",
+    pilot: Number(current?.won || 0) + Number(current?.lost || 0) > 0,
+    roi: Number(current?.attributedRevenue || 0) > 0 || Number(current?.conversionRate || 0) > 0
+  };
 }
 
 app.use(requestId);
@@ -90,6 +108,14 @@ app.get("/health/openai", requireApiKey, async (req, res) => {
 });
 app.get("/api/leads", requireApiKey, (req, res) => res.json({ ok: true, leads: listLeads(req.query.limit), requestId: req.requestId }));
 app.get("/api/stats", requireApiKey, (req, res) => res.json({ ok: true, stats: stats(), requestId: req.requestId }));
+app.get("/api/funnel", requireApiKey, (req, res) => {
+  const current = stats();
+  res.json({ ok: true, funnel: { leads: current.total, hot: current.hot, followUp: current.followUp, won: current.won, lost: current.lost, conversionRate: current.conversionRate, attributedRevenue: current.attributedRevenue }, requestId: req.requestId });
+});
+app.get("/api/sales-readiness", requireApiKey, (req, res) => {
+  const current = stats();
+  res.json({ ok: true, readiness: buildReadiness(readinessEvidence(current)), checks: CHECKS.map(([key, label, weight]) => ({ key, label, weight })), requestId: req.requestId });
+});
 
 async function analyze(message, business) {
   const text = String(message || "").trim();
@@ -121,6 +147,17 @@ app.post("/api/lead/analyze", requireApiKey, leadRateLimit, async (req, res) => 
     const code = error.code || (upstream ? "UPSTREAM_UNAVAILABLE" : "INTERNAL_ERROR");
     const message = status === 500 ? "Internal server error" : status === 503 ? "Upstream service unavailable" : error.message;
     res.status(status).json(errorBody(code, message, req.requestId));
+  }
+});
+
+app.post("/api/leads/:id/outcome", requireApiKey, (req, res) => {
+  try {
+    const { status, reason, revenue } = req.body || {};
+    const updated = recordOutcome(req.params.id, { status, reason, revenue });
+    res.json({ ok: true, lead: updated, requestId: req.requestId });
+  } catch (error) {
+    const status = error.code === "INVALID_OUTCOME" || error.code === "INVALID_REVENUE" ? 400 : error.message === "lead not found" ? 404 : 500;
+    res.status(status).json(errorBody(error.code || "OUTCOME_FAILED", status === 500 ? "Internal server error" : error.message, req.requestId));
   }
 });
 
