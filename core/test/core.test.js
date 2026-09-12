@@ -56,7 +56,7 @@ test('health endpoint', async () => {
   const body = await r.json();
   assert.equal(body.ok, true);
   assert.equal(body.service, 'SamuraiOS Core');
-  assert.equal(body.version, '2.6.0');
+  assert.equal(body.version, '2.7.0');
 });
 
 test('readiness endpoint verifies critical configuration', async () => {
@@ -103,15 +103,22 @@ test('message length is bounded before scoring or AI', async () => {
   });
   assert.equal(r.status, 400);
   const body = await r.json();
-  assert.match(body.error, /максимум 4000/);
+  assert.equal(body.ok, false);
+  assert.equal(body.error.code, 'MESSAGE_TOO_LONG');
+  assert.match(body.error.message, /максимум 4000/);
+  assert.ok(body.error.requestId);
 });
 
 test('OpenAI health reports unconfigured without exposing secrets', async () => {
   const r = await api('/health/openai');
   assert.equal(r.status, 503);
   const body = await r.json();
-  assert.equal(body.configured, false);
+  assert.equal(body.ok, false);
+  assert.equal(body.error.code, 'OPENAI_NOT_CONFIGURED');
+  assert.match(body.error.message, /OpenAI is not configured/);
+  assert.ok(body.error.requestId);
   assert.equal('apiKey' in body, false);
+  assert.equal(JSON.stringify(body).includes('OPENAI_API_KEY'), false);
 });
 
 test('Telegram webhook requires secret and deduplicates business messages', async () => {
@@ -154,6 +161,45 @@ test('Telegram webhook requires secret and deduplicates business messages', asyn
   assert.equal(stats.stats.processing, 0);
   assert.equal(stats.stats.failed, 0);
   assert.equal(stats.stats.hot + stats.stats.warm + stats.stats.cold, 2);
+});
+
+test('funnel and outcome endpoints turn leads into measurable commercial proof', async () => {
+  const created = await (await api('/api/lead/analyze', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ message: 'Сколько стоит? Хочу заказать завтра' })
+  })).json();
+  assert.equal(created.ok, true);
+
+  const outcome = await (await api(`/api/leads/${created.saved.id}/outcome`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ status: 'won', revenue: 1500 })
+  })).json();
+  assert.equal(outcome.ok, true);
+  assert.equal(outcome.lead.outcome, 'won');
+  assert.equal(outcome.lead.revenue, 1500);
+
+  const funnel = await (await api('/api/funnel')).json();
+  assert.equal(funnel.ok, true);
+  assert.equal(funnel.funnel.won, 1);
+  assert.equal(funnel.funnel.attributedRevenue, 1500);
+  assert.ok(funnel.funnel.conversionRate > 0);
+
+  const readiness = await (await api('/api/sales-readiness')).json();
+  assert.equal(readiness.ok, true);
+  assert.ok(readiness.readiness.score >= 80);
+  assert.ok(readiness.readiness.missing.some(x => x.key === 'pilot') === false);
+  assert.ok(readiness.readiness.missing.some(x => x.key === 'roi') === false);
+});
+
+test('invalid commercial outcomes fail closed', async () => {
+  const r = await api('/api/leads/missing/outcome', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ status: 'won', revenue: -1 })
+  });
+  assert.equal(r.status, 404);
 });
 
 test('unknown route returns JSON 404', async () => {

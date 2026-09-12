@@ -71,11 +71,34 @@ function updateLead(id, patch) {
   write(rows);
   return rows[index];
 }
+function recordOutcome(id, outcome = {}) {
+  const allowed = new Set(["won", "lost", "follow_up"]);
+  if (!allowed.has(outcome.status)) {
+    const error = new Error("outcome.status must be won, lost or follow_up");
+    error.code = "INVALID_OUTCOME";
+    throw error;
+  }
+  const patch = { outcome: outcome.status, outcomeAt: new Date().toISOString() };
+  if (outcome.reason) patch.lossReason = String(outcome.reason).slice(0, 200);
+  if (outcome.revenue !== undefined) {
+    const revenue = Number(outcome.revenue);
+    if (!Number.isFinite(revenue) || revenue < 0 || revenue > 100000000) {
+      const error = new Error("outcome.revenue must be a finite non-negative number");
+      error.code = "INVALID_REVENUE";
+      throw error;
+    }
+    patch.revenue = revenue;
+  }
+  return updateLead(id, patch);
+}
 function listLeads(limit = 100) {
   return read().slice(-Math.max(1, Math.min(Number(limit) || 100, 1000))).reverse();
 }
 function stats() {
   const rows = read();
+  const won = rows.filter(x => x.outcome === "won");
+  const lost = rows.filter(x => x.outcome === "lost");
+  const attributedRevenue = won.reduce((sum, x) => sum + Number(x.revenue || 0), 0);
   return {
     total: rows.length,
     processing: rows.filter(x => x.status === "processing").length,
@@ -86,7 +109,12 @@ function stats() {
     cold: rows.filter(x => x.intent === "cold").length,
     avgScore: rows.length
       ? Math.round(rows.reduce((a, x) => a + Number(x.score || 0), 0) / rows.length)
-      : 0
+      : 0,
+    won: won.length,
+    lost: lost.length,
+    followUp: rows.filter(x => x.outcome === "follow_up").length,
+    conversionRate: rows.length ? Math.round((won.length / rows.length) * 1000) / 10 : 0,
+    attributedRevenue: Math.round(attributedRevenue * 100) / 100
   };
 }
-module.exports = { saveLead, claimEvent, updateLead, listLeads, stats, hasEvent };
+module.exports = { saveLead, claimEvent, updateLead, recordOutcome, listLeads, stats, hasEvent };
