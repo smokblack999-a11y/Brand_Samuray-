@@ -58,11 +58,17 @@ jobs:
           node --check business-bot.js
           node --check store.js
           node --check lead-engine.js
+          node --check autonomy/repair-engine.js
+          node --check autonomy/diagnose.js
+          node --check autonomy/kill-critic.js
           node --check scripts/set-webhook.js
           node --check scripts/verify-config.js
 
       - name: Unit and HTTP contract tests
         run: npm test
+
+      - name: Autonomy safety tests
+        run: npm run test:autonomy
 
       - name: Verify production config fails closed
         shell: bash
