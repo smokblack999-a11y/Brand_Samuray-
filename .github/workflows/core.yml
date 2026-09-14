@@ -61,8 +61,11 @@ jobs:
           node --check scripts/verify-config.js
           node --check interop/job-contract.js
           node --check interop/url-policy.js
+          node --check interop/github-webhook.js
+          node --check interop/store.js
           node --check interop/job-contract.test.js
           node --check interop/url-policy.test.js
+          node --check interop/github-webhook.test.js
 
       - name: Unit tests
         run: npm test
