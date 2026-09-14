@@ -59,6 +59,10 @@ jobs:
           node --check lead-engine.js
           node --check scripts/set-webhook.js
           node --check scripts/verify-config.js
+          node --check interop/job-contract.js
+          node --check interop/url-policy.js
+          node --check interop/job-contract.test.js
+          node --check interop/url-policy.test.js
 
       - name: Unit tests
         run: npm test
