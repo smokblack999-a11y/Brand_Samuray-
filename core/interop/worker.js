@@ -3,6 +3,20 @@
 const { diagnose } = require("./diagnoser");
 const { claimNext, transition } = require("./store");
 
+function criticReview(evidence) {
+  const integrity = evidence?.evidenceOnly === true && evidence?.credentialsRedacted === true;
+  const concreteEvidence = evidence?.confidence === "high" && Array.isArray(evidence?.failedJobs) && evidence.failedJobs.some(job => job?.evidence?.excerpts?.length > 0);
+  const reproduction = evidence?.reproduction === true;
+  const causality = evidence?.causality === true;
+  const security = integrity;
+  return {
+    passed: false,
+    readyForPatchCandidate: Boolean(integrity && concreteEvidence),
+    gates: { evidenceIntegrity: integrity, concreteEvidence, reproduction, causality, minimalPatch: false, regression: false, security },
+    rule: "kill-critic-v2"
+  };
+}
+
 async function processJob(job, deps = {}) {
   if (!job) return null;
   const runDiagnose = deps.diagnose || diagnose;
@@ -16,23 +30,14 @@ async function processJob(job, deps = {}) {
   try {
     const evidence = await runDiagnose(job, deps);
     if (!evidence || !evidence.failedJobs?.length) {
-      return move(job.id, "HUMAN_REVIEW", {
-        reason: "INSUFFICIENT_FAILURE_EVIDENCE",
-        evidence: evidence || null
-      });
+      return move(job.id, "HUMAN_REVIEW", { reason: "INSUFFICIENT_FAILURE_EVIDENCE", evidence: evidence || null });
     }
-
     if (evidence.evidenceOnly !== true || !evidence.workflowRunId) {
       return move(job.id, "STOPPED", { reason: "INVALID_EVIDENCE" });
     }
 
-    return move(job.id, "CRITIC_REVIEW", {
-      diagnosis: evidence,
-      critic: {
-        passed: evidence.confidence === "medium",
-        rule: "evidence-first-v1"
-      }
-    });
+    const critic = criticReview(evidence);
+    return move(job.id, "CRITIC_REVIEW", { diagnosis: evidence, critic });
   } catch (error) {
     const message = String(error?.message || error);
     if (/GITHUB_TOKEN is required/.test(message)) {
@@ -68,4 +73,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = { processJob, runOnce, runForever };
+module.exports = { processJob, runOnce, runForever, criticReview };
