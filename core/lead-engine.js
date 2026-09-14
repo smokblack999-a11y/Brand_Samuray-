@@ -10,7 +10,7 @@ function scoreLead(text) {
   const medium = ["интересует", "хочу", "нужен", "нужна", "нужно", "можно", "есть ли", "условия", "наличие"];
   const noise = ["спасибо", "понятно", "ок", "хорошо", "привет"];
 
-  for (const word of strong) if (lower.includes(word)) { score += 15; signals.push(word); }
+  for (const word of strong) if (lower.includes(word)) { score += 20; signals.push(word); }
   for (const word of medium) if (lower.includes(word)) { score += 8; signals.push(word); }
   for (const word of noise) if (lower === word) score -= 5;
   if (/\d/.test(value)) score += 5;
