@@ -8,7 +8,7 @@ const FILE = path.join(DATA_DIR, "interop-jobs.json");
 
 function ensure() {
   fs.mkdirSync(DATA_DIR, { recursive: true });
-  if (!fs.existsSync(FILE)) fs.writeFileSync(FILE, "[]\n");
+  if (!fs.existsSync(FILE)) fs.writeFileSync(FILE, "[]\n", { mode: 0o600 });
 }
 function read() {
   ensure();
@@ -37,6 +37,31 @@ function enqueue(job, eventKey) {
   return { enqueued: true, job: item };
 }
 
+function updateJob(id, patch) {
+  const rows = read();
+  const index = rows.findIndex(row => row.id === id);
+  if (index < 0) return null;
+  const next = { ...rows[index], ...patch, updatedAt: new Date().toISOString() };
+  rows[index] = next;
+  write(rows);
+  return next;
+}
+
+function transition(id, stage, patch = {}) {
+  if (!stage) throw new Error("stage is required");
+  return updateJob(id, { ...patch, stage });
+}
+
+function claimNext() {
+  const rows = read();
+  const index = rows.findIndex(row => row.stage === "QUEUED" || row.stage === "RETRY");
+  if (index < 0) return null;
+  const next = { ...rows[index], stage: "RUNNING", startedAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+  rows[index] = next;
+  write(rows);
+  return next;
+}
+
 function list(limit = 100) {
   return read().slice(-Math.max(1, Math.min(Number(limit) || 100, 1000))).reverse();
 }
@@ -54,4 +79,4 @@ function stats() {
   };
 }
 
-module.exports = { enqueue, list, stats };
+module.exports = { enqueue, updateJob, transition, claimNext, list, stats };
