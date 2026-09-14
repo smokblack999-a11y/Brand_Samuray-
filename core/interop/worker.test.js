@@ -4,16 +4,19 @@ const assert = require("node:assert/strict");
 const test = require("node:test");
 const { processJob } = require("./worker");
 
-test("worker moves valid evidence to CRITIC_REVIEW", async () => {
+test("worker records strong log evidence but blocks patching without reproduction", async () => {
   const transitions = [];
   const result = await processJob({ id: "job-1", workflowRunId: 123 }, {
     diagnose: async () => ({
       workflowRunId: 123,
-      failedJobs: [{ id: 1, name: "unit-tests", failedSteps: [{ name: "npm test", number: 2, conclusion: "failure" }] }],
+      failedJobs: [{ id: 1, name: "unit-tests", failedSteps: [{ name: "npm test", number: 2, conclusion: "failure" }], evidence: { excerpts: [{ line: 20, text: "AssertionError: expected 1 to equal 2" }] } }],
       category: "test_failure",
-      confidence: "medium",
-      source: "github-actions-jobs",
-      evidenceOnly: true
+      confidence: "high",
+      source: "github-actions-job-logs",
+      evidenceOnly: true,
+      credentialsRedacted: true,
+      reproduction: false,
+      causality: false
     }),
     transition: (id, stage, patch) => {
       transitions.push({ id, stage, patch });
@@ -21,6 +24,10 @@ test("worker moves valid evidence to CRITIC_REVIEW", async () => {
     }
   });
   assert.equal(result.stage, "CRITIC_REVIEW");
+  assert.equal(result.critic.passed, false);
+  assert.equal(result.critic.readyForPatchCandidate, true);
+  assert.equal(result.critic.gates.reproduction, false);
+  assert.equal(result.critic.gates.causality, false);
   assert.deepEqual(transitions.map(x => x.stage), ["DIAGNOSING", "CRITIC_REVIEW"]);
 });
 
