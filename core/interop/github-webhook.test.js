@@ -61,7 +61,7 @@ test("deduplicates the same GitHub delivery", () => {
   assert.equal(first.accepted, true);
   assert.equal(first.enqueued, true);
   assert.equal(second.enqueued, false);
-  assert.equal(list(10).length, 2);
+  assert.equal(list(10).length, 1);
 });
 
 test("ignores successful workflow_run events", () => {
