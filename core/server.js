@@ -8,11 +8,14 @@ const { generateReply, checkOpenAI } = require("./openai");
 const { sendBusinessMessage } = require("./business-bot");
 const { saveLead, claimEvent, updateLead, listLeads, stats } = require("./store");
 const { createRateLimiter } = require("./rate-limit");
+const { verifySignature, handleWorkflowRun } = require("./interop/github-webhook");
+const { list: listInteropJobs, stats: interopStats } = require("./interop/store");
 
 const app = express();
 const PORT = Number(process.env.PORT || 8787);
 const API_KEY = String(process.env.CORE_API_KEY || "").trim();
 const WEBHOOK_SECRET = String(process.env.TELEGRAM_WEBHOOK_SECRET || "").trim();
+const GITHUB_WEBHOOK_SECRET = String(process.env.GITHUB_WEBHOOK_SECRET || "").trim();
 const MAX_MESSAGE_CHARS = Math.max(100, Math.min(Number(process.env.MAX_MESSAGE_CHARS || 4000), 10000));
 const CORS_ORIGIN = String(process.env.CORS_ORIGIN || "").trim();
 const REQUEST_TIMEOUT_MS = Math.max(5000, Number(process.env.REQUEST_TIMEOUT_MS || 30000));
@@ -23,13 +26,13 @@ if (process.env.NODE_ENV === "production") {
   const missing = [];
   if (!API_KEY) missing.push("CORE_API_KEY");
   if (!WEBHOOK_SECRET) missing.push("TELEGRAM_WEBHOOK_SECRET");
+  if (!GITHUB_WEBHOOK_SECRET) missing.push("GITHUB_WEBHOOK_SECRET");
   if (missing.length) throw new Error(`Production startup blocked: missing ${missing.join(", ")}`);
 }
 
 app.disable("x-powered-by");
 app.set("trust proxy", process.env.TRUST_PROXY === "true" ? 1 : false);
 app.use(cors(CORS_ORIGIN ? { origin: CORS_ORIGIN } : { origin: false }));
-app.use(express.json({ limit: "256kb" }));
 
 function errorBody(code, message, requestId) {
   return { ok: false, error: { code, message, requestId } };
@@ -66,13 +69,35 @@ app.use((req, res, next) => {
   next();
 });
 
+// GitHub signs the exact request bytes. Keep this route before express.json().
+app.post("/api/github/webhook", express.raw({ type: "application/json", limit: "256kb" }), (req, res) => {
+  if (!GITHUB_WEBHOOK_SECRET) return res.status(503).json(errorBody("GITHUB_WEBHOOK_NOT_CONFIGURED", "GitHub webhook authentication is not configured", req.requestId));
+  if (!verifySignature(GITHUB_WEBHOOK_SECRET, req.body, req.get("X-Hub-Signature-256"))) {
+    return res.status(401).json(errorBody("INVALID_GITHUB_SIGNATURE", "Invalid GitHub webhook signature", req.requestId));
+  }
+
+  const event = req.get("X-GitHub-Event");
+  if (event !== "workflow_run") return res.status(202).json({ ok: true, accepted: false, reason: "unsupported_event", requestId: req.requestId });
+
+  try {
+    const payload = JSON.parse(req.body.toString("utf8"));
+    const result = handleWorkflowRun(payload, req.get("X-GitHub-Delivery"));
+    return res.status(202).json({ ok: true, ...result, requestId: req.requestId });
+  } catch (error) {
+    console.error(JSON.stringify({ event: "github_webhook_error", requestId: req.requestId, error: error.message }));
+    return res.status(400).json(errorBody("INVALID_GITHUB_PAYLOAD", "Invalid GitHub webhook payload", req.requestId));
+  }
+});
+
+app.use(express.json({ limit: "256kb" }));
+
 const leadRateLimit = createRateLimiter({ windowMs: LEAD_RATE_LIMIT_WINDOW_MS, max: LEAD_RATE_LIMIT_MAX });
 
 app.get("/health", (_req, res) => res.json({ ok: true, service: "SamuraiOS Core", version: "2.7.0" }));
 app.get("/ready", (req, res) => {
   try {
     const current = stats();
-    const ready = Boolean(API_KEY && WEBHOOK_SECRET && current && Number.isFinite(current.total));
+    const ready = Boolean(API_KEY && WEBHOOK_SECRET && GITHUB_WEBHOOK_SECRET && current && Number.isFinite(current.total));
     return res.status(ready ? 200 : 503).json({ ok: ready, service: "SamuraiOS Core", ready, requestId: req.requestId });
   } catch (_error) {
     return res.status(503).json(errorBody("NOT_READY", "Service is not ready", req.requestId));
@@ -90,6 +115,8 @@ app.get("/health/openai", requireApiKey, async (req, res) => {
 });
 app.get("/api/leads", requireApiKey, (req, res) => res.json({ ok: true, leads: listLeads(req.query.limit), requestId: req.requestId }));
 app.get("/api/stats", requireApiKey, (req, res) => res.json({ ok: true, stats: stats(), requestId: req.requestId }));
+app.get("/api/interop/jobs", requireApiKey, (req, res) => res.json({ ok: true, jobs: listInteropJobs(req.query.limit), requestId: req.requestId }));
+app.get("/api/interop/stats", requireApiKey, (req, res) => res.json({ ok: true, stats: interopStats(), requestId: req.requestId }));
 
 async function analyze(message, business) {
   const text = String(message || "").trim();
