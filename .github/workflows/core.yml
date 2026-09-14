@@ -63,9 +63,12 @@ jobs:
           node --check interop/url-policy.js
           node --check interop/github-webhook.js
           node --check interop/store.js
+          node --check interop/diagnoser.js
+          node --check interop/worker.js
           node --check interop/job-contract.test.js
           node --check interop/url-policy.test.js
           node --check interop/github-webhook.test.js
+          node --check interop/worker.test.js
 
       - name: Unit tests
         run: npm test
