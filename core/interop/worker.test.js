@@ -4,20 +4,24 @@ const assert = require("node:assert/strict");
 const test = require("node:test");
 const { processJob } = require("./worker");
 
-test("worker records strong log evidence but blocks patching without reproduction", async () => {
+function evidence(workflowRunId) {
+  return {
+    workflowRunId,
+    failedJobs: [{ id: 1, name: "unit-tests", failedSteps: [{ name: "npm test", number: 2, conclusion: "failure" }], evidence: { excerpts: [{ line: 20, text: "AssertionError: expected 1 to equal 2" }] } }],
+    category: "test_failure",
+    confidence: "high",
+    source: "github-actions-job-logs",
+    evidenceOnly: true,
+    credentialsRedacted: true,
+    reproduction: false,
+    causality: false
+  };
+}
+
+test("worker records strong log evidence but blocks patching without reproduction proof", async () => {
   const transitions = [];
   const result = await processJob({ id: "job-1", workflowRunId: 123 }, {
-    diagnose: async () => ({
-      workflowRunId: 123,
-      failedJobs: [{ id: 1, name: "unit-tests", failedSteps: [{ name: "npm test", number: 2, conclusion: "failure" }], evidence: { excerpts: [{ line: 20, text: "AssertionError: expected 1 to equal 2" }] } }],
-      category: "test_failure",
-      confidence: "high",
-      source: "github-actions-job-logs",
-      evidenceOnly: true,
-      credentialsRedacted: true,
-      reproduction: false,
-      causality: false
-    }),
+    diagnose: async () => evidence(123),
     transition: (id, stage, patch) => {
       transitions.push({ id, stage, patch });
       return { id, stage, ...patch };
@@ -29,25 +33,18 @@ test("worker records strong log evidence but blocks patching without reproductio
   assert.equal(result.critic.gates.reproduction, false);
   assert.equal(result.critic.gates.causality, false);
   assert.equal(result.repairPlan.patchCandidateAllowed, false);
+  assert.deepEqual(result.reproductionPlan.command, ["npm", "test"]);
   assert.deepEqual(transitions.map(x => x.stage), ["DIAGNOSING", "CRITIC_REVIEW"]);
 });
 
-test("worker exposes a patch candidate only after reproduction and causality", async () => {
+test("worker accepts patch readiness only from explicit reproduction proof", async () => {
   const result = await processJob({ id: "job-verified-evidence", workflowRunId: 456 }, {
-    diagnose: async () => ({
-      workflowRunId: 456,
-      failedJobs: [{ id: 2, name: "tests", evidence: { excerpts: [{ line: 4, text: "AssertionError: expected true" }] } }],
-      category: "test_failure",
-      confidence: "high",
-      evidenceOnly: true,
-      credentialsRedacted: true,
-      reproduction: true,
-      causality: true
-    }),
+    diagnose: async () => evidence(456),
+    reproductionProof: { reproduction: true, causality: true },
     transition: (id, stage, patch) => ({ id, stage, ...patch })
   });
   assert.equal(result.critic.readyForPatchCandidate, true);
-  assert.equal(result.repairPlan.patchCandidateAllowed, true);
+  assert.equal(result.repairPlan.patchCandidateAllowed, false);
   assert.equal(result.repairPlan.automaticWriteAllowed, false);
   assert.equal(result.repairPlan.automaticMergeAllowed, false);
 });
