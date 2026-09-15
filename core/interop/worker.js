@@ -3,13 +3,15 @@
 const { diagnose } = require("./diagnoser");
 const { buildRepairPlan } = require("./repair-plan");
 const { buildPatchCandidate } = require("./patch-candidate");
+const { buildReproductionPlan } = require("./reproduction-gate");
 const { claimNext, transition } = require("./store");
 
-function criticReview(evidence) {
+function criticReview(evidence, reproductionProof = null) {
   const integrity = evidence?.evidenceOnly === true && evidence?.credentialsRedacted === true;
   const concreteEvidence = evidence?.confidence === "high" && Array.isArray(evidence?.failedJobs) && evidence.failedJobs.some(job => job?.evidence?.excerpts?.length > 0);
-  const reproduction = evidence?.reproduction === true;
-  const causality = evidence?.causality === true;
+  const proof = reproductionProof || {};
+  const reproduction = proof.reproduction === true;
+  const causality = proof.causality === true;
   const security = integrity;
   return {
     passed: false,
@@ -24,6 +26,7 @@ async function processJob(job, deps = {}) {
   const runDiagnose = deps.diagnose || diagnose;
   const makeRepairPlan = deps.buildRepairPlan || buildRepairPlan;
   const makePatchCandidate = deps.buildPatchCandidate || buildPatchCandidate;
+  const makeReproductionPlan = deps.buildReproductionPlan || buildReproductionPlan;
   const move = deps.transition || transition;
 
   if (!job.workflowRunId) {
@@ -40,10 +43,11 @@ async function processJob(job, deps = {}) {
       return move(job.id, "STOPPED", { reason: "INVALID_EVIDENCE" });
     }
 
-    const critic = criticReview(evidence);
+    const reproductionPlan = makeReproductionPlan(evidence, deps.reproductionCommand);
+    const critic = criticReview(evidence, deps.reproductionProof);
     const repairPlan = makeRepairPlan(evidence);
     const patchCandidate = makePatchCandidate(evidence, job.changedFiles || []);
-    return move(job.id, "CRITIC_REVIEW", { diagnosis: evidence, critic, repairPlan, patchCandidate });
+    return move(job.id, "CRITIC_REVIEW", { diagnosis: evidence, reproductionPlan, critic, repairPlan, patchCandidate });
   } catch (error) {
     const message = String(error?.message || error);
     if (/GITHUB_TOKEN is required/.test(message)) {
