@@ -33,18 +33,20 @@ test("worker records strong log evidence but blocks patching without reproductio
   assert.equal(result.critic.gates.reproduction, false);
   assert.equal(result.critic.gates.causality, false);
   assert.equal(result.repairPlan.patchCandidateAllowed, false);
+  assert.equal(result.patchCandidate.accepted, false);
   assert.deepEqual(result.reproductionPlan.command, ["npm", "test"]);
   assert.deepEqual(transitions.map(x => x.stage), ["DIAGNOSING", "CRITIC_REVIEW"]);
 });
 
-test("worker accepts patch readiness only from explicit reproduction proof", async () => {
+test("worker accepts patch candidate only from explicit reproduction proof", async () => {
   const result = await processJob({ id: "job-verified-evidence", workflowRunId: 456 }, {
     diagnose: async () => evidence(456),
     reproductionProof: { reproduction: true, causality: true },
     transition: (id, stage, patch) => ({ id, stage, ...patch })
   });
   assert.equal(result.critic.readyForPatchCandidate, true);
-  assert.equal(result.repairPlan.patchCandidateAllowed, false);
+  assert.equal(result.repairPlan.patchCandidateAllowed, true);
+  assert.equal(result.patchCandidate.accepted, true);
   assert.equal(result.repairPlan.automaticWriteAllowed, false);
   assert.equal(result.repairPlan.automaticMergeAllowed, false);
 });
