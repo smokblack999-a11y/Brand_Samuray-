@@ -4,6 +4,7 @@ const DEFAULT_TIMEOUT_MS = 10000;
 const DEFAULT_MAX_JOBS = 50;
 const DEFAULT_MAX_LOG_BYTES = 150000;
 const DEFAULT_MAX_EXCERPTS = 8;
+const SAFE_EXECUTABLES = new Set(["node", "npm", "npx"]);
 
 function repositoryParts(repository) {
   const value = String(repository || "").trim();
@@ -53,6 +54,21 @@ function excerptLines(text, maxExcerpts = DEFAULT_MAX_EXCERPTS) {
   return hits;
 }
 
+function extractCommand(text) {
+  const lines = String(text || "").split(/\r?\n/);
+  for (const raw of lines) {
+    const line = raw.trim().replace(/^\u001b\[[0-9;]*m/g, "");
+    const match = line.match(/^(?:Run|\$)\s+(.+)$/);
+    if (!match) continue;
+    const value = match[1].trim();
+    if (!value || /[;&|`$()<>]/.test(value)) continue;
+    const parts = value.split(/\s+/);
+    if (!SAFE_EXECUTABLES.has(parts[0])) continue;
+    return parts;
+  }
+  return null;
+}
+
 async function githubRequest(url, token, timeoutMs = DEFAULT_TIMEOUT_MS) {
   if (!token) throw new Error("GITHUB_TOKEN is required");
   const controller = new AbortController();
@@ -60,20 +76,13 @@ async function githubRequest(url, token, timeoutMs = DEFAULT_TIMEOUT_MS) {
   try {
     const response = await fetch(url, {
       method: "GET",
-      headers: {
-        Accept: "application/vnd.github+json",
-        Authorization: `Bearer ${token}`,
-        "X-GitHub-Api-Version": "2026-03-10",
-        "User-Agent": "SAMURAI-INTEROP"
-      },
+      headers: { Accept: "application/vnd.github+json", Authorization: `Bearer ${token}`, "X-GitHub-Api-Version": "2026-03-10", "User-Agent": "SAMURAI-INTEROP" },
       signal: controller.signal
     });
     const body = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(`GitHub API ${response.status}`);
     return body;
-  } finally {
-    clearTimeout(timer);
-  }
+  } finally { clearTimeout(timer); }
 }
 
 async function githubLogRequest(url, token, timeoutMs = DEFAULT_TIMEOUT_MS, maxBytes = DEFAULT_MAX_LOG_BYTES) {
@@ -83,26 +92,17 @@ async function githubLogRequest(url, token, timeoutMs = DEFAULT_TIMEOUT_MS, maxB
   try {
     const response = await fetch(url, {
       method: "GET",
-      headers: {
-        Accept: "application/vnd.github+json",
-        Authorization: `Bearer ${token}`,
-        "X-GitHub-Api-Version": "2026-03-10",
-        "User-Agent": "SAMURAI-INTEROP"
-      },
+      headers: { Accept: "application/vnd.github+json", Authorization: `Bearer ${token}`, "X-GitHub-Api-Version": "2026-03-10", "User-Agent": "SAMURAI-INTEROP" },
       signal: controller.signal
     });
     if (!response.ok) throw new Error(`GitHub API ${response.status}`);
-    const text = await response.text();
-    return text.slice(0, maxBytes);
-  } finally {
-    clearTimeout(timer);
-  }
+    return (await response.text()).slice(0, maxBytes);
+  } finally { clearTimeout(timer); }
 }
 
 async function diagnose(job, options = {}) {
   if (!job || !job.repository) throw new TypeError("job.repository is required");
   if (!job.workflowRunId) throw new TypeError("job.workflowRunId is required");
-
   const { owner, repo } = repositoryParts(job.repository);
   const token = options.token || process.env.GITHUB_APP_INSTALLATION_TOKEN || process.env.GITHUB_TOKEN;
   const maxJobs = Math.max(1, Math.min(Number(options.maxJobs) || DEFAULT_MAX_JOBS, 100));
@@ -121,36 +121,24 @@ async function diagnose(job, options = {}) {
       : [];
     let log = "";
     let logError = null;
-    try {
-      log = await githubLogRequest(`${base}/jobs/${encodeURIComponent(item.id)}/logs`, token, timeoutMs, maxLogBytes);
-    } catch (error) {
-      logError = String(error?.message || error).slice(0, 200);
-    }
+    try { log = await githubLogRequest(`${base}/jobs/${encodeURIComponent(item.id)}/logs`, token, timeoutMs, maxLogBytes); }
+    catch (error) { logError = String(error?.message || error).slice(0, 200); }
     const excerpts = excerptLines(log, maxExcerpts);
     const logCategory = classify(log);
     const stepCategory = classify([item.name, ...failedSteps.map(step => step.name)].join(" "));
     const category = logCategory !== "generic" ? logCategory : stepCategory;
-    failedJobs.push({
-      id: item.id,
-      name: item.name,
-      conclusion: item.conclusion,
-      failedSteps,
-      evidence: {
-        source: log ? "github-actions-job-log" : "github-actions-job-metadata",
-        category,
-        excerpts,
-        logTruncated: log.length >= maxLogBytes,
-        logError
-      }
-    });
+    const command = extractCommand(log);
+    failedJobs.push({ id: item.id, name: item.name, conclusion: item.conclusion, failedSteps, command, evidence: { source: log ? "github-actions-job-log" : "github-actions-job-metadata", category, excerpts, logTruncated: log.length >= maxLogBytes, logError } });
   }
 
   const concrete = failedJobs.filter(item => item.evidence.excerpts.length > 0 && item.evidence.category !== "generic");
+  const firstCommand = failedJobs.find(item => Array.isArray(item.command) && item.command.length)?.command || null;
   const category = concrete[0]?.evidence.category || failedJobs.find(item => item.evidence.category !== "generic")?.evidence.category || "generic";
   return {
     workflowRunId: Number(job.workflowRunId),
     failedJobs,
     category,
+    command: firstCommand,
     confidence: concrete.length ? "high" : (failedJobs.some(item => item.failedSteps.length) ? "medium" : "low"),
     source: "github-actions-job-logs",
     evidenceOnly: true,
@@ -160,4 +148,4 @@ async function diagnose(job, options = {}) {
   };
 }
 
-module.exports = { diagnose, classify, redact, excerptLines, repositoryParts };
+module.exports = { diagnose, classify, redact, excerptLines, extractCommand, repositoryParts };
