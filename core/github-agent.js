@@ -19,14 +19,16 @@ function write(rows) {
   fs.writeFileSync(tmp, JSON.stringify(rows, null, 2) + "\n");
   fs.renameSync(tmp, FILE);
 }
-function idFor(payload) {
+function idFor(payload, deliveryId) {
+  if (deliveryId) return `delivery:${String(deliveryId)}`;
   const raw = [payload?.repository?.full_name, payload?.workflow_run?.id, payload?.workflow_run?.run_attempt, payload?.action].join(":");
   return crypto.createHash("sha256").update(raw).digest("hex");
 }
-function normalize(payload) {
+function normalize(payload, deliveryId) {
   const run = payload?.workflow_run || {};
   return {
-    eventId: idFor(payload),
+    eventId: idFor(payload, deliveryId),
+    deliveryId: String(deliveryId || ""),
     action: String(payload?.action || ""),
     repository: String(payload?.repository?.full_name || ""),
     workflow: String(run?.name || ""),
@@ -40,12 +42,12 @@ function normalize(payload) {
     receivedAt: new Date().toISOString()
   };
 }
-function ingestWorkflowRun(payload) {
-  const job = normalize(payload);
+function ingestWorkflowRun(payload, deliveryId) {
+  const job = normalize(payload, deliveryId);
   if (!job.repository || !job.runId) throw new Error("Invalid workflow_run payload");
   if (job.action !== "completed" || job.conclusion !== "failure") return { accepted: false, reason: "not_a_failed_completed_run", job };
   const rows = read();
-  const existing = rows.find(x => x.eventId === job.eventId);
+  const existing = rows.find(x => x.eventId === job.eventId || (job.runId && x.runId === job.runId && x.runAttempt === job.runAttempt && x.action === job.action));
   if (existing) return { accepted: false, duplicate: true, job: existing };
   const item = {
     id: crypto.randomUUID(),
