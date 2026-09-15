@@ -25,10 +25,31 @@ test("worker records strong log evidence but blocks patching without reproductio
   });
   assert.equal(result.stage, "CRITIC_REVIEW");
   assert.equal(result.critic.passed, false);
-  assert.equal(result.critic.readyForPatchCandidate, true);
+  assert.equal(result.critic.readyForPatchCandidate, false);
   assert.equal(result.critic.gates.reproduction, false);
   assert.equal(result.critic.gates.causality, false);
+  assert.equal(result.repairPlan.patchCandidateAllowed, false);
   assert.deepEqual(transitions.map(x => x.stage), ["DIAGNOSING", "CRITIC_REVIEW"]);
+});
+
+test("worker exposes a patch candidate only after reproduction and causality", async () => {
+  const result = await processJob({ id: "job-verified-evidence", workflowRunId: 456 }, {
+    diagnose: async () => ({
+      workflowRunId: 456,
+      failedJobs: [{ id: 2, name: "tests", evidence: { excerpts: [{ line: 4, text: "AssertionError: expected true" }] } }],
+      category: "test_failure",
+      confidence: "high",
+      evidenceOnly: true,
+      credentialsRedacted: true,
+      reproduction: true,
+      causality: true
+    }),
+    transition: (id, stage, patch) => ({ id, stage, ...patch })
+  });
+  assert.equal(result.critic.readyForPatchCandidate, true);
+  assert.equal(result.repairPlan.patchCandidateAllowed, true);
+  assert.equal(result.repairPlan.automaticWriteAllowed, false);
+  assert.equal(result.repairPlan.automaticMergeAllowed, false);
 });
 
 test("worker refuses jobs without workflow run evidence", async () => {
