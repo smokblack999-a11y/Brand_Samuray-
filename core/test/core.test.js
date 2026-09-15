@@ -56,7 +56,7 @@ test('health endpoint', async () => {
   const body = await r.json();
   assert.equal(body.ok, true);
   assert.equal(body.service, 'SamuraiOS Core');
-  assert.equal(body.version, '2.6.0');
+  assert.equal(body.version, '2.8.0-x10think');
 });
 
 test('readiness endpoint verifies critical configuration', async () => {
@@ -103,14 +103,18 @@ test('message length is bounded before scoring or AI', async () => {
   });
   assert.equal(r.status, 400);
   const body = await r.json();
-  assert.match(body.error, /максимум 4000/);
+  assert.equal(body.error.code, 'MESSAGE_TOO_LONG');
+  assert.match(body.error.message, /максимум 4000/);
+  assert.ok(body.error.requestId);
 });
 
 test('OpenAI health reports unconfigured without exposing secrets', async () => {
   const r = await api('/health/openai');
   assert.equal(r.status, 503);
   const body = await r.json();
-  assert.equal(body.configured, false);
+  assert.equal(body.ok, false);
+  assert.equal(body.error.code, 'OPENAI_NOT_CONFIGURED');
+  assert.match(body.error.message, /OpenAI is not configured/);
   assert.equal('apiKey' in body, false);
 });
 
