@@ -1,17 +1,17 @@
 "use strict";
 
-const PLAN_VERSION = 1;
-const DEFAULT_COMMANDS = Object.freeze({
-  dependency_error: ["npm", "install", "--ignore-scripts"],
-  test_failure: ["npm", "test"],
-  syntax_error: ["node", "--check", "core/server.js"],
-  timeout: ["npm", "test"],
-  generic: ["npm", "test"]
-});
+const PLAN_VERSION = 2;
 
-function commandFor(category, command) {
-  if (Array.isArray(command) && command.length) return command.map(String);
-  return [...(DEFAULT_COMMANDS[category] || DEFAULT_COMMANDS.generic)];
+function commandFor(category, command, evidenceCommand) {
+  const selected = Array.isArray(command) && command.length
+    ? command
+    : Array.isArray(evidenceCommand) && evidenceCommand.length
+      ? evidenceCommand
+      : null;
+  if (!selected) {
+    throw new TypeError(`exact reproduction command required for ${category || "generic"}`);
+  }
+  return selected.map(String);
 }
 
 function buildReproductionPlan(evidence, command) {
@@ -22,9 +22,9 @@ function buildReproductionPlan(evidence, command) {
     version: PLAN_VERSION,
     workflowRunId: Number(evidence.workflowRunId),
     category,
-    command: commandFor(category, command),
+    command: commandFor(category, command, evidence.command),
     required: ["baselineFailure", "patchedVerification"],
-    rule: "same-command-baseline-must-fail-and-patched-run-must-pass"
+    rule: "exact-command-baseline-must-fail-and-patched-run-must-pass"
   };
 }
 
@@ -40,8 +40,8 @@ function evaluateReproduction(plan, baseline, patched) {
     causality,
     passed: causality,
     gates: { isolatedBaseline: baseline?.isolated === true, baselineFailure, patchedPass, sameCommand, categoryMatch },
-    rule: "reproduction-gate-v1"
+    rule: "reproduction-gate-v2"
   };
 }
 
-module.exports = { PLAN_VERSION, DEFAULT_COMMANDS, commandFor, buildReproductionPlan, evaluateReproduction };
+module.exports = { PLAN_VERSION, commandFor, buildReproductionPlan, evaluateReproduction };
