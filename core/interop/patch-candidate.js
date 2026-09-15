@@ -24,6 +24,31 @@ const SAFE_FIXES = [
   }
 ];
 
+function validatePatchPath(value) {
+  const path = String(value || "").trim();
+  if (!path || path === "/" || path.includes("\\") || path.startsWith("/") || /(^|\/)\.\.(\/|$)/.test(path)) {
+    throw new Error("UNSAFE_PATCH_PATH");
+  }
+  return path;
+}
+
+function validateUnifiedDiff(patch) {
+  const diff = String(patch || "");
+  if (!diff) throw new TypeError("patch diff is required");
+  if (Buffer.byteLength(diff, "utf8") > MAX_PATCH_BYTES) throw new Error("PATCH_TOO_LARGE");
+  if (/\0|(?:^|\n)GIT binary patch(?:\n|$)/.test(diff)) throw new Error("BINARY_PATCH_NOT_ALLOWED");
+
+  const fileHeaders = [...diff.matchAll(/^(?:---|\+\+\+) (.+)$/gm)].map(match => match[1].trim().split(/\s+/)[0]);
+  if (!fileHeaders.length || fileHeaders.length % 2 !== 0) throw new Error("INVALID_UNIFIED_DIFF_HEADERS");
+  for (const header of fileHeaders) {
+    if (header === "/dev/null") continue;
+    const normalized = header.replace(/^[ab]\//, "");
+    validatePatchPath(normalized);
+  }
+  if (!/^@@\s+.*@@/m.test(diff)) throw new Error("INVALID_UNIFIED_DIFF_HUNK");
+  return { diff, files: Array.from(new Set(fileHeaders.filter(file => file !== "/dev/null").map(file => file.replace(/^[ab]\//, "")))) };
+}
+
 function buildPatchCandidate(diagnosis, changedFiles = []) {
   if (!diagnosis || diagnosis.evidenceOnly !== true) {
     return { accepted: false, reason: "DIAGNOSIS_NOT_EVIDENCE_ONLY" };
@@ -54,4 +79,4 @@ function buildPatchCandidate(diagnosis, changedFiles = []) {
   return { accepted: true, candidate };
 }
 
-module.exports = { buildPatchCandidate, SAFE_FIXES, MAX_FILES, MAX_PATCH_BYTES };
+module.exports = { buildPatchCandidate, SAFE_FIXES, MAX_FILES, MAX_PATCH_BYTES, validateUnifiedDiff, validatePatchPath };
