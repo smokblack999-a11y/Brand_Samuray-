@@ -45,9 +45,12 @@ async function processJob(job, deps = {}) {
 
     const reproductionPlan = makeReproductionPlan(evidence, deps.reproductionCommand);
     const critic = criticReview(evidence, deps.reproductionProof);
-    const repairPlan = makeRepairPlan(evidence);
-    const patchCandidate = makePatchCandidate(evidence, job.changedFiles || []);
-    return move(job.id, "CRITIC_REVIEW", { diagnosis: evidence, reproductionPlan, critic, repairPlan, patchCandidate });
+    const verifiedEvidence = deps.reproductionProof
+      ? { ...evidence, reproduction: deps.reproductionProof.reproduction === true, causality: deps.reproductionProof.causality === true }
+      : evidence;
+    const repairPlan = makeRepairPlan(verifiedEvidence);
+    const patchCandidate = makePatchCandidate(verifiedEvidence, job.changedFiles || []);
+    return move(job.id, "CRITIC_REVIEW", { diagnosis: verifiedEvidence, reproductionPlan, critic, repairPlan, patchCandidate });
   } catch (error) {
     const message = String(error?.message || error);
     if (/GITHUB_TOKEN is required/.test(message)) {
