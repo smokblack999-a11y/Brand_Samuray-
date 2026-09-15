@@ -7,6 +7,16 @@ const path = require("path");
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, "data");
 const FILE = path.join(DATA_DIR, "github-agent-queue.json");
 const MAX_RETRIES = Math.max(1, Math.min(Number(process.env.GITHUB_AGENT_MAX_RETRIES || 3), 5));
+const TRANSITIONS = {
+  queued: new Set(["diagnosing", "stopped"]),
+  diagnosing: new Set(["diagnosed", "queued", "stopped"]),
+  diagnosed: new Set(["patching", "queued", "stopped"]),
+  patching: new Set(["testing", "queued", "stopped"]),
+  testing: new Set(["pr_open", "verified", "queued", "stopped"]),
+  pr_open: new Set(["verified", "queued", "stopped"]),
+  verified: new Set(),
+  stopped: new Set()
+};
 
 function ensure() {
   fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -49,14 +59,7 @@ function ingestWorkflowRun(payload, deliveryId) {
   const rows = read();
   const existing = rows.find(x => x.eventId === job.eventId || (job.runId && x.runId === job.runId && x.runAttempt === job.runAttempt && x.action === job.action));
   if (existing) return { accepted: false, duplicate: true, job: existing };
-  const item = {
-    id: crypto.randomUUID(),
-    type: "github_ci_failure",
-    state: "queued",
-    retries: 0,
-    maxRetries: MAX_RETRIES,
-    ...job
-  };
+  const item = { id: crypto.randomUUID(), type: "github_ci_failure", state: "queued", retries: 0, maxRetries: MAX_RETRIES, ...job };
   rows.push(item);
   write(rows);
   return { accepted: true, job: item };
@@ -75,6 +78,8 @@ function transition(id, state, patch = {}) {
   const rows = read();
   const index = rows.findIndex(x => x.id === id);
   if (index < 0) throw new Error("GitHub agent job not found");
+  const current = String(rows[index].state || "queued");
+  if (!TRANSITIONS[current]?.has(state)) throw new Error(`Invalid state transition: ${current} -> ${state}`);
   rows[index] = { ...rows[index], ...patch, state, updatedAt: new Date().toISOString() };
   write(rows);
   return rows[index];
@@ -85,11 +90,10 @@ function retry(id, reason) {
   if (index < 0) throw new Error("GitHub agent job not found");
   const item = rows[index];
   item.retries = Number(item.retries || 0) + 1;
-  if (item.retries > item.maxRetries) item.state = "stopped";
-  else item.state = "queued";
+  item.state = item.retries > item.maxRetries ? "stopped" : "queued";
   item.lastError = String(reason || "unknown");
   item.updatedAt = new Date().toISOString();
   write(rows);
   return item;
 }
-module.exports = { ingestWorkflowRun, list, claim, transition, retry, MAX_RETRIES };
+module.exports = { ingestWorkflowRun, list, claim, transition, retry, MAX_RETRIES, TRANSITIONS };
