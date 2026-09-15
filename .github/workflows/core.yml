@@ -57,6 +57,8 @@ jobs:
           node --check x10think.js
           node --check github-agent.js
           node --check github-agent.test.js
+          node --check github-agent-worker.js
+          node --check github-agent-worker.test.js
           node --check scripts/set-webhook.js
           node --check scripts/verify-config.js
       - name: Unit tests
