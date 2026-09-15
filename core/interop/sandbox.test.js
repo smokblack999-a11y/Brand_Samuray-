@@ -18,8 +18,8 @@ test("sandbox rejects shell and traversal commands", () => {
 test("patch contract rejects workflow and secret paths", () => {
   const workflowPatch = "diff --git a/.github/workflows/x.yml b/.github/workflows/x.yml\n--- a/.github/workflows/x.yml\n+++ b/.github/workflows/x.yml\n@@ -1 +1 @@\n-a\n+b\n";
   const secretPatch = "diff --git a/.env b/.env\n--- a/.env\n+++ b/.env\n@@ -1 +1 @@\n-a\n+b\n";
-  assert.throws(() => validateUnifiedDiff(workflowPatch), /forbidden/);
-  assert.throws(() => validateUnifiedDiff(secretPatch), /forbidden/);
+  assert.throws(() => validateUnifiedDiff(workflowPatch), /FORBIDDEN_PATCH_PATH/);
+  assert.throws(() => validateUnifiedDiff(secretPatch), /FORBIDDEN_PATCH_PATH/);
 });
 
 test("patch contract accepts a small source patch", () => {
