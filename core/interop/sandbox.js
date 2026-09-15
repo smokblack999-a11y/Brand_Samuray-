@@ -35,32 +35,41 @@ async function copyWorkspace(source, target) {
   });
 }
 
+async function applyPatch(sandboxDir, patch) {
+  if (!patch) return false;
+  const validated = validateUnifiedDiff(patch);
+  const patchFile = path.join(sandboxDir, ".samurai-patch.diff");
+  try {
+    await fs.writeFile(patchFile, validated.diff, { mode: 0o600 });
+    await execFileAsync("git", ["apply", "--check", "--whitespace=error-all", patchFile], {
+      cwd: sandboxDir,
+      maxBuffer: MAX_OUTPUT_BYTES
+    }).catch(error => {
+      throw new Error(`PATCH_CHECK_FAILED: ${String(error?.stderr || error?.message || error).slice(0, 1000)}`);
+    });
+    await execFileAsync("git", ["apply", "--whitespace=error-all", patchFile], {
+      cwd: sandboxDir,
+      maxBuffer: MAX_OUTPUT_BYTES
+    });
+    return true;
+  } finally {
+    await fs.rm(patchFile, { force: true });
+  }
+}
+
 async function runSandbox(options = {}) {
-  const source = path.resolve(String(options.workspace || ""));
-  if (!source || source === path.parse(source).root) throw new TypeError("workspace is required");
+  const workspaceValue = String(options.workspace || "").trim();
+  if (!workspaceValue) throw new TypeError("workspace is required");
+  const source = path.resolve(workspaceValue);
+  if (source === path.parse(source).root) throw new TypeError("workspace is required");
   const command = validateCommand(options.command || ["npm", "test"]);
   const timeoutMs = Math.max(1000, Math.min(Number(options.timeoutMs) || DEFAULT_TIMEOUT_MS, DEFAULT_TIMEOUT_MS));
-  const patch = options.patch ? validateUnifiedDiff(options.patch) : null;
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "samurai-sandbox-"));
   const sandboxDir = path.join(tempRoot, "workspace");
 
   try {
     await copyWorkspace(source, sandboxDir);
-    if (patch) {
-      await execFileAsync("git", ["apply", "--check", "--whitespace=error-all", "-"], {
-        cwd: sandboxDir,
-        input: patch.diff,
-        maxBuffer: MAX_OUTPUT_BYTES
-      }).catch(error => {
-        throw new Error(`PATCH_CHECK_FAILED: ${String(error?.stderr || error?.message || error).slice(0, 1000)}`);
-      });
-      await execFileAsync("git", ["apply", "--whitespace=error-all", "-"], {
-        cwd: sandboxDir,
-        input: patch.diff,
-        maxBuffer: MAX_OUTPUT_BYTES
-      });
-    }
-
+    const patchApplied = await applyPatch(sandboxDir, options.patch || null);
     const result = await execFileAsync(command[0], command.slice(1), {
       cwd: sandboxDir,
       timeout: timeoutMs,
@@ -78,7 +87,7 @@ async function runSandbox(options = {}) {
     return {
       verified: result.ok,
       command,
-      patchApplied: Boolean(patch),
+      patchApplied,
       isolated: true,
       networkPolicy: "process-level network access not guaranteed; production runner must enforce OS/container egress policy",
       result
@@ -88,4 +97,4 @@ async function runSandbox(options = {}) {
   }
 }
 
-module.exports = { runSandbox, validateCommand, commandParts };
+module.exports = { runSandbox, validateCommand, commandParts, applyPatch };
