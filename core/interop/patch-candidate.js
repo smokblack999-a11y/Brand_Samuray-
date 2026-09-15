@@ -29,6 +29,9 @@ function validatePatchPath(value) {
   if (!path || path === "/" || path.includes("\\") || path.startsWith("/") || /(^|\/)\.\.(\/|$)/.test(path)) {
     throw new Error("UNSAFE_PATCH_PATH");
   }
+  if (path === ".env" || path.startsWith(".env.") || path.startsWith(".github/workflows/")) {
+    throw new Error("FORBIDDEN_PATCH_PATH");
+  }
   return path;
 }
 
@@ -46,7 +49,11 @@ function validateUnifiedDiff(patch) {
     validatePatchPath(normalized);
   }
   if (!/^@@\s+.*@@/m.test(diff)) throw new Error("INVALID_UNIFIED_DIFF_HUNK");
-  return { diff, files: Array.from(new Set(fileHeaders.filter(file => file !== "/dev/null").map(file => file.replace(/^[ab]\//, "")))) };
+  return {
+    version: 1,
+    diff,
+    files: Array.from(new Set(fileHeaders.filter(file => file !== "/dev/null").map(file => file.replace(/^[ab]\//, ""))))
+  };
 }
 
 function buildPatchCandidate(diagnosis, changedFiles = []) {
