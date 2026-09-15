@@ -1,6 +1,7 @@
 "use strict";
 
 const { diagnose } = require("./diagnoser");
+const { buildRepairPlan } = require("./repair-plan");
 const { claimNext, transition } = require("./store");
 
 function criticReview(evidence) {
@@ -11,7 +12,7 @@ function criticReview(evidence) {
   const security = integrity;
   return {
     passed: false,
-    readyForPatchCandidate: Boolean(integrity && concreteEvidence),
+    readyForPatchCandidate: Boolean(integrity && concreteEvidence && reproduction && causality),
     gates: { evidenceIntegrity: integrity, concreteEvidence, reproduction, causality, minimalPatch: false, regression: false, security },
     rule: "kill-critic-v2"
   };
@@ -20,6 +21,7 @@ function criticReview(evidence) {
 async function processJob(job, deps = {}) {
   if (!job) return null;
   const runDiagnose = deps.diagnose || diagnose;
+  const makeRepairPlan = deps.buildRepairPlan || buildRepairPlan;
   const move = deps.transition || transition;
 
   if (!job.workflowRunId) {
@@ -37,7 +39,8 @@ async function processJob(job, deps = {}) {
     }
 
     const critic = criticReview(evidence);
-    return move(job.id, "CRITIC_REVIEW", { diagnosis: evidence, critic });
+    const repairPlan = makeRepairPlan(evidence);
+    return move(job.id, "CRITIC_REVIEW", { diagnosis: evidence, critic, repairPlan });
   } catch (error) {
     const message = String(error?.message || error);
     if (/GITHUB_TOKEN is required/.test(message)) {
