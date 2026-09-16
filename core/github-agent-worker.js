@@ -12,6 +12,12 @@ function requiredToken() {
   return token;
 }
 
+function repoPath(repository) {
+  const parts = String(repository || "").split("/");
+  if (parts.length !== 2 || !parts[0] || !parts[1]) throw new Error("Invalid GitHub repository name");
+  return parts.map(encodeURIComponent).join("/");
+}
+
 async function githubJson(url) {
   const response = await fetch(url, {
     headers: {
@@ -27,20 +33,22 @@ async function githubJson(url) {
 }
 
 async function getFailureEvidence(job) {
-  const run = await githubJson(`${API}/repos/${encodeURIComponent(job.repository)}/actions/runs/${job.runId}`);
-  const jobs = await githubJson(`${API}/repos/${encodeURIComponent(job.repository)}/actions/runs/${job.runId}/jobs?per_page=100`);
+  const repo = repoPath(job.repository);
+  const run = await githubJson(`${API}/repos/${repo}/actions/runs/${encodeURIComponent(job.runId)}`);
+  const jobs = await githubJson(`${API}/repos/${repo}/actions/runs/${encodeURIComponent(job.runId)}/jobs?per_page=100`);
   const failedJobs = (jobs.jobs || []).filter(item => item.conclusion === "failure" || item.status === "failure");
   const evidenceJobs = [];
   for (const failed of failedJobs.slice(0, 5)) {
     let logs = "";
     try {
-      logs = await fetch(`${API}/repos/${encodeURIComponent(job.repository)}/actions/jobs/${failed.id}/logs`, {
+      logs = await fetch(`${API}/repos/${repo}/actions/jobs/${failed.id}/logs`, {
         headers: {
           Accept: "application/vnd.github+json",
           Authorization: `Bearer ${requiredToken()}`,
           "X-GitHub-Api-Version": "2022-11-28",
           "User-Agent": "SamuraiOS-X18-Agent"
-        }
+        },
+        redirect: "follow"
       }).then(async response => {
         if (!response.ok) return `Unable to fetch logs: HTTP ${response.status}`;
         return (await response.text()).slice(-MAX_LOG_CHARS);
@@ -78,17 +86,37 @@ function buildTask(job, evidence) {
   return [
     "You are the engineering diagnosis layer of SamuraiOS X18.",
     "Diagnose one failed GitHub Actions run using ONLY the supplied evidence.",
+    "Do not invent files, APIs, stack traces, test results, repository contents, or executed actions.",
     "Do not claim that a file was edited, a command was executed, a test passed, or a commit/PR exists unless the evidence explicitly proves it.",
     "Identify the smallest defensible root cause and the minimum safe repair plan.",
     "Do not recommend pushing directly to main. Any repair must use a separate branch and pass CI before merge.",
-    "Return a concise JSON object with exactly these keys:",
+    "Return ONLY one JSON object with exactly these keys:",
     '{"root_cause":"","confidence":0,"affected_files":[],"repair_steps":[],"tests_to_run":[],"blockers":[],"patch_ready":false}',
     "confidence must be 0..1; patch_ready=true only when the evidence is sufficient to specify an exact patch without guessing.",
+    "If evidence is insufficient, set blockers and patch_ready=false.",
     "GITHUB JOB:",
     JSON.stringify(job, null, 2),
     "FAILURE EVIDENCE:",
     JSON.stringify(evidence, null, 2)
   ].join("\n\n");
+}
+
+function parseDiagnosis(text) {
+  const raw = String(text || "").trim();
+  const fenced = raw.match(/```json\s*([\s\S]*?)\s*```/i);
+  const candidate = fenced ? fenced[1] : raw;
+  const start = candidate.indexOf("{");
+  const end = candidate.lastIndexOf("}");
+  if (start < 0 || end <= start) throw new Error("X10THINK diagnosis is not valid JSON");
+  const parsed = JSON.parse(candidate.slice(start, end + 1));
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("X10THINK diagnosis must be an object");
+  const arrays = ["affected_files", "repair_steps", "tests_to_run", "blockers"];
+  for (const key of arrays) if (!Array.isArray(parsed[key])) throw new Error(`X10THINK diagnosis field ${key} must be an array`);
+  if (typeof parsed.root_cause !== "string") throw new Error("X10THINK diagnosis root_cause must be a string");
+  if (typeof parsed.patch_ready !== "boolean") throw new Error("X10THINK diagnosis patch_ready must be boolean");
+  const confidence = Number(parsed.confidence);
+  if (!Number.isFinite(confidence) || confidence < 0 || confidence > 1) throw new Error("X10THINK diagnosis confidence must be 0..1");
+  return { ...parsed, confidence };
 }
 
 async function processNext({ evidenceProvider = getFailureEvidence, ai = runDualAI } = {}) {
@@ -98,22 +126,17 @@ async function processNext({ evidenceProvider = getFailureEvidence, ai = runDual
   try {
     const evidence = await evidenceProvider(job);
     const result = await ai(buildTask(job, evidence), { maxRounds: 3 });
-    const diagnosis = {
+    if (result.status !== "verified") throw new Error("X10THINK did not verify diagnosis");
+    const diagnosis = parseDiagnosis(result.finalAnswer);
+    const safeToPatch = diagnosis.patch_ready === true && diagnosis.blockers.length === 0 && diagnosis.confidence >= 0.7;
+    const storedDiagnosis = {
       evidence,
-      status: result.status,
-      confidence: result.confidence,
-      issues: result.issues,
-      finalAnswer: result.finalAnswer,
+      diagnosis,
+      aiConfidence: Number(result.confidence) || diagnosis.confidence,
       analyzedAt: new Date().toISOString()
     };
-
-    if (result.status !== "verified") {
-      githubAgent.transition(job.id, "queued", { diagnosis, lastError: "X10THINK did not verify diagnosis" });
-      return { processed: true, state: "queued", jobId: job.id, diagnosis };
-    }
-
-    githubAgent.transition(job.id, "diagnosed", { diagnosis });
-    return { processed: true, state: "diagnosed", jobId: job.id, diagnosis };
+    githubAgent.transition(job.id, "diagnosed", { diagnosis: storedDiagnosis });
+    return { processed: true, state: "diagnosed", safeToPatch, jobId: job.id, diagnosis: storedDiagnosis };
   } catch (error) {
     try {
       githubAgent.retry(job.id, error.message);
@@ -136,4 +159,4 @@ if (require.main === module) {
     });
 }
 
-module.exports = { processNext, getFailureEvidence, buildTask };
+module.exports = { processNext, getFailureEvidence, buildTask, parseDiagnosis };
