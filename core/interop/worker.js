@@ -4,6 +4,7 @@ const { diagnose } = require("./diagnoser");
 const { buildRepairPlan } = require("./repair-plan");
 const { buildPatchCandidate } = require("./patch-candidate");
 const { buildReproductionPlan } = require("./reproduction-gate");
+const { runReproduction } = require("./reproduction-runner");
 const { claimNext, transition } = require("./store");
 
 function criticReview(evidence, reproductionProof = null) {
@@ -27,6 +28,7 @@ async function processJob(job, deps = {}) {
   const makeRepairPlan = deps.buildRepairPlan || buildRepairPlan;
   const makePatchCandidate = deps.buildPatchCandidate || buildPatchCandidate;
   const makeReproductionPlan = deps.buildReproductionPlan || buildReproductionPlan;
+  const executeReproduction = deps.runReproduction || runReproduction;
   const move = deps.transition || transition;
 
   if (!job.workflowRunId) {
@@ -44,13 +46,23 @@ async function processJob(job, deps = {}) {
     }
 
     const reproductionPlan = makeReproductionPlan(evidence, deps.reproductionCommand);
-    const critic = criticReview(evidence, deps.reproductionProof);
-    const verifiedEvidence = deps.reproductionProof
-      ? { ...evidence, reproduction: deps.reproductionProof.reproduction === true, causality: deps.reproductionProof.causality === true }
+    let reproductionProof = null;
+    if (deps.workspace && deps.patch) {
+      reproductionProof = await executeReproduction({
+        workspace: deps.workspace,
+        plan: reproductionPlan,
+        patch: deps.patch,
+        timeoutMs: deps.reproductionTimeoutMs
+      });
+    }
+
+    const critic = criticReview(evidence, reproductionProof);
+    const verifiedEvidence = reproductionProof
+      ? { ...evidence, reproduction: reproductionProof.reproduction === true, causality: reproductionProof.causality === true }
       : evidence;
     const repairPlan = makeRepairPlan(verifiedEvidence);
     const patchCandidate = makePatchCandidate(verifiedEvidence, job.changedFiles || []);
-    return move(job.id, "CRITIC_REVIEW", { diagnosis: verifiedEvidence, reproductionPlan, critic, repairPlan, patchCandidate });
+    return move(job.id, "CRITIC_REVIEW", { diagnosis: verifiedEvidence, reproductionPlan, reproductionProof, critic, repairPlan, patchCandidate });
   } catch (error) {
     const message = String(error?.message || error);
     if (/GITHUB_TOKEN is required/.test(message)) {
