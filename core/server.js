@@ -33,7 +33,10 @@ if (process.env.NODE_ENV === "production") {
 app.disable("x-powered-by");
 app.set("trust proxy", process.env.TRUST_PROXY === "true" ? 1 : false);
 app.use(cors(CORS_ORIGIN ? { origin: CORS_ORIGIN } : { origin: false }));
-app.use(express.json({ limit: "256kb" }));
+app.use(express.json({
+  limit: "256kb",
+  verify: (req, _res, buf) => { req.rawBody = Buffer.from(buf); }
+}));
 
 function errorBody(code, message, requestId) { return { ok: false, error: { code, message, requestId } }; }
 function safeEqual(expected, actual) {
@@ -53,7 +56,8 @@ function requireWebhookSecret(req, res, next) {
 function requireGitHubWebhook(req, res, next) {
   if (!GITHUB_WEBHOOK_SECRET) return res.status(503).json(errorBody("GITHUB_WEBHOOK_NOT_CONFIGURED", "GitHub webhook authentication is not configured", req.requestId));
   const signature = String(req.get("X-Hub-Signature-256") || "");
-  const expected = `sha256=${crypto.createHmac("sha256", GITHUB_WEBHOOK_SECRET).update(JSON.stringify(req.body || {})).digest("hex")}`;
+  const body = Buffer.isBuffer(req.rawBody) ? req.rawBody : Buffer.from("");
+  const expected = `sha256=${crypto.createHmac("sha256", GITHUB_WEBHOOK_SECRET).update(body).digest("hex")}`;
   if (safeEqual(expected, signature)) return next();
   return res.status(401).json(errorBody("UNAUTHORIZED_GITHUB_WEBHOOK", "Unauthorized GitHub webhook", req.requestId));
 }
@@ -67,7 +71,7 @@ app.use((req, res, next) => {
 const leadRateLimit = createRateLimiter({ windowMs: LEAD_RATE_LIMIT_WINDOW_MS, max: LEAD_RATE_LIMIT_MAX });
 const dualAIRateLimit = createRateLimiter({ windowMs: Math.max(1000, Number(process.env.DUAL_AI_RATE_LIMIT_WINDOW_MS || 60000)), max: Math.max(1, Number(process.env.DUAL_AI_RATE_LIMIT_MAX || 5)) });
 
-app.get("/health", (_req, res) => res.json({ ok: true, service: "SamuraiOS Core", version: "2.9.0-x18-agent" }));
+app.get("/health", (_req, res) => res.json({ ok: true, service: "SamuraiOS Core", version: "2.9.1-x18-agent" }));
 app.get("/ready", (req, res) => {
   try { const current = stats(); const ready = Boolean(API_KEY && WEBHOOK_SECRET && GITHUB_WEBHOOK_SECRET && current && Number.isFinite(current.total)); return res.status(ready ? 200 : 503).json({ ok: ready, service: "SamuraiOS Core", ready, requestId: req.requestId }); }
   catch (_error) { return res.status(503).json(errorBody("NOT_READY", "Service is not ready", req.requestId)); }
@@ -83,9 +87,10 @@ app.get("/api/github/queue", requireApiKey, (req, res) => res.json({ ok: true, j
 
 app.post("/api/github/webhook", requireGitHubWebhook, (req, res) => {
   const event = String(req.get("X-GitHub-Event") || "");
+  const deliveryId = String(req.get("X-GitHub-Delivery") || "");
   try {
     if (event !== "workflow_run") return res.status(202).json({ ok: true, accepted: false, reason: "event_not_supported", event, requestId: req.requestId });
-    const result = githubAgent.ingestWorkflowRun(req.body || {});
+    const result = githubAgent.ingestWorkflowRun(req.body || {}, deliveryId);
     return res.status(202).json({ ok: true, ...result, requestId: req.requestId });
   } catch (error) {
     console.error(JSON.stringify({ event: "github_webhook_failed", requestId: req.requestId, error: error.message }));
@@ -103,7 +108,7 @@ app.post("/api/github/queue/:id/retry", requireApiKey, (req, res) => {
 });
 app.post("/api/github/queue/:id/state", requireApiKey, (req, res) => {
   try {
-    const allowed = new Set(["queued", "diagnosing", "patching", "testing", "pr_open", "verified", "stopped"]);
+    const allowed = new Set(["queued", "diagnosing", "diagnosed", "patching", "testing", "pr_open", "verified", "stopped"]);
     const state = String(req.body?.state || "");
     if (!allowed.has(state)) return res.status(400).json(errorBody("INVALID_STATE", "Invalid agent state", req.requestId));
     return res.json({ ok: true, job: githubAgent.transition(req.params.id, state, req.body?.patch || {}), requestId: req.requestId });
@@ -147,7 +152,7 @@ app.post("/api/telegram/webhook", requireWebhookSecret, async (req, res) => {
   } catch (error) { console.error(JSON.stringify({ event: "business_webhook_error", requestId: req.requestId, error: error.message })); }
 });
 app.use((req, res) => res.status(404).json(errorBody("NOT_FOUND", "Endpoint not found", req.requestId)));
-const server = app.listen(PORT, "0.0.0.0", () => console.log(`SamuraiOS Core 2.9.0-x18-agent listening on :${PORT}`));
+const server = app.listen(PORT, "0.0.0.0", () => console.log(`SamuraiOS Core 2.9.1-x18-agent listening on :${PORT}`));
 server.requestTimeout = REQUEST_TIMEOUT_MS;
 server.headersTimeout = REQUEST_TIMEOUT_MS + 5000;
 function shutdown(signal) { console.log(JSON.stringify({ event: "shutdown", signal })); server.close(() => process.exit(0)); setTimeout(() => process.exit(1), 10000).unref(); }
