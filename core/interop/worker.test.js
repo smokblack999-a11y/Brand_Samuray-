@@ -7,7 +7,8 @@ const { processJob } = require("./worker");
 function evidence(workflowRunId) {
   return {
     workflowRunId,
-    failedJobs: [{ id: 1, name: "unit-tests", failedSteps: [{ name: "npm test", number: 2, conclusion: "failure" }], evidence: { excerpts: [{ line: 20, text: "AssertionError: expected 1 to equal 2" }] } }],
+    command: ["npm", "test"],
+    failedJobs: [{ id: 1, name: "unit-tests", command: ["npm", "test"], failedSteps: [{ name: "npm test", number: 2, conclusion: "failure" }], evidence: { excerpts: [{ line: 20, text: "AssertionError: expected 1 to equal 2" }] } }],
     category: "test_failure",
     confidence: "high",
     source: "github-actions-job-logs",
