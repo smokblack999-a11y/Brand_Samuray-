@@ -7,12 +7,13 @@ const github = require("./github");
 const rootCause = require("./root-cause");
 const patchPlan = require("./patch-plan");
 
-function enqueueFromGithub(payload, evidence = []) {
+function enqueueFromGithub(payload, evidence = [], deliveryId = null) {
   const failure = github.normalizeWorkflowFailure(payload);
+  const delivery = deliveryId ? String(deliveryId) : null;
   if (!github.isRecoverableFailure(payload)) return { queued: false, reason: "not_recoverable_failure", failure };
   const id = `github:${failure.repo}:${failure.runId}`;
-  const job = store.createJob({ id, source: failure, failure, evidence });
-  return { queued: true, job };
+  const job = store.createJob({ id, source: failure, failure, evidence: { items: evidence, githubDeliveryId: delivery } });
+  return { queued: job.created === true, duplicate: job.created !== true, job, deliveryId: delivery };
 }
 function diagnoseJob(id) {
   const job = store.getJob(id);
