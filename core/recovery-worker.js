@@ -30,7 +30,7 @@ function parseCommand(value, fallback) {
 
 async function git(args, cwd) {
   const authArgs = [];
-  if (GITHUB_TOKEN && args[0] === "push") {
+  if (GITHUB_TOKEN && ["fetch", "push", "ls-remote"].includes(args[0])) {
     authArgs.push("-c", "http.extraheader=AUTHORIZATION: bearer " + GITHUB_TOKEN);
   }
   return exec("git", [...authArgs, ...args], { cwd, timeout: 120000, maxBuffer: 4 * 1024 * 1024 });
