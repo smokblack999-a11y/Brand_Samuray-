@@ -27,6 +27,14 @@ assert.equal(started.job.state, STATES.QUEUED);
 const diagnosed = diagnoseJob(started.job);
 assert.equal(diagnosed.state, STATES.DIAGNOSED);
 
+const architectPlanned = require("./repair-orchestrator").applyArchitectPlan(diagnosed, {
+  status: "planned",
+  plan: { actions: ["diagnose", "patch"], tests: ["npm test"], constraints: ["no secrets"] }
+});
+assert.equal(architectPlanned.architect.status, "planned");
+assert.deepEqual(architectPlanned.architect.plan.tests, ["npm test"]);
+assert.equal(architectPlanned.state, STATES.DIAGNOSED);
+
 const planned = applyArchitectPlan(diagnosed, {
   status: "planned",
   plan: {
