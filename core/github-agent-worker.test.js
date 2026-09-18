@@ -44,7 +44,8 @@ test("parseDiagnosis rejects incomplete AI output", () => {
     repair_steps: ["align assertion"],
     tests_to_run: ["npm test"],
     blockers: [],
-    patch_ready: true
+    patch_ready: true,
+    patches: [{ path: "core/example.js", content: "x\n" }]
   }));
   assert.equal(valid.patch_ready, true);
   assert.equal(valid.confidence, 0.91);
@@ -67,7 +68,8 @@ test("worker claims, diagnoses, and persists verified diagnosis", async () => {
         repair_steps: ["align assertion with current contract"],
         tests_to_run: ["npm test"],
         blockers: [],
-        patch_ready: false
+        patch_ready: false,
+        patches: []
       }),
       messages: []
     })
