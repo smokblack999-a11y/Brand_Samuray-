@@ -2,6 +2,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const { validateUnifiedDiff } = require("../interop/patch-candidate");
 const { buildPatchProposal } = require("../interop/patch-proposal");
+const { isBoundToJob } = require("../recovery-router");
 
 const diff = [
   "diff --git a/core/example.js b/core/example.js",
@@ -29,4 +30,11 @@ test("patch proposal requires evidence and causal reproduction", () => {
   const result = buildPatchProposal({ diff, evidenceOnly:true, reproduction:true, causality:true });
   assert.equal(result.accepted, true);
   assert.deepEqual(result.proposal.files, ["core/example.js"]);
+});
+
+test("proposal evidence must be bound to the persisted failure fingerprint", () => {
+  const job = { fingerprint: "0123456789abcdef01234567" };
+  assert.equal(isBoundToJob(job, { evidenceFingerprint: job.fingerprint }), true);
+  assert.equal(isBoundToJob(job, { evidenceFingerprint: "fedcba9876543210fedcba98" }), false);
+  assert.equal(isBoundToJob(job, {}), false);
 });
