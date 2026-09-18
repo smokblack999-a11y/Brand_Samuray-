@@ -28,10 +28,10 @@ jobs:
         run: |
           set -euo pipefail
           test -n "${RECOVERY_URL:-}"
-          test -n "${RECOVERY_API_KEY:-}"
           test -n "${GITHUB_WEBHOOK_SECRET:-}"
 
           if [[ "${HEAD_BRANCH}" == x10think/recovery-* ]]; then
+            test -n "${RECOVERY_API_KEY:-}"
             endpoint="${RECOVERY_URL}/api/recovery/ci"
             headers=(-H "X-API-Key: ${RECOVERY_API_KEY}")
           else
@@ -39,6 +39,7 @@ jobs:
             signature="sha256=$(printf '%s' "${PAYLOAD}" | openssl dgst -sha256 -hmac "${GITHUB_WEBHOOK_SECRET}" -hex | sed 's/^.* //')"
             headers=(
               -H "X-GitHub-Event: workflow_run"
+              -H "X-GitHub-Delivery: workflow-run-${{ github.event.workflow_run.id }}"
               -H "X-Hub-Signature-256: ${signature}"
             )
           fi
