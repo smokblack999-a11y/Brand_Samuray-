@@ -31,6 +31,7 @@ services:
       RECOVERY_POLL_MS: ${RECOVERY_POLL_MS:-5000}
       RECOVERY_AUTO_CREATE_PR: ${RECOVERY_AUTO_CREATE_PR:-false}
       RECOVERY_BASE_BRANCH: ${RECOVERY_BASE_BRANCH:-main}
+      RECOVERY_TEST_COMMAND: ${RECOVERY_TEST_COMMAND:-["npm","test","--prefix","core"]}
     depends_on:
       core:
         condition: service_healthy
