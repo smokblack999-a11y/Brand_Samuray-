@@ -16,5 +16,24 @@ services:
       retries: 3
       start_period: 10s
 
+  recovery-worker:
+    build:
+      context: ./core
+    restart: unless-stopped
+    env_file:
+      - ./core/.env
+    command: ["node", "recovery-worker.js"]
+    volumes:
+      - samurai-data:/app/data
+      - ./:/workspace/repository
+    environment:
+      RECOVERY_REPO_DIR: /workspace/repository
+      RECOVERY_POLL_MS: ${RECOVERY_POLL_MS:-5000}
+      RECOVERY_AUTO_CREATE_PR: ${RECOVERY_AUTO_CREATE_PR:-false}
+      RECOVERY_BASE_BRANCH: ${RECOVERY_BASE_BRANCH:-main}
+    depends_on:
+      core:
+        condition: service_healthy
+
 volumes:
   samurai-data:
