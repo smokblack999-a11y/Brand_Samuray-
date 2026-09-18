@@ -97,29 +97,75 @@ async function createBranch({ repository, branchName, baseSha }) {
 }
 
 async function applyFiles({ repository, branchName, patches, message }) {
+  if (!Array.isArray(patches) || patches.length < 1) {
+    throw new Error("At least one patch is required");
+  }
+
   const repo = repoPath(repository);
-  let lastCommit = null;
+  const ref = await githubJson(
+    `/repos/${repo}/git/ref/heads/${encodeURIComponent(branchName)}`
+  );
+  const parentSha = String(ref?.object?.sha || "");
+  if (!parentSha) throw new Error("GitHub branch SHA was not returned");
+
+  const blobs = [];
   for (const patch of patches) {
-    let existing = null;
-    try {
-      existing = await githubJson(`/repos/${repo}/contents/${patch.path}?ref=${encodeURIComponent(branchName)}`);
-    } catch (error) {
-      if (!/GitHub API 404:/.test(String(error?.message || ""))) throw error;
-    }
-    lastCommit = await githubJson(`/repos/${repo}/contents/${patch.path}`, {
-      method: "PUT",
+    const blob = await githubJson(`/repos/${repo}/git/blobs`, {
+      method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        message,
         content: Buffer.from(patch.content, "utf8").toString("base64"),
-        ...(existing?.sha ? { sha: existing.sha } : {}),
-        branch: branchName
+        encoding: "base64"
       })
     });
+    const blobSha = String(blob?.sha || "");
+    if (!blobSha) throw new Error(`GitHub blob SHA was not returned: ${patch.path}`);
+    blobs.push({
+      path: patch.path,
+      mode: "100644",
+      type: "blob",
+      sha: blobSha
+    });
   }
-  return lastCommit;
-}
 
+  const parentCommit = await githubJson(`/repos/${repo}/git/commits/${parentSha}`);
+  const baseTreeSha = String(parentCommit?.tree?.sha || "");
+  if (!baseTreeSha) throw new Error("GitHub parent tree SHA was not returned");
+
+  const tree = await githubJson(`/repos/${repo}/git/trees`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      base_tree: baseTreeSha,
+      tree: blobs
+    })
+  });
+  const treeSha = String(tree?.sha || "");
+  if (!treeSha) throw new Error("GitHub tree SHA was not returned");
+
+  const commit = await githubJson(`/repos/${repo}/git/commits`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      message,
+      tree: treeSha,
+      parents: [parentSha]
+    })
+  });
+  const commitSha = String(commit?.sha || "");
+  if (!commitSha) throw new Error("GitHub commit SHA was not returned");
+
+  const updated = await githubJson(
+    `/repos/${repo}/git/refs/heads/${encodeURIComponent(branchName)}`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sha: commitSha, force: false })
+    }
+  );
+
+  return { ...updated, commitSha, parentSha, treeSha, atomic: true };
+}
 async function createPullRequest({ repository, head, base, title, body, draft }) {
   return githubJson(`/repos/${repoPath(repository)}/pulls`, {
     method: "POST",
