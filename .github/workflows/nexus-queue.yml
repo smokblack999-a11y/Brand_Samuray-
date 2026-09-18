@@ -3,41 +3,21 @@ name: NEXUS Queue
 on:
   push:
     paths:
-      - "core/nexus-job-store.js"
-      - "core/nexus-workflow-intake.js"
-      - "core/nexus-webhook.js"
-      - "core/nexus-worker.js"
-      - "core/nexus-github.js"
-      - "core/nexus-diagnosis.js"
-      - "core/nexus-failure-handler.js"
-      - "core/nexus-patch-proposal.js"
-      - "core/nexus-kill-critic.js"
-      - "core/nexus-queue.test.js"
-      - "core/nexus-worker.test.js"
-      - "core/nexus-webhook.test.js"
-      - "core/nexus-diagnosis.test.js"
-      - "core/nexus-failure-handler.test.js"
-      - "core/nexus-patch-proposal.test.js"
-      - "core/nexus-kill-critic.test.js"
+      - "core/nexus-*.js"
+      - "core/nexus-*.test.js"
+      - "core/proof-engine.js"
+      - "core/nexus-policy.js"
+      - "core/proof-engine.test.js"
+      - "core/nexus-policy.test.js"
       - ".github/workflows/nexus-queue.yml"
   pull_request:
     paths:
-      - "core/nexus-job-store.js"
-      - "core/nexus-workflow-intake.js"
-      - "core/nexus-webhook.js"
-      - "core/nexus-worker.js"
-      - "core/nexus-github.js"
-      - "core/nexus-diagnosis.js"
-      - "core/nexus-failure-handler.js"
-      - "core/nexus-patch-proposal.js"
-      - "core/nexus-kill-critic.js"
-      - "core/nexus-queue.test.js"
-      - "core/nexus-worker.test.js"
-      - "core/nexus-webhook.test.js"
-      - "core/nexus-diagnosis.test.js"
-      - "core/nexus-failure-handler.test.js"
-      - "core/nexus-patch-proposal.test.js"
-      - "core/nexus-kill-critic.test.js"
+      - "core/nexus-*.js"
+      - "core/nexus-*.test.js"
+      - "core/proof-engine.js"
+      - "core/nexus-policy.js"
+      - "core/proof-engine.test.js"
+      - "core/nexus-policy.test.js"
       - ".github/workflows/nexus-queue.yml"
 
 permissions:
@@ -57,4 +37,4 @@ jobs:
           cache: npm
           cache-dependency-path: core/package-lock.json
       - run: npm ci
-      - run: node --test nexus-queue.test.js nexus-worker.test.js nexus-webhook.test.js nexus-diagnosis.test.js nexus-failure-handler.test.js nexus-patch-proposal.test.js nexus-kill-critic.test.js proof-engine.test.js nexus-policy.test.js
+      - run: node --test
