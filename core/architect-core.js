@@ -89,6 +89,13 @@ class ArchitectCore {
         mission: clone(mission),
         previousEvidence: clone(job.evidence),
       }));
+
+      if (!job.plan || typeof job.plan !== "object") {
+        throw new TypeError("planner must return a plan object");
+      }
+      job.plan.actions = Array.isArray(job.plan.actions) ? job.plan.actions : [];
+      job.plan.tests = Array.isArray(job.plan.tests) ? job.plan.tests : [];
+      job.plan.constraints = Array.isArray(job.plan.constraints) ? job.plan.constraints : [];
       this.record(job, "PLAN_CREATED");
 
       job.status = STATUS.CRITIC;
