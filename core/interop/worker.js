@@ -62,13 +62,32 @@ async function processJob(job, deps = {}) {
       changedFiles: job.changedFiles || [],
       source: deps.patchSource || "worker-input"
     } : null;
-    let sourceContext = deps.sourceContext || "";
-    if (!sourceContext && deps.workspace && job.changedFiles?.length) {
-      sourceContext = formatSourceContext(await readSourceContext(deps.workspace, job.changedFiles));
+
+    if (!proposalInput && !deps.workspace) {
+      provisioned = await provision({
+        repository: job.repository,
+        headSha: job.commit,
+        githubToken: deps.githubToken,
+        timeoutMs: deps.workspaceTimeoutMs
+      });
     }
+
+    let sourceContext = deps.sourceContext || "";
+    const sourceWorkspace = deps.workspace || provisioned?.workspace;
+    if (!sourceContext && sourceWorkspace && job.changedFiles?.length) {
+      sourceContext = formatSourceContext(await readSourceContext(sourceWorkspace, job.changedFiles));
+    }
+
     const proposal = proposalInput
       ? makePatchProposal(proposalInput)
-      : await proposePatch({ evidence, changedFiles: job.changedFiles || [], repository: job.repository, commit: job.commit, source: sourceContext, apiKey: deps.openaiApiKey });
+      : await proposePatch({
+        evidence,
+        changedFiles: job.changedFiles || [],
+        repository: job.repository,
+        commit: job.commit,
+        source: sourceContext,
+        apiKey: deps.openaiApiKey
+      });
     if (!proposal?.accepted || !proposal?.proposal?.diff) {
       return move(job.id, "HUMAN_REVIEW", { reason: proposal?.reason || "PATCH_PROPOSAL_REJECTED", evidence, proposal });
     }
