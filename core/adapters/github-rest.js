@@ -27,7 +27,7 @@ function createGithubRestClient({ token, owner, repo, apiBase = "https://api.git
     getFile: async ({ path, ref }) => {
       const current = await request(`/repos/${owner}/${repo}/contents/${path}${ref ? `?ref=${encodeURIComponent(ref)}` : ""}`);
       if (current?.type !== "file" || !current?.content) throw new Error("github_file_not_available");
-      return { path, sha: current.sha, content: Buffer.from(current.content.replace(/\\s/g, ""), "base64").toString("utf8") };
+      return { path, sha: current.sha, content: Buffer.from(current.content.replace(/\s/g, ""), "base64").toString("utf8") };
     },
     listWorkflowRuns: ({ branch, headSha, event, perPage = 10 } = {}) => {
       const params = new URLSearchParams();
