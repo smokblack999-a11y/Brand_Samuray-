@@ -54,6 +54,20 @@ function validatePatches(patches) {
   return normalized;
 }
 
+function validateAffectedFiles(diagnosis, patches) {
+  const affected = Array.isArray(diagnosis?.affected_files)
+    ? diagnosis.affected_files.map(normalizePath)
+    : [];
+  if (affected.length === 0) throw new Error("Diagnosis affected_files is required");
+  const allowed = new Set(affected);
+  for (const patch of patches) {
+    if (!allowed.has(patch.path)) {
+      throw new Error(`Patch is outside diagnosed affected_files: ${patch.path}`);
+    }
+  }
+  return patches;
+}
+
 function validateDiagnosis(diagnosis) {
   if (!diagnosis || typeof diagnosis !== "object") throw new Error("Diagnosis is required");
   if (diagnosis.patch_ready !== true) throw new Error("Diagnosis is not patch-ready");
@@ -72,7 +86,7 @@ async function executePatch({
   gitHub
 }) {
   validateDiagnosis(diagnosis);
-  const safePatches = validatePatches(patches);
+  const safePatches = validateAffectedFiles(diagnosis, validatePatches(patches));
 
   if (!job || !job.repository || !job.headSha) throw new Error("Job repository/headSha is required");
   if (!sandbox || typeof sandbox.applyAndTest !== "function") {
@@ -131,4 +145,4 @@ async function executePatch({
   return { branchName, sandbox: sandboxResult, pr };
 }
 
-module.exports = { normalizePath, validatePatches, validateDiagnosis, executePatch };
+module.exports = { normalizePath, validatePatches, validateDiagnosis, validateAffectedFiles, executePatch };
