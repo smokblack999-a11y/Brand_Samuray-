@@ -105,6 +105,9 @@ async function processJob(job, deps = {}) {
     return move(job.id, "CRITIC_REVIEW", { diagnosis: verifiedEvidence, reproductionPlan, reproductionProof, critic, repairPlan, patchCandidate });
   } catch (error) {
     const message = String(error?.message || error);
+    if (/OPENAI_API_KEY is required/.test(message)) {
+      return move(job.id, "HUMAN_REVIEW", { reason: "PATCH_PROVIDER_AUTH_NOT_CONFIGURED" });
+    }
     if (/GITHUB_TOKEN is required/.test(message)) {
       return move(job.id, "HUMAN_REVIEW", { reason: "GITHUB_AUTH_NOT_CONFIGURED" });
     }
