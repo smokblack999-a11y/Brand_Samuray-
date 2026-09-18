@@ -2,7 +2,7 @@ name: X10THINK Recovery Enqueue
 
 on:
   workflow_run:
-    workflows: ["SamuraiOS Core CI", "SamuraiOS Core X22 CI"]
+    workflows: ["SamuraiOS Core CI", "SamuraiOS Core X22 CI", "Build SamuraiOS APK"]
     types: [completed]
 
 permissions:
