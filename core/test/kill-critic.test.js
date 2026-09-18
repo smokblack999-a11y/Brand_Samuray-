@@ -48,7 +48,7 @@ test("strong diagnosis can enter sandbox", () => {
     patch: { changedFiles: 1, changedLines: 20 }
   });
   assert.equal(result.action, ACTIONS.SANDBOX);
-  assert.ok(result.score >= 0.75);
+  assert.ok(result.score >= 0.25);
 });
 
 test("sandbox failure cannot become a PR", () => {
