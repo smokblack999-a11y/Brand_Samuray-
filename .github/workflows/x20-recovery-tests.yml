@@ -15,5 +15,5 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: npm ci
-      - run: node --test core/recovery/*.test.js
+      - run: cd core && npm ci
+      - run: cd core && node --test recovery/*.test.js
