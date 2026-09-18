@@ -28,19 +28,11 @@ function githubUrl(repository) {
 
 function runGit(args, options = {}) {
   return new Promise((resolve, reject) => {
-    const child = spawn("git", args, {
-      cwd: options.cwd,
-      env: options.env || process.env,
-      stdio: ["ignore", "pipe", "pipe"]
-    });
-    let stdout = "";
-    let stderr = "";
+    const child = spawn("git", args, { cwd: options.cwd, env: options.env || process.env, stdio: ["ignore", "pipe", "pipe"] });
+    let stdout = "", stderr = "";
     child.stdout.on("data", chunk => { stdout += chunk; });
     child.stderr.on("data", chunk => { stderr += chunk; });
-    const timer = setTimeout(() => {
-      child.kill("SIGKILL");
-      reject(new Error("git command timed out"));
-    }, Math.max(1000, Number(options.timeoutMs || DEFAULT_TIMEOUT_MS)));
+    const timer = setTimeout(() => { child.kill("SIGKILL"); reject(new Error("git command timed out")); }, Math.max(1000, Number(options.timeoutMs || DEFAULT_TIMEOUT_MS)));
     child.on("error", error => { clearTimeout(timer); reject(error); });
     child.on("close", code => {
       clearTimeout(timer);
@@ -66,32 +58,18 @@ async function provisionWorkspace(options = {}) {
   const sha = validateSha(options.headSha || options.commitSha);
   parseRepository(repository);
   const token = String(options.githubToken || process.env.GITHUB_TOKEN || "").trim();
+  const runner = options.runGit || runGit;
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "samurai-interop-"));
   await fs.chmod(root, 0o700);
   const repoDir = path.join(root, "repo");
-
   try {
-    await runGit(["init", "--quiet", repoDir], { env: gitEnv(token), timeoutMs: options.timeoutMs });
-    await runGit(["-C", repoDir, "remote", "add", "origin", githubUrl(repository)], { env: gitEnv(token), timeoutMs: options.timeoutMs });
-    await runGit(["-C", repoDir, "-c", "fetch.prune=true", "fetch", "--depth=1", "origin", sha], {
-      env: gitEnv(token), timeoutMs: options.timeoutMs
-    });
-    await runGit(["-C", repoDir, "checkout", "--detach", "--quiet", sha], {
-      env: gitEnv(token), timeoutMs: options.timeoutMs
-    });
-    const verified = await runGit(["-C", repoDir, "rev-parse", "HEAD"], {
-      env: gitEnv(token), timeoutMs: options.timeoutMs
-    });
-    if (verified.stdout.trim().toLowerCase() !== sha.toLowerCase()) {
-      throw new Error("workspace HEAD does not match requested commit SHA");
-    }
-    return {
-      workspace: repoDir,
-      headSha: sha,
-      repository,
-      isolated: true,
-      cleanup: async () => fs.rm(root, { recursive: true, force: true })
-    };
+    await runner(["init", "--quiet", repoDir], { env: gitEnv(token), timeoutMs: options.timeoutMs });
+    await runner(["-C", repoDir, "remote", "add", "origin", githubUrl(repository)], { env: gitEnv(token), timeoutMs: options.timeoutMs });
+    await runner(["-C", repoDir, "-c", "fetch.prune=true", "fetch", "--depth=1", "origin", sha], { env: gitEnv(token), timeoutMs: options.timeoutMs });
+    await runner(["-C", repoDir, "checkout", "--detach", "--quiet", sha], { env: gitEnv(token), timeoutMs: options.timeoutMs });
+    const verified = await runner(["-C", repoDir, "rev-parse", "HEAD"], { env: gitEnv(token), timeoutMs: options.timeoutMs });
+    if (verified.stdout.trim().toLowerCase() !== sha.toLowerCase()) throw new Error("workspace HEAD does not match requested commit SHA");
+    return { workspace: repoDir, headSha: sha, repository, isolated: true, cleanup: async () => fs.rm(root, { recursive: true, force: true }) };
   } catch (error) {
     await fs.rm(root, { recursive: true, force: true });
     throw error;
