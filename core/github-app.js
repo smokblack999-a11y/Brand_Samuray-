@@ -77,26 +77,42 @@ function repoPath(repository) {
 }
 
 async function createBranch({ repository, branchName, baseSha }) {
-  const data = await githubJson(`/repos/${repoPath(repository)}/git/refs`, {
+  const refPath = `/repos/${repoPath(repository)}/git/ref/heads/${encodeURIComponent(branchName)}`;
+  try {
+    const existing = await githubJson(refPath);
+    const existingSha = String(existing?.object?.sha || "");
+    if (existingSha !== String(baseSha)) {
+      throw new Error(`GitHub branch already exists at a different SHA: ${branchName}`);
+    }
+    return existing;
+  } catch (error) {
+    if (!/GitHub API 404:/.test(String(error?.message || ""))) throw error;
+  }
+
+  return githubJson(`/repos/${repoPath(repository)}/git/refs`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ ref: `refs/heads/${branchName}`, sha: baseSha })
   });
-  return data;
 }
 
 async function applyFiles({ repository, branchName, patches, message }) {
   const repo = repoPath(repository);
   let lastCommit = null;
   for (const patch of patches) {
-    const existing = await githubJson(`/repos/${repo}/contents/${patch.path}?ref=${encodeURIComponent(branchName)}`);
+    let existing = null;
+    try {
+      existing = await githubJson(`/repos/${repo}/contents/${patch.path}?ref=${encodeURIComponent(branchName)}`);
+    } catch (error) {
+      if (!/GitHub API 404:/.test(String(error?.message || ""))) throw error;
+    }
     lastCommit = await githubJson(`/repos/${repo}/contents/${patch.path}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         message,
         content: Buffer.from(patch.content, "utf8").toString("base64"),
-        sha: existing.sha,
+        ...(existing?.sha ? { sha: existing.sha } : {}),
         branch: branchName
       })
     });
