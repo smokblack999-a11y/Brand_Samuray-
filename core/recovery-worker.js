@@ -31,6 +31,16 @@ async function git(args, cwd) {
   return exec("git", args, { cwd, timeout: 120000, maxBuffer: 4 * 1024 * 1024 });
 }
 
+async function ensureBaseAvailable(base) {
+  try {
+    await git(["cat-file", "-e", `${base}^{commit}`], REPO_DIR);
+    return;
+  } catch {}
+  if (!/^[0-9a-f]{7,64}$/i.test(base)) return;
+  await git(["fetch", "--no-tags", "origin", base], REPO_DIR);
+  await git(["cat-file", "-e", `${base}^{commit}`], REPO_DIR);
+}
+
 async function runCommand(command, cwd) {
   return exec(command[0], command.slice(1), { cwd, timeout: 10 * 60 * 1000, maxBuffer: 8 * 1024 * 1024 });
 }
@@ -52,6 +62,7 @@ async function processJob(job) {
   const branchName = `recovery/${job.fingerprint || job.id}`;
 
   try {
+    await ensureBaseAvailable(base);
     await git(["worktree", "add", "--detach", worktree, base], REPO_DIR);
     fs.writeFileSync(patchFile, validation.diff, "utf8");
 
