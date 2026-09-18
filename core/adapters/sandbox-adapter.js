@@ -10,7 +10,6 @@ function createSandboxAdapter({ run, allowCommands = [] } = {}) {
     if (commands.some(command => !allowed.has(command))) {
       return { passed: false, reason: "command_not_allowlisted" };
     }
-
     return run({ mission, plan, candidate, commands });
   };
 }
