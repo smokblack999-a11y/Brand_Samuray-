@@ -4,6 +4,9 @@ const crypto = require("crypto");
 
 const API = "https://api.github.com";
 const VERSION = "2022-11-28";
+const TOKEN_SKEW_MS = 60_000;
+let cachedInstallationToken = null;
+let cachedInstallationTokenExpiresAt = 0;
 
 function required(name) {
   const value = String(process.env[name] || "").trim();
@@ -38,12 +41,25 @@ async function json(url, options = {}) {
 }
 
 async function installationToken() {
+  const now = Date.now();
+  if (cachedInstallationToken && now < cachedInstallationTokenExpiresAt - TOKEN_SKEW_MS) {
+    return cachedInstallationToken;
+  }
+
   const installationId = required("GITHUB_INSTALLATION_ID");
   const result = await json(`${API}/app/installations/${encodeURIComponent(installationId)}/access_tokens`, {
     method: "POST",
     headers: { Authorization: `Bearer ${appJwt()}` }
   });
-  return result.token;
+  const token = String(result?.token || "").trim();
+  if (!token) throw new Error("GitHub App installation token was not returned");
+
+  cachedInstallationToken = token;
+  const expiresAt = Date.parse(String(result?.expires_at || ""));
+  cachedInstallationTokenExpiresAt = Number.isFinite(expiresAt)
+    ? expiresAt
+    : now + 50 * 60_000;
+  return token;
 }
 
 async function githubJson(pathname, options = {}) {
@@ -96,4 +112,4 @@ async function createPullRequest({ repository, head, base, title, body, draft })
   });
 }
 
-module.exports = { appJwt, installationToken, createBranch, applyFiles, createPullRequest };
+module.exports = { appJwt, installationToken, githubJson, createBranch, applyFiles, createPullRequest };
