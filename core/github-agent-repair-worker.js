@@ -6,7 +6,7 @@ const patcher = require("./github-agent-patcher");
 const githubApp = require("./github-app");
 
 function nextDiagnosed() {
-  return githubAgent.list(200).find(job => job.state === "diagnosed" && job.safeToPatch === true);
+  return githubAgent.list(200).find(job => job.state === "diagnosed" && job.safeToPatch === true) || null;
 }
 
 async function processRepair({ repoDir = process.env.GITHUB_AGENT_REPO_DIR } = {}) {
