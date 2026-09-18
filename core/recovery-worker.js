@@ -15,6 +15,7 @@ const REPO_DIR = path.resolve(process.env.RECOVERY_REPO_DIR || path.join(__dirna
 const TEST_COMMAND = parseCommand(process.env.RECOVERY_TEST_COMMAND, ["npm", "test", "--prefix", "core"]);
 const AUTO_CREATE_PR = String(process.env.RECOVERY_AUTO_CREATE_PR || "").toLowerCase() === "true";
 const BASE_BRANCH = String(process.env.RECOVERY_BASE_BRANCH || "main");
+const GITHUB_TOKEN = String(process.env.GITHUB_TOKEN || process.env.GH_TOKEN || "");
 
 function parseCommand(value, fallback) {
   if (!value) return fallback;
@@ -28,7 +29,35 @@ function parseCommand(value, fallback) {
 }
 
 async function git(args, cwd) {
-  return exec("git", args, { cwd, timeout: 120000, maxBuffer: 4 * 1024 * 1024 });
+  const authArgs = [];
+  if (GITHUB_TOKEN && args[0] === "push") {
+    authArgs.push("-c", "http.extraheader=AUTHORIZATION: bearer " + GITHUB_TOKEN);
+  }
+  return exec("git", [...authArgs, ...args], { cwd, timeout: 120000, maxBuffer: 4 * 1024 * 1024 });
+}
+
+async function remoteRepository(cwd) {
+  const { stdout } = await git(["remote", "get-url", "origin"], cwd);
+  const remote = String(stdout || "").trim();
+  const match = remote.match(/github\.com[/:]([^/]+)\/([^/.]+?)(?:\.git)?$/i);
+  if (!match) throw new Error("GITHUB_ORIGIN_NOT_RESOLVED");
+  return { owner: match[1], repo: match[2] };
+}
+
+async function createPullRequest({ cwd, head, base, title, body }) {
+  if (!GITHUB_TOKEN) throw new Error("GITHUB_TOKEN_REQUIRED_FOR_AUTO_PR");
+  const { owner, repo } = await remoteRepository(cwd);
+  const payload = JSON.stringify({ title, head, base, body });
+  const result = await exec("curl", [
+    "-fsS", "--connect-timeout", "5", "--max-time", "30",
+    "-X", "POST", "https://api.github.com/repos/" + owner + "/" + repo + "/pulls",
+    "-H", "Accept: application/vnd.github+json",
+    "-H", "Authorization: Bearer " + GITHUB_TOKEN,
+    "-H", "X-GitHub-Api-Version: 2022-11-28",
+    "-H", "Content-Type: application/json",
+    "--data-binary", payload
+  ], { cwd, timeout: 60000, maxBuffer: 1024 * 1024 });
+  return JSON.parse(String(result.stdout || "{}"));
 }
 
 async function ensureBaseAvailable(base) {
@@ -124,8 +153,8 @@ async function processJob(job) {
       "Kill Critic gate: sandbox + regression passed.",
       "Merge is intentionally not performed by the recovery worker."
     ].join("\n");
-    const pr = await exec("gh", ["pr", "create", "--base", BASE_BRANCH, "--head", branchName, "--title", title, "--body", body], { cwd: worktree, timeout: 120000, maxBuffer: 1024 * 1024 });
-    update(job.id, { status:"pr_created", prUrl:String(pr.stdout || "").trim(), sandbox:{ pass:true, regression, files:validation.files }, critic, diagnosis:{ ...(job.diagnosis || {}), evidence } });
+    const pr = await createPullRequest({ cwd: worktree, head: branchName, base: BASE_BRANCH, title, body });
+    update(job.id, { status:"pr_created", prUrl:String(pr.html_url || "").trim(), sandbox:{ pass:true, regression, files:validation.files }, critic, diagnosis:{ ...(job.diagnosis || {}), evidence } });
   } finally {
     await cleanup(worktree);
   }
