@@ -59,6 +59,8 @@ jobs:
           node --check github-agent.test.js
           node --check github-agent-worker.js
           node --check github-agent-worker.test.js
+          node --check github-agent-repair-worker.js
+          node --check github-agent-repair-worker.test.js
           node --check github-patch-executor.js
           node --check github-patch-executor.test.js
           node --check github-agent-patcher.js
