@@ -1,0 +1,74 @@
+name: Verified Repair Gate
+
+on:
+  workflow_run:
+    workflows: ["Core CI", "Build SamuraiOS APK"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: "Workflow run to evaluate"
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+  pull-requests: read
+  issues: write
+
+jobs:
+  evaluate:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'failure' &&
+       github.event.workflow_run.head_repository.full_name == github.repository)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: core/package-lock.json
+      - name: Install
+        working-directory: core
+        run: npm ci
+      - name: Collect failure evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.event.workflow_run.id || inputs.run_id }}
+        run: |
+          set -euo pipefail
+          gh run view "$RUN_ID" --repo "$GITHUB_REPOSITORY" --log-failed > /tmp/failure.log || true
+          test -s /tmp/failure.log || printf '%s\n' 'NO_FAILURE_LOG' > /tmp/failure.log
+      - name: Deterministic evidence gate
+        env:
+          CI_LOG: /tmp/failure.log
+        run: |
+          node - <<'NODE'
+          const fs = require('fs');
+          const { signature } = require('./core/autonomy/repair-engine');
+          const log = fs.readFileSync('/tmp/failure.log', 'utf8');
+          const sig = signature(log);
+          if (!sig || sig === 'unknown_failure') {
+            console.error('STOP: insufficient failure evidence');
+            process.exit(2);
+          }
+          console.log(JSON.stringify({ok:true, failureSignature:sig}, null, 2));
+          NODE
+      - name: OpenAI diagnosis (evidence only)
+        if: ${{ env.OPENAI_API_KEY != '' }}
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_MODEL: ${{ vars.OPENAI_MODEL }}
+        run: node core/autonomy/diagnose.js < /tmp/failure.log
+      - name: Create review issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.event.workflow_run.id || inputs.run_id }}
+        run: |
+          gh issue create --repo "$GITHUB_REPOSITORY" \
+            --title "Verified repair review: run $RUN_ID" \
+            --body "Automated evidence gate stopped before patch/merge. Review failure evidence and produce a minimal, test-backed PR. No automatic merge or deployment is authorized."

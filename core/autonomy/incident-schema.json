@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Samurai Reliability Incident",
+  "type": "object",
+  "required": ["id", "repository", "sha", "workflow", "failureSignature", "status"],
+  "properties": {
+    "id": { "type": "string", "minLength": 1 },
+    "repository": { "type": "string", "pattern": "^[^/]+/[^/]+$" },
+    "sha": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
+    "workflow": { "type": "string", "minLength": 1 },
+    "failureSignature": { "type": "string", "minLength": 1, "maxLength": 300 },
+    "failingStep": { "type": "string", "maxLength": 200 },
+    "attempt": { "type": "integer", "minimum": 1, "maximum": 2 },
+    "status": { "enum": ["detected", "diagnosed", "candidate", "rejected", "verified"] },
+    "evidence": { "type": "array", "items": { "type": "string" } },
+    "patch": { "type": "object" }
+  },
+  "additionalProperties": false
+}
