@@ -21,6 +21,9 @@ pnpm-debug.log*
 *.log
 core/samuraios.log
 
+# NEXUS persistent runtime state
+core/.nexus/
+
 # Android / Gradle
 .gradle/
 build/

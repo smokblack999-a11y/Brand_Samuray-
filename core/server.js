@@ -8,11 +8,14 @@ const { generateReply, checkOpenAI } = require("./openai");
 const { sendBusinessMessage } = require("./business-bot");
 const { saveLead, claimEvent, updateLead, listLeads, stats } = require("./store");
 const { createRateLimiter } = require("./rate-limit");
+const { createStore } = require("./nexus-job-store");
+const { registerNexusWebhook } = require("./nexus-webhook");
 
 const app = express();
 const PORT = Number(process.env.PORT || 8787);
 const API_KEY = String(process.env.CORE_API_KEY || "").trim();
 const WEBHOOK_SECRET = String(process.env.TELEGRAM_WEBHOOK_SECRET || "").trim();
+const NEXUS_GITHUB_WEBHOOK_SECRET = String(process.env.NEXUS_GITHUB_WEBHOOK_SECRET || "").trim();
 const MAX_MESSAGE_CHARS = Math.max(100, Math.min(Number(process.env.MAX_MESSAGE_CHARS || 4000), 10000));
 const CORS_ORIGIN = String(process.env.CORS_ORIGIN || "").trim();
 const REQUEST_TIMEOUT_MS = Math.max(5000, Number(process.env.REQUEST_TIMEOUT_MS || 30000));
@@ -29,7 +32,10 @@ if (process.env.NODE_ENV === "production") {
 app.disable("x-powered-by");
 app.set("trust proxy", process.env.TRUST_PROXY === "true" ? 1 : false);
 app.use(cors(CORS_ORIGIN ? { origin: CORS_ORIGIN } : { origin: false }));
-app.use(express.json({ limit: "256kb" }));
+app.use(express.json({
+  limit: "256kb",
+  verify: (req, _res, buf) => { req.rawBody = Buffer.from(buf); }
+}));
 
 function errorBody(code, message, requestId) {
   return { ok: false, error: { code, message, requestId } };
@@ -153,6 +159,10 @@ app.post("/api/telegram/webhook", requireWebhookSecret, async (req, res) => {
     console.error(JSON.stringify({ event: "business_webhook_error", requestId: req.requestId, error: error.message }));
   }
 });
+
+if (NEXUS_GITHUB_WEBHOOK_SECRET) {
+  registerNexusWebhook(app, { store: createStore(), secret: NEXUS_GITHUB_WEBHOOK_SECRET });
+}
 
 app.use((req, res) => res.status(404).json(errorBody("NOT_FOUND", "Endpoint not found", req.requestId)));
 

@@ -1,0 +1,46 @@
+name: NEXUS Proof Engine
+
+on:
+  push:
+    paths:
+      - "core/proof-engine.js"
+      - "core/proof-engine.test.js"
+      - "core/nexus-policy.js"
+      - "core/nexus-policy.test.js"
+      - "core/nexus-controller.js"
+      - "core/nexus-controller.test.js"
+      - "core/nexus-intake.js"
+      - "core/nexus-intake.test.js"
+      - "core/nexus-proof-receipt.schema.json"
+      - ".github/workflows/nexus-proof.yml"
+  pull_request:
+    paths:
+      - "core/proof-engine.js"
+      - "core/proof-engine.test.js"
+      - "core/nexus-policy.js"
+      - "core/nexus-policy.test.js"
+      - "core/nexus-controller.js"
+      - "core/nexus-controller.test.js"
+      - "core/nexus-intake.js"
+      - "core/nexus-intake.test.js"
+      - "core/nexus-proof-receipt.schema.json"
+      - ".github/workflows/nexus-proof.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  proof-engine:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: core
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: core/package-lock.json
+      - run: npm ci
+      - run: node --test proof-engine.test.js nexus-policy.test.js nexus-controller.test.js nexus-intake.test.js
