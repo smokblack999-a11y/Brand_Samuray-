@@ -5,6 +5,7 @@ const { githubJson } = require("./github-app");
 
 const MAX_RUNS = 50;
 const MAX_CHECK_RUNS = 100;
+const BASE_BRANCH = String(process.env.GITHUB_AGENT_BASE_BRANCH || "main").trim() || "main";
 const IGNORE_WORKFLOWS = new Set(["SamuraiOS X18 Agent"]);
 const SUCCESS_CONCLUSIONS = new Set(["success", "neutral", "skipped"]);
 
@@ -35,20 +36,33 @@ function checkRunFailures(checkRuns) {
   });
 }
 
+function targetFailure(reason, pr) {
+  return {
+    pr: {
+      number: pr.number,
+      state: pr.state,
+      draft: pr.draft,
+      baseRef: String(pr?.base?.ref || ""),
+      headRef: String(pr?.head?.ref || ""),
+      headSha: String(pr?.head?.sha || ""),
+      mergeableState: pr.mergeable_state
+    },
+    runs: [],
+    checkRuns: [],
+    ready: false,
+    pending: 0,
+    failures: [{ reason }]
+  };
+}
+
 async function getPRChecks(job) {
   if (!job?.repository || !job?.pr?.number) throw new Error("Job repository/pr.number is required");
   const repo = repoPath(job.repository);
   const pr = await githubJson(`/repos/${repo}/pulls/${encodeURIComponent(job.pr.number)}`);
-  if (String(pr?.state || "") !== "open") {
-    return {
-      pr: { number: pr.number, state: pr.state, draft: pr.draft, headSha: String(pr?.head?.sha || ""), mergeableState: pr.mergeable_state },
-      runs: [],
-      checkRuns: [],
-      ready: false,
-      pending: 0,
-      failures: [{ reason: "pr_not_open", state: pr.state }]
-    };
-  }
+
+  if (String(pr?.state || "") !== "open") return targetFailure("pr_not_open", pr);
+  if (String(pr?.base?.ref || "") !== BASE_BRANCH) return targetFailure("unexpected_base_branch", pr);
+  if (!String(pr?.head?.ref || "").startsWith("repair/")) return targetFailure("unexpected_repair_branch", pr);
 
   const headSha = String(pr?.head?.sha || "");
   if (!headSha) throw new Error("PR head SHA is unavailable");
@@ -91,6 +105,8 @@ async function getPRChecks(job) {
       number: pr.number,
       state: pr.state,
       draft: pr.draft,
+      baseRef: String(pr?.base?.ref || ""),
+      headRef: String(pr?.head?.ref || ""),
       headSha,
       mergeableState
     },
