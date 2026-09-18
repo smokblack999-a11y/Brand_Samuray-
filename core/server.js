@@ -12,6 +12,7 @@ const { createPersistentQueue } = require("./autonomy/persistent-queue");
 const { createWorkflowRunIngress } = require("./github-workflow-run");
 const { createX29QueueWorker } = require("./autonomy/x29-queue-worker");
 const { createX28Adapter } = require("./architect-x28-adapter");
+const { createGithubRestClient } = require("./adapters/github-rest");
 
 const app = express();
 const PORT = Number(process.env.PORT || 8787);
@@ -23,6 +24,12 @@ const REQUEST_TIMEOUT_MS = Math.max(5000, Number(process.env.REQUEST_TIMEOUT_MS 
 const LEAD_RATE_LIMIT_WINDOW_MS = Math.max(1000, Number(process.env.LEAD_RATE_LIMIT_WINDOW_MS || 60000));
 const LEAD_RATE_LIMIT_MAX = Math.max(1, Number(process.env.LEAD_RATE_LIMIT_MAX || 20));
 const GITHUB_WEBHOOK_SECRET = String(process.env.GITHUB_WEBHOOK_SECRET || "").trim();
+const GITHUB_TOKEN = String(process.env.GITHUB_TOKEN || "").trim();
+const GITHUB_OWNER = String(process.env.GITHUB_OWNER || "").trim();
+const GITHUB_REPO = String(process.env.GITHUB_REPO || "").trim();
+const githubLive = GITHUB_TOKEN && GITHUB_OWNER && GITHUB_REPO
+  ? createGithubRestClient({ token: GITHUB_TOKEN, owner: GITHUB_OWNER, repo: GITHUB_REPO })
+  : null;
 const REPAIR_QUEUE_FILE = String(process.env.REPAIR_QUEUE_FILE || "./data/repair-queue.json").trim();
 
 if (process.env.NODE_ENV === "production") {
