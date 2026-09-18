@@ -81,7 +81,7 @@ async function createBranch({ repository, branchName, baseSha }) {
   try {
     const existing = await githubJson(refPath);
     const existingSha = String(existing?.object?.sha || "");
-    if (existingSha && existingSha !== String(baseSha) && !String(branchName).startsWith("repair/")) {
+    if (existingSha !== String(baseSha)) {
       throw new Error(`GitHub branch already exists at a different SHA: ${branchName}`);
     }
     return { ...existing, reused: true };
