@@ -24,5 +24,13 @@ async function createSandbox(sourceDir){
  fs.cpSync(sourceDir,sandbox,{recursive:true,filter:(src)=>!src.includes("/.git/")});
  return sandbox;
 }
-function cleanupSandbox(workspace){if(workspace&&workspace.includes("x10think-sandbox-"))fs.rmSync(workspace,{recursive:true,force:true});}
+function cleanupSandbox(workspace){
+ if(!workspace||!path.isAbsolute(workspace)) return false;
+ const root=path.resolve(os.tmpdir());
+ const target=path.resolve(workspace);
+ const rel=path.relative(root,target);
+ if(!rel||rel.startsWith(".."+path.sep)||path.isAbsolute(rel)||!rel.startsWith("x10think-sandbox-")) return false;
+ fs.rmSync(target,{recursive:true,force:true});
+ return true;
+}
 module.exports={runProcess,verifyWorkspace,createSandbox,cleanupSandbox};
