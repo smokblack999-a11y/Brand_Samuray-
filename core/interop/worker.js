@@ -5,6 +5,7 @@ const { buildRepairPlan } = require("./repair-plan");
 const { buildPatchCandidate } = require("./patch-candidate");
 const { buildReproductionPlan } = require("./reproduction-gate");
 const { runReproduction } = require("./reproduction-runner");
+const { provisionWorkspace } = require("./workspace-provisioner");
 const { claimNext, transition } = require("./store");
 
 function criticReview(evidence, reproductionProof = null) {
@@ -29,13 +30,18 @@ async function processJob(job, deps = {}) {
   const makePatchCandidate = deps.buildPatchCandidate || buildPatchCandidate;
   const makeReproductionPlan = deps.buildReproductionPlan || buildReproductionPlan;
   const executeReproduction = deps.runReproduction || runReproduction;
+  const provision = deps.provisionWorkspace || provisionWorkspace;
   const move = deps.transition || transition;
 
   if (!job.workflowRunId) {
     return move(job.id, "HUMAN_REVIEW", { reason: "MISSING_WORKFLOW_RUN_ID" });
   }
+  if (!job.commit || !/^[0-9a-f]{40}$/i.test(String(job.commit))) {
+    return move(job.id, "HUMAN_REVIEW", { reason: "MISSING_EXACT_COMMIT_SHA" });
+  }
 
   move(job.id, "DIAGNOSING");
+  let provisioned = null;
   try {
     const evidence = await runDiagnose(job, deps);
     if (!evidence || !evidence.failedJobs?.length) {
@@ -47,13 +53,29 @@ async function processJob(job, deps = {}) {
 
     const reproductionPlan = makeReproductionPlan(evidence, deps.reproductionCommand);
     let reproductionProof = null;
-    if (deps.workspace && deps.patch) {
-      reproductionProof = await executeReproduction({
-        workspace: deps.workspace,
-        plan: reproductionPlan,
-        patch: deps.patch,
-        timeoutMs: deps.reproductionTimeoutMs
-      });
+
+    if (deps.patch) {
+      if (deps.workspace) {
+        reproductionProof = await executeReproduction({
+          workspace: deps.workspace,
+          plan: reproductionPlan,
+          patch: deps.patch,
+          timeoutMs: deps.reproductionTimeoutMs
+        });
+      } else {
+        provisioned = await provision({
+          repository: job.repository,
+          headSha: job.commit,
+          githubToken: deps.githubToken,
+          timeoutMs: deps.workspaceTimeoutMs
+        });
+        reproductionProof = await executeReproduction({
+          workspace: provisioned.workspace,
+          plan: reproductionPlan,
+          patch: deps.patch,
+          timeoutMs: deps.reproductionTimeoutMs
+        });
+      }
     }
 
     const critic = criticReview(evidence, reproductionProof);
@@ -68,7 +90,12 @@ async function processJob(job, deps = {}) {
     if (/GITHUB_TOKEN is required/.test(message)) {
       return move(job.id, "HUMAN_REVIEW", { reason: "GITHUB_AUTH_NOT_CONFIGURED" });
     }
+    if (/exact 40-character|MISSING|workspace HEAD/.test(message)) {
+      return move(job.id, "HUMAN_REVIEW", { reason: "WORKSPACE_PROVISION_ERROR", error: message.slice(0, 300) });
+    }
     return move(job.id, "HUMAN_REVIEW", { reason: "DIAGNOSIS_ERROR", error: message.slice(0, 300) });
+  } finally {
+    if (provisioned?.cleanup) await provisioned.cleanup().catch(() => {});
   }
 }
 
