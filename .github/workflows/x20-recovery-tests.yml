@@ -1,0 +1,19 @@
+name: X20 Verified Recovery Tests
+on:
+  push:
+    branches: [x10think-x20-verified-recovery]
+  pull_request:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - run: node --test core/recovery/*.test.js
