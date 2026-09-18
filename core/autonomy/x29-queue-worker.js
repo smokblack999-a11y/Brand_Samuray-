@@ -19,7 +19,7 @@ function createX29QueueWorker({ queue, handler, maxAttempts = 2 } = {}) {
       const item = queue.claimNext();
       if (!item) return { status: "idle" };
 
-      const attempts = Number(item.workerAttempts || 0) + 1;
+      const attempts = Number(item.workerAttempts || 1);
       try {
         const result = await handler(item);
         return queue.complete(item.id, { attempts, value: result });
