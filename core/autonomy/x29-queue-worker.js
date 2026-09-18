@@ -15,6 +15,7 @@ function createX29QueueWorker({ queue, handler, maxAttempts = 2 } = {}) {
 
   return Object.freeze({
     async processOnce() {
+      if (typeof queue.recoverProcessing === "function") queue.recoverProcessing();
       const item = queue.claimNext();
       if (!item) return { status: "idle" };
 
