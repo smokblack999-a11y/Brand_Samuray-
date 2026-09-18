@@ -13,6 +13,10 @@ const { createWorkflowRunIngress } = require("./github-workflow-run");
 const { createX29QueueWorker } = require("./autonomy/x29-queue-worker");
 const { createX28Adapter } = require("./architect-x28-adapter");
 const { createGithubRestClient } = require("./adapters/github-rest");
+const { createX29Runtime } = require("./x29-runtime");
+const { createHttpRepairCandidateProvider } = require("./adapters/repair-candidate-http");
+const { createLiveGithubPrAdapter } = require("./adapters/github-pr-live-adapter");
+const { createLiveGithubCiVerifier } = require("./adapters/github-live-ci");
 
 const app = express();
 const PORT = Number(process.env.PORT || 8787);
@@ -27,6 +31,7 @@ const GITHUB_WEBHOOK_SECRET = String(process.env.GITHUB_WEBHOOK_SECRET || "").tr
 const GITHUB_TOKEN = String(process.env.GITHUB_TOKEN || "").trim();
 const GITHUB_OWNER = String(process.env.GITHUB_OWNER || "").trim();
 const GITHUB_REPO = String(process.env.GITHUB_REPO || "").trim();
+const REPAIR_CANDIDATE_URL = String(process.env.REPAIR_CANDIDATE_URL || "").trim();
 const githubLive = GITHUB_TOKEN && GITHUB_OWNER && GITHUB_REPO
   ? createGithubRestClient({ token: GITHUB_TOKEN, owner: GITHUB_OWNER, repo: GITHUB_REPO })
   : null;
@@ -85,12 +90,38 @@ const x28Adapter = createX28Adapter({
   existingJobKeys: new Set(),
   policy: { maxAttempts: 2, maxChangedFiles: 8, maxChangedLines: 400, blockedPaths: [".env"] }
 });
+const candidateProvider = REPAIR_CANDIDATE_URL
+  ? createHttpRepairCandidateProvider({ url: REPAIR_CANDIDATE_URL })
+  : null;
+
+const x29Runtime = githubLive && candidateProvider
+  ? createX29Runtime({
+      queue: repairQueue,
+      x28Adapter,
+      candidateProvider,
+      pullRequest: createLiveGithubPrAdapter({ github: githubLive }),
+      ciVerifier: createLiveGithubCiVerifier({ github: githubLive }),
+      maxAttempts: 2
+    })
+  : null;
+
 const repairWorker = GITHUB_WEBHOOK_SECRET
   ? createX29QueueWorker({
       queue: repairQueue,
-      handler: async item => x28Adapter.plan({
-        mission: { id: item.id, type: "ci-repair", input: { workflowRun: item.workflow_run || item.eventPayload || item } }
-      }),
+      handler: async item => {
+        const mission = {
+          id: item.id,
+          type: "ci-repair",
+          input: { workflowRun: item.workflow_run || item.eventPayload || item }
+        };
+        if (!x29Runtime) {
+          return {
+            status: "escalated",
+            reason: githubLive ? "REPAIR_CANDIDATE_URL_NOT_CONFIGURED" : "GITHUB_LIVE_ADAPTER_NOT_CONFIGURED"
+          };
+        }
+        return x29Runtime.run(mission);
+      },
       maxAttempts: 2
     })
   : null;
