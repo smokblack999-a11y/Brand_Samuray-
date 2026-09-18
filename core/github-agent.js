@@ -125,7 +125,7 @@ function ingestWorkflowRun(payload, deliveryId) {
       repairJob.lastError = `repair PR CI failed: ${job.workflow} (#${job.runId})`;
       repairJob.lastRepairFailure = job;
       repairJob.updatedAt = new Date().toISOString();
-      repairJob.state = repairJob.retries > repairJob.maxRetries ? "stopped" : "queued";
+      repairJob.state = repairJob.retries >= repairJob.maxRetries ? "stopped" : "queued";
 
       return {
         accepted: false,
