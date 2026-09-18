@@ -10,6 +10,9 @@ const { sendBusinessMessage } = require("./business-bot");
 const { saveLead, claimEvent, updateLead, listLeads, stats } = require("./store");
 const { createRateLimiter } = require("./rate-limit");
 const githubAgent = require("./github-agent");
+const { processNext: processGitHubDiagnosis } = require("./github-agent-worker");
+const { processRepair } = require("./github-agent-repair-worker");
+const { verifyNext: verifyGitHubPR } = require("./github-agent-pr-verifier");
 
 const app = express();
 const PORT = Number(process.env.PORT || 8787);
@@ -95,6 +98,36 @@ app.post("/api/github/webhook", requireGitHubWebhook, (req, res) => {
   } catch (error) {
     console.error(JSON.stringify({ event: "github_webhook_failed", requestId: req.requestId, error: error.message }));
     return res.status(400).json(errorBody("INVALID_GITHUB_EVENT", error.message, req.requestId));
+  }
+});
+
+app.post("/api/github/worker/diagnose", requireApiKey, async (req, res) => {
+  try {
+    const result = await processGitHubDiagnosis();
+    return res.status(result.processed ? 200 : 204).json(result);
+  } catch (error) {
+    console.error(JSON.stringify({ event: "github_diagnosis_failed", requestId: req.requestId, error: error.message }));
+    return res.status(503).json(errorBody("GITHUB_DIAGNOSIS_FAILED", "GitHub diagnosis failed", req.requestId));
+  }
+});
+
+app.post("/api/github/worker/repair", requireApiKey, async (req, res) => {
+  try {
+    const result = await processRepair();
+    return res.status(result.processed ? 200 : 204).json(result);
+  } catch (error) {
+    console.error(JSON.stringify({ event: "github_repair_failed", requestId: req.requestId, error: error.message }));
+    return res.status(503).json(errorBody("GITHUB_REPAIR_FAILED", "GitHub repair failed", req.requestId));
+  }
+});
+
+app.post("/api/github/worker/verify", requireApiKey, async (req, res) => {
+  try {
+    const result = await verifyGitHubPR();
+    return res.status(result.processed ? 200 : 204).json(result);
+  } catch (error) {
+    console.error(JSON.stringify({ event: "github_verification_failed", requestId: req.requestId, error: error.message }));
+    return res.status(503).json(errorBody("GITHUB_VERIFICATION_FAILED", "GitHub verification failed", req.requestId));
   }
 });
 
