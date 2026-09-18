@@ -9,7 +9,7 @@ function createLiveGithubPrAdapter({ github }) {
     create: async ({ mission, execution }) => {
       const run = mission?.input?.workflowRun || mission?.input?.workflow_run || {};
       const base = run?.repository?.default_branch || "main";
-      const head = execution?.candidate?.branch;
+      const head = execution?.commit?.branch || execution?.candidate?.branch;
       if (!head) throw new Error("candidate_branch_required");
 
       return github.createPullRequest({
