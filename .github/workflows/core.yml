@@ -65,6 +65,10 @@ jobs:
           node --check autonomy/x29-queue-worker.js
           node --check autonomy/event-proof-router.js
           node --check x29-runtime.js
+          node --check adapters/github-pr-adapter.js
+          node --check adapters/github-ci-verifier.js
+          node --check adapters/sandbox-adapter.js
+          node --check adapters/repair-candidate-provider.js
           node --check autonomy/repair-orchestrator.js
           node --check autonomy/architect-repair-adapter.js
           node --check scripts/set-webhook.js
