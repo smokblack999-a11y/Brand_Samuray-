@@ -60,6 +60,9 @@ jobs:
           node --check kill-critic.js
           node --check recovery-store.js
           node --check recovery-router.js
+          node --check recovery-worker.js
+          node --check interop/patch-candidate.js
+          node --check interop/patch-proposal.js
           node --check scripts/set-webhook.js
           node --check scripts/verify-config.js
 
