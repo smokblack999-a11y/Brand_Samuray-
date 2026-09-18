@@ -8,6 +8,10 @@ const { generateReply, checkOpenAI } = require("./openai");
 const { sendBusinessMessage } = require("./business-bot");
 const { saveLead, claimEvent, updateLead, listLeads, stats } = require("./store");
 const { createRateLimiter } = require("./rate-limit");
+const { createPersistentQueue } = require("./autonomy/persistent-queue");
+const { createWorkflowRunIngress } = require("./github-workflow-run");
+const { createX29QueueWorker } = require("./autonomy/x29-queue-worker");
+const { createX28Adapter } = require("./architect-x28-adapter");
 
 const app = express();
 const PORT = Number(process.env.PORT || 8787);
@@ -18,6 +22,8 @@ const CORS_ORIGIN = String(process.env.CORS_ORIGIN || "").trim();
 const REQUEST_TIMEOUT_MS = Math.max(5000, Number(process.env.REQUEST_TIMEOUT_MS || 30000));
 const LEAD_RATE_LIMIT_WINDOW_MS = Math.max(1000, Number(process.env.LEAD_RATE_LIMIT_WINDOW_MS || 60000));
 const LEAD_RATE_LIMIT_MAX = Math.max(1, Number(process.env.LEAD_RATE_LIMIT_MAX || 20));
+const GITHUB_WEBHOOK_SECRET = String(process.env.GITHUB_WEBHOOK_SECRET || "").trim();
+const REPAIR_QUEUE_FILE = String(process.env.REPAIR_QUEUE_FILE || "./data/repair-queue.json").trim();
 
 if (process.env.NODE_ENV === "production") {
   const missing = [];
@@ -67,6 +73,45 @@ app.use((req, res, next) => {
 });
 
 const leadRateLimit = createRateLimiter({ windowMs: LEAD_RATE_LIMIT_WINDOW_MS, max: LEAD_RATE_LIMIT_MAX });
+const repairQueue = createPersistentQueue(REPAIR_QUEUE_FILE);
+const x28Adapter = createX28Adapter({
+  existingJobKeys: new Set(),
+  policy: { maxAttempts: 2, maxChangedFiles: 8, maxChangedLines: 400, blockedPaths: [".env"] }
+});
+const repairWorker = GITHUB_WEBHOOK_SECRET
+  ? createX29QueueWorker({
+      queue: repairQueue,
+      handler: async item => x28Adapter.plan({
+        mission: { id: item.id, type: "ci-repair", input: { workflowRun: item.workflow_run || item.eventPayload || item } }
+      }),
+      maxAttempts: 2
+    })
+  : null;
+const githubIngress = GITHUB_WEBHOOK_SECRET
+  ? createWorkflowRunIngress({ queue: repairQueue, secret: GITHUB_WEBHOOK_SECRET })
+  : null;
+
+app.post("/api/github/webhook", express.raw({ type: "application/json", limit: "512kb" }), async (req, res) => {
+  if (!githubIngress) return res.status(503).json(errorBody("GITHUB_WEBHOOK_NOT_CONFIGURED", "GitHub webhook is not configured", req.requestId));
+  const rawBody = Buffer.isBuffer(req.body) ? req.body : Buffer.from(String(req.body || ""));
+  let payload;
+  try { payload = JSON.parse(rawBody.toString("utf8")); }
+  catch (_error) { return res.status(400).json(errorBody("INVALID_JSON", "Invalid JSON", req.requestId)); }
+
+  const result = githubIngress.accept({
+    rawBody,
+    signature: req.get("X-Hub-Signature-256"),
+    eventName: req.get("X-GitHub-Event"),
+    payload
+  });
+  if (!result.accepted) return res.status(401).json(errorBody("INVALID_GITHUB_WEBHOOK", result.reason, req.requestId));
+  if (result.queued) {
+    try { await repairWorker.processOnce(); } catch (error) {
+      console.error(JSON.stringify({ event: "x29_worker_failed", requestId: req.requestId, error: error.message }));
+    }
+  }
+  return res.status(202).json({ ok: true, accepted: true, result, requestId: req.requestId });
+});
 
 app.get("/health", (_req, res) => res.json({ ok: true, service: "SamuraiOS Core", version: "2.7.0" }));
 app.get("/ready", (req, res) => {
