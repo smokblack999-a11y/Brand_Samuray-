@@ -1,0 +1,20 @@
+name: X20 E2E Failure Probe
+
+on:
+  push:
+    branches:
+      - "x10think/e2e-probe"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  intentional-failure:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: X20 controlled failure
+        run: |
+          echo "X20 E2E controlled failure"
+          exit 1
