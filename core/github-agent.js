@@ -25,13 +25,13 @@ const LOCK_ATTEMPTS = 200;
 
 function ensure() {
   fs.mkdirSync(DATA_DIR, { recursive: true });
-  if (!fs.existsSync(FILE)) fs.writeFileSync(FILE, "[]\\n");
+  if (!fs.existsSync(FILE)) fs.writeFileSync(FILE, "[]\n");
 }
 function read() { ensure(); return JSON.parse(fs.readFileSync(FILE, "utf8")); }
 function write(rows) {
   ensure();
   const tmp = `${FILE}.${process.pid}.tmp`;
-  fs.writeFileSync(tmp, JSON.stringify(rows, null, 2) + "\\n");
+  fs.writeFileSync(tmp, JSON.stringify(rows, null, 2) + "\n");
   fs.renameSync(tmp, FILE);
 }
 function sleep(ms) {
@@ -103,15 +103,52 @@ function ingestWorkflowRun(payload, deliveryId) {
   const job = normalize(payload, deliveryId);
   if (!job.repository || !job.runId) throw new Error("Invalid workflow_run payload");
   if (job.action !== "completed" || job.conclusion !== "failure") return { accepted: false, reason: "not_a_failed_completed_run", job };
+
   return mutate(rows => {
-    const existing = rows.find(x => x.eventId === job.eventId || (job.runId && x.runId === job.runId && x.runAttempt === job.runAttempt && x.action === job.action));
+    const existing = rows.find(x =>
+      x.eventId === job.eventId ||
+      (job.runId && x.runId === job.runId && x.runAttempt === job.runAttempt && x.action === job.action)
+    );
     if (existing) return { accepted: false, duplicate: true, job: existing };
-    const item = { id: crypto.randomUUID(), type: "github_ci_failure", state: "queued", retries: 0, maxRetries: MAX_RETRIES, ...job };
+
+    const repairJob = job.branch.startsWith("repair/")
+      ? rows.find(x =>
+          x.repository === job.repository &&
+          x.branch === job.branch &&
+          x.state !== "stopped"
+        )
+      : null;
+
+    if (repairJob) {
+      repairJob.retries = Number(repairJob.retries || 0) + 1;
+      repairJob.repairFailures = Number(repairJob.repairFailures || 0) + 1;
+      repairJob.lastError = `repair PR CI failed: ${job.workflow} (#${job.runId})`;
+      repairJob.lastRepairFailure = job;
+      repairJob.updatedAt = new Date().toISOString();
+      repairJob.state = repairJob.retries > repairJob.maxRetries ? "stopped" : "queued";
+
+      return {
+        accepted: false,
+        repairFailure: true,
+        job: repairJob
+      };
+    }
+
+    const item = {
+      id: crypto.randomUUID(),
+      type: "github_ci_failure",
+      state: "queued",
+      retries: 0,
+      maxRetries: MAX_RETRIES,
+      ...job
+    };
     rows.push(item);
     return { accepted: true, job: item };
   });
 }
-function list(limit = 50) { return read().slice(-Math.max(1, Math.min(Number(limit) || 50, 200))).reverse(); }
+function list(limit = 50) {
+  return read().slice(-Math.max(1, Math.min(Number(limit) || 50, 200))).reverse();
+}
 function claim() {
   return mutate(rows => {
     const item = rows.find(x => x.state === "queued");
