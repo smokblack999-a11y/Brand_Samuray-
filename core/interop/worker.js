@@ -8,6 +8,7 @@ const { proposePatch: proposePatchWithOpenAI } = require("./openai-patch-propose
 const { buildReproductionPlan } = require("./reproduction-gate");
 const { runReproduction } = require("./reproduction-runner");
 const { provisionWorkspace } = require("./workspace-provisioner");
+const { readSourceContext, formatSourceContext } = require("./source-context");
 const { claimNext, transition } = require("./store");
 
 function criticReview(evidence, reproductionProof = null) {
@@ -61,9 +62,13 @@ async function processJob(job, deps = {}) {
       changedFiles: job.changedFiles || [],
       source: deps.patchSource || "worker-input"
     } : null;
+    let sourceContext = deps.sourceContext || "";
+    if (!sourceContext && deps.workspace && job.changedFiles?.length) {
+      sourceContext = formatSourceContext(await readSourceContext(deps.workspace, job.changedFiles));
+    }
     const proposal = proposalInput
       ? makePatchProposal(proposalInput)
-      : await proposePatch({ evidence, changedFiles: job.changedFiles || [], repository: job.repository, commit: job.commit, source: deps.sourceContext || "", apiKey: deps.openaiApiKey });
+      : await proposePatch({ evidence, changedFiles: job.changedFiles || [], repository: job.repository, commit: job.commit, source: sourceContext, apiKey: deps.openaiApiKey });
     if (!proposal?.accepted || !proposal?.proposal?.diff) {
       return move(job.id, "HUMAN_REVIEW", { reason: proposal?.reason || "PATCH_PROPOSAL_REJECTED", evidence, proposal });
     }
@@ -74,6 +79,9 @@ async function processJob(job, deps = {}) {
 
     if (patch) {
       if (deps.workspace) {
+        if (!sourceContext && job.changedFiles?.length) {
+          sourceContext = formatSourceContext(await readSourceContext(provisioned.workspace, job.changedFiles));
+        }
         reproductionProof = await executeReproduction({
           workspace: deps.workspace,
           plan: reproductionPlan,
