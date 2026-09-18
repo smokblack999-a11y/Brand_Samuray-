@@ -24,7 +24,7 @@ const DEFAULTS = Object.freeze({
   dependencyWeight: 0.05,
   historicalWeight: 0.05,
   scopeWeight: 0.05,
-  sandboxThreshold: 0.75,
+  sandboxThreshold: 0.25,
   prThreshold: 0.90,
   maxChangedFiles: 12,
   maxChangedLines: 600,
