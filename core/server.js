@@ -14,6 +14,7 @@ const app = express();
 const PORT = Number(process.env.PORT || 8787);
 const API_KEY = String(process.env.CORE_API_KEY || "").trim();
 const WEBHOOK_SECRET = String(process.env.TELEGRAM_WEBHOOK_SECRET || "").trim();
+const GITHUB_WEBHOOK_SECRET = String(process.env.GITHUB_WEBHOOK_SECRET || "").trim();
 const MAX_MESSAGE_CHARS = Math.max(100, Math.min(Number(process.env.MAX_MESSAGE_CHARS || 4000), 10000));
 const CORS_ORIGIN = String(process.env.CORS_ORIGIN || "").trim();
 const REQUEST_TIMEOUT_MS = Math.max(5000, Number(process.env.REQUEST_TIMEOUT_MS || 30000));
@@ -24,13 +25,14 @@ if (process.env.NODE_ENV === "production") {
   const missing = [];
   if (!API_KEY) missing.push("CORE_API_KEY");
   if (!WEBHOOK_SECRET) missing.push("TELEGRAM_WEBHOOK_SECRET");
+  if (!GITHUB_WEBHOOK_SECRET) missing.push("GITHUB_WEBHOOK_SECRET");
   if (missing.length) throw new Error(`Production startup blocked: missing ${missing.join(", ")}`);
 }
 
 app.disable("x-powered-by");
 app.set("trust proxy", process.env.TRUST_PROXY === "true" ? 1 : false);
 app.use(cors(CORS_ORIGIN ? { origin: CORS_ORIGIN } : { origin: false }));
-app.use(express.json({ limit: "256kb" }));
+app.use(express.json({ limit: "256kb", verify: (req,_res,buf) => { req.rawBody = Buffer.from(buf); } }));
 
 function errorBody(code, message, requestId) {
   return { ok: false, error: { code, message, requestId } };
@@ -50,6 +52,13 @@ function requireWebhookSecret(req, res, next) {
   if (!WEBHOOK_SECRET) return res.status(503).json(errorBody("WEBHOOK_AUTH_NOT_CONFIGURED", "Webhook authentication is not configured", req.requestId));
   if (safeEqual(WEBHOOK_SECRET, req.get("X-Telegram-Bot-Api-Secret-Token"))) return next();
   return res.status(401).json(errorBody("UNAUTHORIZED_WEBHOOK", "Unauthorized webhook", req.requestId));
+}
+function requireGitHubSignature(req,res,next){
+  if(!GITHUB_WEBHOOK_SECRET) return res.status(503).json(errorBody("GITHUB_WEBHOOK_AUTH_NOT_CONFIGURED","GitHub webhook authentication is not configured",req.requestId));
+  const supplied=String(req.get("X-Hub-Signature-256")||"");
+  const expected="sha256="+crypto.createHmac("sha256",GITHUB_WEBHOOK_SECRET).update(req.rawBody||Buffer.alloc(0)).digest("hex");
+  if(!safeEqual(expected,supplied)) return res.status(401).json(errorBody("UNAUTHORIZED_GITHUB_WEBHOOK","Unauthorized GitHub webhook",req.requestId));
+  return next();
 }
 function requestId(req, res, next) {
   const id = crypto.randomUUID();
@@ -90,7 +99,17 @@ app.get("/health/openai", requireApiKey, async (req, res) => {
   }
 });
 app.get("/api/leads", requireApiKey, (req, res) => res.json({ ok: true, leads: listLeads(req.query.limit), requestId: req.requestId }));
-app.get("/api/stats", requireApiKey, (req, res) => res.json({ ok: true, stats: stats(), requestId: req.requestId }));\napp.get("/api/recovery/jobs", requireApiKey, (req, res) => res.json({ ok: true, jobs: recovery.listJobs(req.query.limit), requestId: req.requestId }));\napp.get("/api/recovery/jobs/:id", requireApiKey, (req, res) => {\n  const job = recovery.getJob(req.params.id);\n  if (!job) return res.status(404).json(errorBody("RECOVERY_NOT_FOUND", "Recovery job not found", req.requestId));\n  return res.json({ ok: true, job, events: recovery.listEvents(job.id), requestId: req.requestId });\n});\napp.post("/api/recovery/github", requireApiKey, (req, res) => {\n  try {\n    const result = recovery.enqueueFromGithub(req.body || {}, req.body?.evidence || []);\n    return res.status(result.queued ? 202 : 200).json({ ok: true, ...result, requestId: req.requestId });\n  } catch (error) {\n    return res.status(400).json(errorBody("RECOVERY_ENQUEUE_FAILED", error.message, req.requestId));\n  }\n});\napp.post("/api/recovery/jobs/:id/start", requireApiKey, (req, res) => {\n  try { return res.json({ ok: true, job: recovery.startJob(req.params.id), requestId: req.requestId }); }\n  catch (error) { return res.status(409).json(errorBody("RECOVERY_START_FAILED", error.message, req.requestId)); }\n});\napp.post("/api/recovery/ci", requireApiKey, (req, res) => {
+app.get("/api/stats", requireApiKey, (req, res) => res.json({ ok: true, stats: stats(), requestId: req.requestId }));\napp.get("/api/recovery/jobs", requireApiKey, (req, res) => res.json({ ok: true, jobs: recovery.listJobs(req.query.limit), requestId: req.requestId }));\napp.get("/api/recovery/jobs/:id", requireApiKey, (req, res) => {\n  const job = recovery.getJob(req.params.id);\n  if (!job) return res.status(404).json(errorBody("RECOVERY_NOT_FOUND", "Recovery job not found", req.requestId));\n  return res.json({ ok: true, job, events: recovery.listEvents(job.id), requestId: req.requestId });\n});\napp.post("/api/recovery/github/webhook", requireGitHubSignature, (req,res) => {
+  try {
+    const event=req.get("X-GitHub-Event")||"";
+    if(event!=="workflow_run") return res.status(202).json({ok:true,ignored:true,event,requestId:req.requestId});
+    const result=recovery.enqueueFromGithub(req.body||{},req.body?.evidence||[]);
+    return res.status(result.queued?202:200).json({ok:true,...result,requestId:req.requestId});
+  } catch(error) {
+    return res.status(400).json(errorBody("RECOVERY_WEBHOOK_FAILED",error.message,req.requestId));
+  }
+});
+app.post("/api/recovery/github", requireApiKey, (req, res) => {\n  try {\n    const result = recovery.enqueueFromGithub(req.body || {}, req.body?.evidence || []);\n    return res.status(result.queued ? 202 : 200).json({ ok: true, ...result, requestId: req.requestId });\n  } catch (error) {\n    return res.status(400).json(errorBody("RECOVERY_ENQUEUE_FAILED", error.message, req.requestId));\n  }\n});\napp.post("/api/recovery/jobs/:id/start", requireApiKey, (req, res) => {\n  try { return res.json({ ok: true, job: recovery.startJob(req.params.id), requestId: req.requestId }); }\n  catch (error) { return res.status(409).json(errorBody("RECOVERY_START_FAILED", error.message, req.requestId)); }\n});\napp.post("/api/recovery/ci", requireApiKey, (req, res) => {
   try {
     const result = recovery.updateRecoveryCi(req.body || {});
     return res.status(result.updated ? 200 : 202).json({ ok: true, ...result, requestId: req.requestId });
