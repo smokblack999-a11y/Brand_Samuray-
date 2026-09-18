@@ -27,3 +27,8 @@ test("terminal recovery states cannot transition", () => {
   assert.equal(canTransition("recovered", "running"), false);
   assert.equal(canTransition("frozen", "running"), false);
 });
+
+const { buildPrRequest } = require("./recovery/github-pr");
+const { evaluate: evaluateCritic } = require("./recovery/kill-critic");
+test("recovery budget freezes over runtime", () => { assert.equal(evaluateCritic({ patchApplied:true, sandboxPassed:true, testsPassed:true, ciPassed:true, runtimeSeconds:901, maxRuntimeSeconds:900 }).decision, "frozen"); });
+test("PR request has no token field", () => { const r=buildPrRequest({source:{repo:"o/r",sha:"abc"}},{branch:"recovery/a",title:"fix",body:"proof"}); assert.equal("token" in r,false); });
