@@ -58,7 +58,7 @@ function beginTesting(job) {
 function recordTest(job, { passed, command = "", exitCode = null } = {}) {
   if (job.state !== STATES.TESTING) throw new Error("job must be testing");
   if (passed === true) return transition(job, STATES.PROVEN, { test: { passed: true, command, exitCode } });
-  if (shouldRetry(job)) return transition(job, STATES.STOPPED, { test: { passed: false, command, exitCode }, retryAvailable: true });
+  if (shouldRetry(job)) return transition(job, STATES.PATCHING, { test: { passed: false, command, exitCode }, retryAvailable: true });
   return transition(job, STATES.STOPPED, { test: { passed: false, command, exitCode }, retryAvailable: false });
 }
 
