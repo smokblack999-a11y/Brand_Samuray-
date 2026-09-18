@@ -68,6 +68,7 @@ jobs:
           node --check adapters/github-pr-adapter.js
           node --check adapters/github-live-ci.js
           node --check adapters/github-pr-live-adapter.js
+          node --check adapters/github-sandbox-adapter.js
           node --check adapters/github-rest.js
           node --check adapters/github-ci-verifier.js
           node --check adapters/sandbox-adapter.js
