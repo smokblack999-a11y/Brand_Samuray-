@@ -2,14 +2,31 @@
 
 const githubAgent = require("./github-agent");
 const { runDualAI } = require("./dual-ai");
+const { installationToken } = require("./github-app");
 
 const API = "https://api.github.com";
 const MAX_LOG_CHARS = Math.max(4000, Math.min(Number(process.env.GITHUB_AGENT_MAX_LOG_CHARS || 30000), 100000));
 
-function requiredToken() {
-  const token = String(process.env.GITHUB_TOKEN || "").trim();
-  if (!token) throw new Error("GITHUB_TOKEN is not configured");
-  return token;
+async function githubRequest(pathname, options = {}) {
+  const token = await installationToken();
+  const response = await fetch(API + pathname, {
+    ...options,
+    headers: {
+      Accept: "application/vnd.github+json",
+      Authorization: "Bearer " + token,
+      "X-GitHub-Api-Version": "2022-11-28",
+      "User-Agent": "SamuraiOS-X18-Agent",
+      ...(options.headers || {})
+    }
+  });
+  const body = await response.text();
+  if (!response.ok) throw new Error("GitHub API " + response.status + ": " + body.slice(0, 1000));
+  return body;
+}
+
+async function githubJson(pathname, options = {}) {
+  const body = await githubRequest(pathname, options);
+  return body ? JSON.parse(body) : {};
 }
 
 function repoPath(repository) {
@@ -34,25 +51,14 @@ async function githubJson(url) {
 
 async function getFailureEvidence(job) {
   const repo = repoPath(job.repository);
-  const run = await githubJson(`${API}/repos/${repo}/actions/runs/${encodeURIComponent(job.runId)}`);
-  const jobs = await githubJson(`${API}/repos/${repo}/actions/runs/${encodeURIComponent(job.runId)}/jobs?per_page=100`);
+  const run = await githubJson(`/repos/${repo}/actions/runs/${encodeURIComponent(job.runId)}`);
+  const jobs = await githubJson(`/repos/${repo}/actions/runs/${encodeURIComponent(job.runId)}/jobs?per_page=100`);
   const failedJobs = (jobs.jobs || []).filter(item => item.conclusion === "failure" || item.status === "failure");
   const evidenceJobs = [];
   for (const failed of failedJobs.slice(0, 5)) {
     let logs = "";
     try {
-      logs = await fetch(`${API}/repos/${repo}/actions/jobs/${failed.id}/logs`, {
-        headers: {
-          Accept: "application/vnd.github+json",
-          Authorization: `Bearer ${requiredToken()}`,
-          "X-GitHub-Api-Version": "2022-11-28",
-          "User-Agent": "SamuraiOS-X18-Agent"
-        },
-        redirect: "follow"
-      }).then(async response => {
-        if (!response.ok) return `Unable to fetch logs: HTTP ${response.status}`;
-        return (await response.text()).slice(-MAX_LOG_CHARS);
-      });
+      logs = (await githubRequest(`/repos/${repo}/actions/jobs/${failed.id}/logs`, { redirect: "follow" })).slice(-MAX_LOG_CHARS);;
     } catch (error) {
       logs = `Unable to fetch logs: ${error.message}`;
     }
