@@ -35,7 +35,7 @@ if (process.env.NODE_ENV === "production") {
 app.disable("x-powered-by");
 app.set("trust proxy", process.env.TRUST_PROXY === "true" ? 1 : false);
 app.use(cors(CORS_ORIGIN ? { origin: CORS_ORIGIN } : { origin: false }));
-app.use(express.json({ limit: "256kb" }));
+app.use(express.json({ limit: "256kb", verify: (req, _res, buf) => { req.rawBody = Buffer.from(buf); } }));
 
 function errorBody(code, message, requestId) {
   return { ok: false, error: { code, message, requestId } };
@@ -91,12 +91,10 @@ const githubIngress = GITHUB_WEBHOOK_SECRET
   ? createWorkflowRunIngress({ queue: repairQueue, secret: GITHUB_WEBHOOK_SECRET })
   : null;
 
-app.post("/api/github/webhook", express.raw({ type: "application/json", limit: "512kb" }), async (req, res) => {
+app.post("/api/github/webhook", async (req, res) => {
   if (!githubIngress) return res.status(503).json(errorBody("GITHUB_WEBHOOK_NOT_CONFIGURED", "GitHub webhook is not configured", req.requestId));
-  const rawBody = Buffer.isBuffer(req.body) ? req.body : Buffer.from(String(req.body || ""));
-  let payload;
-  try { payload = JSON.parse(rawBody.toString("utf8")); }
-  catch (_error) { return res.status(400).json(errorBody("INVALID_JSON", "Invalid JSON", req.requestId)); }
+  const rawBody = Buffer.isBuffer(req.rawBody) ? req.rawBody : Buffer.from(JSON.stringify(req.body || {}));
+  const payload = req.body;
 
   const result = githubIngress.accept({
     rawBody,
