@@ -2,7 +2,7 @@
 
 const RULES = [
   { id:"dependency_error", patterns:[/npm ERR!.*(ERESOLVE|notarget|peer dep|could not resolve)/i,/yarn.*(resolution|dependency)/i], action:"inspect_package_manifests_and_lockfile" },
-  { id:"test_failure", patterns:[/(FAIL|AssertionError|expected .* to|test failed)/i,/(npm test|node --test).*failed/i], action:"inspect_failing_test_and_nearest_source" },
+  { id:"test_failure", patterns:[/(\bFAIL\b|AssertionError|expected .* to|test failed)/i,/(npm test|node --test).*failed/i], action:"inspect_failing_test_and_nearest_source" },
   { id:"syntax_error", patterns:[/(SyntaxError|Unexpected token|Unexpected identifier)/i], action:"inspect_reported_file_and_syntax" },
   { id:"timeout", patterns:[/(timed out|timeout|exceeded.*time limit)/i], action:"inspect_long_running_step_and_external_waits" },
   { id:"auth_error", patterns:[/(401|403|unauthorized|forbidden|authentication failed)/i], action:"inspect_non_secret_auth_configuration_and_permissions" },
