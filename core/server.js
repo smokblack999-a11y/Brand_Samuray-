@@ -103,8 +103,9 @@ app.get("/api/stats", requireApiKey, (req, res) => res.json({ ok: true, stats: s
   try {
     const event=req.get("X-GitHub-Event")||"";
     if(event!=="workflow_run") return res.status(202).json({ok:true,ignored:true,event,requestId:req.requestId});
+    const deliveryId=String(req.get("X-GitHub-Delivery")||"");
     const result=recovery.enqueueFromGithub(req.body||{},req.body?.evidence||[]);
-    return res.status(result.queued?202:200).json({ok:true,...result,requestId:req.requestId});
+    return res.status(result.queued?202:200).json({ok:true,deliveryId,...result,requestId:req.requestId});
   } catch(error) {
     return res.status(400).json(errorBody("RECOVERY_WEBHOOK_FAILED",error.message,req.requestId));
   }
