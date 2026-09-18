@@ -52,6 +52,23 @@ function createPersistentQueue(filePath) {
       return { claimed: true, job: clone(item) };
     },
 
+    recoverProcessing(maxAgeMs = 300000) {
+      const state = read();
+      const now = Date.now();
+      let recovered = 0;
+      for (const job of state.jobs) {
+        if (job.queueStatus !== "processing") continue;
+        const age = now - Date.parse(job.updatedAt || job.queuedAt || 0);
+        if (age >= maxAgeMs) {
+          job.queueStatus = "queued";
+          job.updatedAt = new Date().toISOString();
+          recovered += 1;
+        }
+      }
+      if (recovered) write(state);
+      return recovered;
+    },
+
     claimNext() {
       const state = read();
       const index = state.jobs.findIndex(x => x.queueStatus === "queued");
