@@ -33,6 +33,60 @@ function recordAction(id, action) {
   const actions = [...job.actions, { ...action, at: new Date().toISOString() }];
   return store.updateJob(id, { actions });
 }
+function updateRecoveryCi(payload = {}) {
+  const run = payload.workflow_run || payload;
+  const repo = payload.repository?.full_name || run.repository?.full_name || null;
+  const sha = run.head_sha || null;
+  const branch = run.head_branch || null;
+  const conclusion = run.conclusion || null;
+  if (!repo || !sha || !conclusion) return { updated: false, reason: "invalid_workflow_run" };
+
+  const jobs = store.listJobs(500);
+  const job = jobs.find(candidate =>
+    candidate.source?.repo === repo &&
+    (
+      candidate.recovery?.commitSha === sha ||
+      candidate.recovery?.branch === branch
+    )
+  );
+  if (!job) return { updated: false, reason: "recovery_job_not_found" };
+
+  const ci = {
+    runId: run.id != null ? String(run.id) : null,
+    sha,
+    branch,
+    workflow: run.name || null,
+    status: run.status || null,
+    conclusion,
+    url: run.html_url || null,
+    verifiedAt: new Date().toISOString()
+  };
+  const actions = [...(job.actions || []), { type: "recovery_ci", ci, at: new Date().toISOString() }];
+  const passed = conclusion === "success" && sha === job.recovery.commitSha;
+  const next = store.updateJob(job.id, {
+    recovery: { ...(job.recovery || {}), ciRunId: ci.runId, ciConclusion: conclusion, ciSha: sha, ciUrl: ci.url },
+    verification: { ...(job.verification || {}), ciPassed: passed, ci },
+    actions
+  });
+  if (!passed && ["failure","timed_out","cancelled","startup_failure"].includes(conclusion)) {
+    return { updated: true, job: store.updateJob(job.id, { status: "retryable", lastDecision: { decision: "retryable", reason: "recovery_ci_failed", ci } }) };
+  }
+  if (passed) {
+    const verification = {
+      ...(next.verification || {}),
+      patchApplied: next.verification?.patchApplied === true,
+      sandboxPassed: next.verification?.sandboxPassed === true,
+      testsPassed: next.verification?.testsPassed === true,
+      ciPassed: true,
+      regressionDetected: next.verification?.regressionDetected === true,
+      filesChanged: next.verification?.filesChanged || [],
+      runtimeSeconds: next.verification?.runtimeSeconds || 0
+    };
+    return { updated: true, job: gate(job.id, verification) };
+  }
+  return { updated: true, job: next };
+}
+
 function gate(id, verification) {
   const job = store.getJob(id);
   if (!job) throw new Error("recovery job not found");
@@ -42,4 +96,4 @@ function gate(id, verification) {
   }
   return store.updateJob(id, { status: decision.decision, lastDecision: decision });
 }
-module.exports = { ...store, ...state, ...critic, ...github, ...rootCause, ...patchPlan, enqueueFromGithub, diagnoseJob, startJob, recordAction, gate };
+module.exports = { ...store, ...state, ...critic, ...github, ...rootCause, ...patchPlan, enqueueFromGithub, diagnoseJob, startJob, recordAction, gate, updateRecoveryCi };
