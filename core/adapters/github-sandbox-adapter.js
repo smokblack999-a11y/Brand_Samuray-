@@ -17,10 +17,12 @@ function createGithubSandboxAdapter({
     const changedFiles = new Set(Array.isArray(candidate?.changed_files) ? candidate.changed_files : []);
 
     if (!branch || !files.length) throw new Error("candidate_branch_and_files_required");
+    if (!/^x29\\/[a-z0-9._-]+$/.test(branch)) throw new Error("unsafe_candidate_branch");
     if (!changedFiles.size) throw new Error("candidate_changed_files_required");
 
     for (const file of files) {
       if (!file?.path || typeof file.content !== "string") throw new Error("invalid_candidate_file");
+      if (file.path.startsWith("/") || file.path.includes("\\") || file.path.split("/").includes("..")) throw new Error("unsafe_candidate_path");
       if (!changedFiles.has(file.path)) throw new Error("candidate_file_not_declared");
     }
 
