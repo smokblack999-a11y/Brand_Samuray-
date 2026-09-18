@@ -5,6 +5,7 @@ const express = require("express");
 const cors = require("cors");
 const { scoreLead } = require("./lead-engine");
 const { generateReply, checkOpenAI } = require("./openai");
+const { runDualAI } = require("./dual-ai");
 const { sendBusinessMessage } = require("./business-bot");
 const { saveLead, claimEvent, updateLead, listLeads, stats } = require("./store");
 const { createRateLimiter } = require("./rate-limit");
@@ -67,8 +68,9 @@ app.use((req, res, next) => {
 });
 
 const leadRateLimit = createRateLimiter({ windowMs: LEAD_RATE_LIMIT_WINDOW_MS, max: LEAD_RATE_LIMIT_MAX });
+const dualAIRateLimit = createRateLimiter({ windowMs: Math.max(1000, Number(process.env.DUAL_AI_RATE_LIMIT_WINDOW_MS || 60000)), max: Math.max(1, Number(process.env.DUAL_AI_RATE_LIMIT_MAX || 5)) });
 
-app.get("/health", (_req, res) => res.json({ ok: true, service: "SamuraiOS Core", version: "2.7.0" }));
+app.get("/health", (_req, res) => res.json({ ok: true, service: "SamuraiOS Core", version: "2.8.0-x10think" }));
 app.get("/ready", (req, res) => {
   try {
     const current = stats();
@@ -107,6 +109,21 @@ async function analyze(message, business) {
   const reply = process.env.OPENAI_API_KEY ? await generateReply({ business: business || process.env.BUSINESS_NAME, customerMessage: text, lead }) : null;
   return { lead, reply };
 }
+
+app.post("/api/dual-ai/run", requireApiKey, dualAIRateLimit, async (req, res) => {
+  try {
+    const task = String(req.body?.task || "").trim();
+    if (!task) return res.status(400).json(errorBody("INVALID_TASK", "task обязателен", req.requestId));
+    if (task.length > MAX_MESSAGE_CHARS) return res.status(400).json(errorBody("TASK_TOO_LONG", `task слишком длинный (максимум ${MAX_MESSAGE_CHARS} символов)`, req.requestId));
+    if (!process.env.OPENAI_API_KEY) return res.status(503).json(errorBody("OPENAI_NOT_CONFIGURED", "OpenAI is not configured", req.requestId));
+
+    const result = await runDualAI(task, { maxRounds: req.body?.maxRounds });
+    return res.json({ ok: true, ...result, requestId: req.requestId });
+  } catch (error) {
+    console.error(JSON.stringify({ event: "dual_ai_failed", requestId: req.requestId, error: error.message }));
+    return res.status(503).json(errorBody("DUAL_AI_FAILED", "Dual AI unavailable", req.requestId));
+  }
+});
 
 app.post("/api/lead/analyze", requireApiKey, leadRateLimit, async (req, res) => {
   try {
@@ -156,7 +173,7 @@ app.post("/api/telegram/webhook", requireWebhookSecret, async (req, res) => {
 
 app.use((req, res) => res.status(404).json(errorBody("NOT_FOUND", "Endpoint not found", req.requestId)));
 
-const server = app.listen(PORT, "0.0.0.0", () => console.log(`SamuraiOS Core 2.7.0 listening on :${PORT}`));
+const server = app.listen(PORT, "0.0.0.0", () => console.log(`SamuraiOS Core 2.8.0-x10think listening on :${PORT}`));
 server.requestTimeout = REQUEST_TIMEOUT_MS;
 server.headersTimeout = REQUEST_TIMEOUT_MS + 5000;
 
