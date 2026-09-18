@@ -12,7 +12,7 @@ const agent = require("./github-agent");
 test("workflow_run failure is normalized and queued", () => {
   const payload = {
     action: "completed",
-    repository: { full_name: "repo/repair-loop-test" },
+    repository: { full_name: "smokblack999-a11y/Brand_Samuray-" },
     workflow_run: {
       id: 12345,
       run_attempt: 1,
@@ -121,7 +121,7 @@ test("repeated repair PR failures stop the same job", () => {
   });
   assert.equal(source.accepted, true);
   agent.transition(source.job.id, "diagnosing");
-  agent.transition(source.job.id, "diagnosed");
+  agent.transition(source.job.id, "diagnosed", { branch: "repair/loop-job" });
 
   const first = agent.ingestWorkflowRun(payload(1));
   assert.equal(first.job.state, "queued");
