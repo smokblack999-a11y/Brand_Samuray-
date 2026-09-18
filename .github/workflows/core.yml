@@ -2,7 +2,7 @@ name: SamuraiOS Core CI
 
 on:
   push:
-    branches: [ "main", "master", "x29/**" ]
+    branches: [ "main", "master", "feat/**" ]
     paths:
       - 'core/**'
       - 'docker-compose.yml'
