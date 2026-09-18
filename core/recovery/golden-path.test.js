@@ -29,6 +29,12 @@ test("X20 golden path closes only on exact successful recovery SHA",()=>{
   });
   assert.equal(wrong.updated,false);
 
+  const wrongBranch=recovery.updateRecoveryCi({
+    repository:{full_name:"test/repo"},
+    workflow_run:{id:80,name:"CI",conclusion:"success",head_sha:"recovery-sha",head_branch:"main"}
+  });
+  assert.equal(wrongBranch.updated,false);
+
   const good=recovery.updateRecoveryCi({
     repository:{full_name:"test/repo"},
     workflow_run:{id:79,name:"CI",conclusion:"success",head_sha:"recovery-sha",head_branch:"x10think/recovery-test-a1"}
