@@ -6,6 +6,7 @@ on:
       - "SamuraiOS Core CI"
       - "SamuraiOS Core X22 CI"
       - "X20 Verified Recovery Tests"
+      - "X20 E2E Failure Probe"
     types: [completed]
 
 permissions:
