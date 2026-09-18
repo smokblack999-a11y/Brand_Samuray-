@@ -5,7 +5,7 @@ ENV NODE_ENV=production
 ENV PORT=8787
 
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends git ca-certificates \
+  && apt-get install -y --no-install-recommends git ca-certificates curl \
   && rm -rf /var/lib/apt/lists/*
 
 COPY package*.json ./
