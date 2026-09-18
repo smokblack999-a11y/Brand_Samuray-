@@ -104,7 +104,7 @@ app.post("/api/github/webhook", requireGitHubWebhook, (req, res) => {
 app.post("/api/github/worker/diagnose", requireApiKey, async (req, res) => {
   try {
     const result = await processGitHubDiagnosis();
-    return res.status(result.processed ? 200 : 204).json(result);
+    return res.status(200).json(result);
   } catch (error) {
     console.error(JSON.stringify({ event: "github_diagnosis_failed", requestId: req.requestId, error: error.message }));
     return res.status(503).json(errorBody("GITHUB_DIAGNOSIS_FAILED", "GitHub diagnosis failed", req.requestId));
