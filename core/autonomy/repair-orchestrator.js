@@ -75,11 +75,7 @@ function verifyPr(job, ciResult) {
     return transition(job, STATES.VERIFIED, { ciResult });
   }
   if (job.attempts < job.maxAttempts) {
-    return transition(
-      transition(job, STATES.TESTING, { ciResult }),
-      STATES.STOPPED,
-      { reason: "CI failure requires external retry workflow" }
-    );
+    return transition(job, STATES.TESTING, { ciResult, retry: true });
   }
   return transition(job, STATES.STOPPED, { ciResult, reason: "maxAttempts exhausted" });
 }
