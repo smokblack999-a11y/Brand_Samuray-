@@ -3,6 +3,7 @@
 const { Router } = require("express");
 const { enqueue, list, update } = require("./recovery-store");
 const { fingerprint, decide } = require("./kill-critic");
+const { buildPatchProposal } = require("./interop/patch-proposal");
 
 const PATTERNS = [
   { type: "dependency_error", re: /(npm ERR!|module not found|could not resolve|dependency|gradle.*failed|aapt2)/i, weight: 0.30 },
@@ -80,6 +81,39 @@ function createRecoveryRouter({ requireRecoveryAuth }) {
       return res.status(result.created ? 202 : 200).json({ ok:true, accepted:true, created:result.created, job:saved, critic });
     } catch (error) {
       return res.status(500).json({ ok:false, error:{ code:"RECOVERY_ENQUEUE_FAILED", message:error.message } });
+    }
+  });
+
+  router.post("/jobs/:id/proposal", requireRecoveryAuth, (req, res) => {
+    try {
+      const current = list(100).find(x => x.id === req.params.id);
+      if (!current) return res.status(404).json({ ok:false, error:{ code:"RECOVERY_JOB_NOT_FOUND", message:"recovery job not found" } });
+      if (!["ready_for_patch","queued"].includes(current.status)) {
+        return res.status(409).json({ ok:false, error:{ code:"INVALID_RECOVERY_STATE", message:"job is not accepting a patch proposal" } });
+      }
+
+      const proposal = buildPatchProposal(req.body || {});
+      if (!proposal.accepted) return res.status(422).json({ ok:false, error:{ code:"INVALID_PATCH_PROPOSAL", message:proposal.reason } });
+
+      const changedFiles = proposal.proposal.files;
+      const changedLines = String(proposal.proposal.diff).split(/\r?\n/).filter(line => /^\+[^+]|^-[^-]/.test(line)).length;
+      const deletions = String(proposal.proposal.diff).split(/\r?\n/).filter(line => /^-[^-]/.test(line)).length;
+      const sensitivePaths = changedFiles.filter(p => /(^|\/)(\.github|\.env|package-lock\.json|yarn\.lock|pnpm-lock\.yaml|android\/app\/src\/main\/AndroidManifest\.xml)(\/|$)/i.test(p));
+      const patch = { changedFiles: changedFiles.length, changedLines, deletions, sensitivePaths };
+      const evidence = { ...(current.diagnosis?.evidence || {}), scopeMatch: 1, changedFileMatch: 1 };
+      const critic = decide({ attempts: current.attempts, evidence, patch });
+
+      const saved = update(current.id, {
+        patchProposal: proposal.proposal,
+        patch,
+        diagnosis: { ...(current.diagnosis || {}), evidence },
+        critic,
+        status: critic.action === "SANDBOX" ? "sandbox_pending" : critic.action === "HUMAN_REVIEW" ? "human_review" : "stopped"
+      });
+
+      return res.status(202).json({ ok:true, job:saved, critic });
+    } catch (error) {
+      return res.status(500).json({ ok:false, error:{ code:"PATCH_PROPOSAL_FAILED", message:error.message } });
     }
   });
 
