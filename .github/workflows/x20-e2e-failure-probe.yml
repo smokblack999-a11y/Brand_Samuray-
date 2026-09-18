@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - "x10think/e2e-probe"
+  pull_request:
+    branches:
+      - main
   workflow_dispatch:
 
 permissions:
