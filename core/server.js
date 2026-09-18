@@ -15,6 +15,7 @@ const { createX28Adapter } = require("./architect-x28-adapter");
 const { createGithubRestClient } = require("./adapters/github-rest");
 const { createX29Runtime } = require("./x29-runtime");
 const { createHttpRepairCandidateProvider } = require("./adapters/repair-candidate-http");
+const { createOpenAIRepairCandidateProvider } = require("./adapters/openai-repair-candidate");
 const { createLiveGithubPrAdapter } = require("./adapters/github-pr-live-adapter");
 const { createGithubSandboxAdapter } = require("./adapters/github-sandbox-adapter");
 const { createLiveGithubCiVerifier } = require("./adapters/github-live-ci");
@@ -33,6 +34,7 @@ const GITHUB_TOKEN = String(process.env.GITHUB_TOKEN || "").trim();
 const GITHUB_OWNER = String(process.env.GITHUB_OWNER || "").trim();
 const GITHUB_REPO = String(process.env.GITHUB_REPO || "").trim();
 const REPAIR_CANDIDATE_URL = String(process.env.REPAIR_CANDIDATE_URL || "").trim();
+const REPAIR_CONTEXT_PATHS = String(process.env.REPAIR_CONTEXT_PATHS || "").split(",").map(value => value.trim()).filter(Boolean);
 const githubLive = GITHUB_TOKEN && GITHUB_OWNER && GITHUB_REPO
   ? createGithubRestClient({ token: GITHUB_TOKEN, owner: GITHUB_OWNER, repo: GITHUB_REPO })
   : null;
@@ -93,7 +95,9 @@ const x28Adapter = createX28Adapter({
 });
 const candidateProvider = REPAIR_CANDIDATE_URL
   ? createHttpRepairCandidateProvider({ url: REPAIR_CANDIDATE_URL })
-  : null;
+  : process.env.OPENAI_API_KEY
+    ? createOpenAIRepairCandidateProvider()
+    : null;
 
 const x29Runtime = githubLive && candidateProvider
   ? createX29Runtime({
@@ -111,10 +115,18 @@ const repairWorker = GITHUB_WEBHOOK_SECRET
   ? createX29QueueWorker({
       queue: repairQueue,
       handler: async item => {
+        const workflowRun = item.workflow_run || item.eventPayload || item;
+        const contextRef = workflowRun?.head_branch || workflowRun?.repository?.default_branch || "main";
+        const sourceContext = githubLive && REPAIR_CONTEXT_PATHS.length
+          ? (await Promise.all(REPAIR_CONTEXT_PATHS.map(async path => {
+              try { return await githubLive.getFile({ path, ref: contextRef }); }
+              catch (error) { return { path, error: error.message }; }
+            }))).filter(Boolean)
+          : [];
         const mission = {
           id: item.id,
           type: "ci-repair",
-          input: { workflowRun: item.workflow_run || item.eventPayload || item }
+          input: { workflowRun, sourceContext }
         };
         if (!x29Runtime) {
           return {
