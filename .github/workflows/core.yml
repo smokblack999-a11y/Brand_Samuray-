@@ -58,6 +58,7 @@ jobs:
           node --check store.js
           node --check lead-engine.js
           node --check architect-core.js
+          node --check architect-x28-adapter.js
           node --check autonomy/repair-orchestrator.js
           node --check autonomy/architect-repair-adapter.js
           node --check scripts/set-webhook.js
