@@ -22,7 +22,7 @@ function createX29Runtime({
 
   return new ArchitectCore({
     maxAttempts,
-    store: { save(job) { return queue.complete(job.id, job); } },
+    store: { async save() {} },
     planner: { async plan({ mission }) { return x28Adapter.plan({ mission }); } },
     critic: {
       async evaluate({ mission, plan }) {
