@@ -9,7 +9,7 @@ function createGithubRestClient({ token, owner, repo, apiBase = "https://api.git
       headers: {
         accept: "application/vnd.github+json",
         authorization: "Bearer " + token,
-        "x-github-api-version": "2022-11-28",
+        "x-github-api-version": "2026-03-10",
         "content-type": "application/json",
         ...(options.headers || {})
       }
@@ -17,22 +17,27 @@ function createGithubRestClient({ token, owner, repo, apiBase = "https://api.git
     const body = await response.json().catch(() => ({}));
     if (!response.ok) {
       const error = new Error("github_api_" + response.status);
-      error.status = response.status;
-      error.body = body;
-      throw error;
+      error.status = response.status; error.body = body; throw error;
     }
     return body;
   }
 
   return {
     getWorkflowRun: id => request(`/repos/${owner}/${repo}/actions/runs/${id}`),
+    listWorkflowRuns: ({ branch, headSha, event, perPage = 10 } = {}) => {
+      const params = new URLSearchParams();
+      if (branch) params.set("branch", branch);
+      if (headSha) params.set("head_sha", headSha);
+      if (event) params.set("event", event);
+      params.set("per_page", String(perPage));
+      return request(`/repos/${owner}/${repo}/actions/runs?${params}`);
+    },
     getPullRequest: number => request(`/repos/${owner}/${repo}/pulls/${number}`),
     createPullRequest: input => request(`/repos/${owner}/${repo}/pulls`, { method: "POST", body: JSON.stringify(input) }),
     createBranch: async ({ branch, from }) => {
       const ref = await request(`/repos/${owner}/${repo}/git/ref/heads/${encodeURIComponent(from)}`);
       return request(`/repos/${owner}/${repo}/git/refs`, {
-        method: "POST",
-        body: JSON.stringify({ ref: "refs/heads/" + branch, sha: ref.object.sha })
+        method: "POST", body: JSON.stringify({ ref: "refs/heads/" + branch, sha: ref.object.sha })
       });
     },
     upsertFile: async ({ branch, path, content, message }) => {
