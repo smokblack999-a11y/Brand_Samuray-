@@ -25,7 +25,8 @@ function validateFinalFiles(files = []) {
   if (files.length > MAX_FILES) throw new Error("TOO_MANY_FINAL_FILES");
   return files.map(file => {
     const path = String(file?.path || "");
-    if (!path || path.startsWith("/") || /(^|\/)\.\.\//.test(path) || /^\.env(?:\.|$)/.test(path) || /^\.github\/workflows\//.test(path)) {
+    if (!path || path.startsWith("/") || /(^|\/)\.\.\//.test(path) ||
+        /^\.env(?:\.|$)/.test(path) || /^\.github\/workflows\//.test(path)) {
       throw new Error("UNSAFE_FINAL_FILE");
     }
     if (typeof file.content !== "string") throw new Error("FINAL_FILE_CONTENT_REQUIRED");
@@ -47,41 +48,54 @@ async function createRepairPullRequest(input = {}, github = {}) {
 
   const files = validateFinalFiles(input.finalFiles);
   const createBranch = github.createBranch;
-  const createBlob = github.createBlob;
-  const createTree = github.createTree;
-  const createCommit = github.createCommit;
+  const updateFile = github.updateFile;
+  const createFile = github.createFile;
   const createPullRequest = github.createPullRequest;
-  if (![createBranch, createBlob, createTree, createCommit, createPullRequest].every(fn => typeof fn === "function")) {
+  if (typeof createBranch !== "function" || typeof createPullRequest !== "function" ||
+      (typeof updateFile !== "function" && typeof createFile !== "function")) {
     throw new Error("GITHUB_WRITERS_REQUIRED");
   }
 
   const branch = branchName(input.jobId, baseSha);
   await createBranch({ repository_full_name: repository, branch_name: branch, sha: baseSha });
 
-  const blobs = [];
+  const commitShas = [];
   for (const file of files) {
-    const blob = await createBlob({ repository_full_name: repository, content: file.content, encoding: "utf-8" });
-    const sha = blob?.result?.sha;
-    if (!SHA_RE.test(String(sha || ""))) throw new Error("INVALID_BLOB_SHA");
-    blobs.push({ path: file.path, mode: "100644", type: "blob", sha });
+    let current = null;
+    if (typeof github.fetchFile === "function") {
+      try {
+        current = await github.fetchFile({
+          repository_full_name: repository,
+          path: file.path,
+          ref: branch,
+          encoding: "utf-8"
+        });
+      } catch {}
+    }
+
+    if (current?.result?.sha && typeof updateFile === "function") {
+      const result = await updateFile({
+        repository_full_name: repository,
+        path: file.path,
+        content: file.content,
+        message: "fix: apply verified CI repair",
+        sha: current.result.sha,
+        branch
+      });
+      commitShas.push(result?.result?.commit_sha || result?.result?.sha || null);
+    } else if (typeof createFile === "function") {
+      const result = await createFile({
+        repository_full_name: repository,
+        path: file.path,
+        content: file.content,
+        message: "fix: apply verified CI repair",
+        branch
+      });
+      commitShas.push(result?.result?.commit_sha || result?.result?.sha || null);
+    } else {
+      throw new Error("CREATE_FILE_REQUIRED");
+    }
   }
-
-  const tree = await createTree({
-    repository_full_name: repository,
-    tree_elements: blobs,
-    base_tree_sha: baseSha
-  });
-  const treeSha = tree?.result?.sha;
-  if (!SHA_RE.test(String(treeSha || ""))) throw new Error("INVALID_TREE_SHA");
-
-  const commit = await createCommit({
-    repository_full_name: repository,
-    message: "fix: verified CI repair",
-    tree_sha: treeSha,
-    parent_sha: baseSha
-  });
-  const commitSha = commit?.result?.sha;
-  if (!SHA_RE.test(String(commitSha || ""))) throw new Error("INVALID_COMMIT_SHA");
 
   const pr = await createPullRequest({
     repository_full_name: repository,
@@ -95,10 +109,11 @@ async function createRepairPullRequest(input = {}, github = {}) {
 
   return {
     branch,
-    commitSha,
+    commitShas,
     pr: pr?.result || null,
     autonomousMerge: false,
-    verifiedBeforePR: true
+    verifiedBeforePR: true,
+    baseSha
   };
 }
 
