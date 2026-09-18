@@ -40,8 +40,8 @@ jobs:
 
       - name: Install required Android SDK packages
         run: |
-          sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
-          yes | sdkmanager --licenses || true
+          sdkmanager --sdk_root="${ANDROID_SDK_ROOT}" "platform-tools" "platforms;android-35" "build-tools;35.0.0"
+          yes | sdkmanager --sdk_root="${ANDROID_SDK_ROOT}" --licenses || true
 
       - name: Make Gradle executable
         working-directory: android
