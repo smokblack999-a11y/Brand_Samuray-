@@ -125,3 +125,19 @@ test("worker requires a real patch proposal provider", async () => {
   assert.equal(result.stage, "HUMAN_REVIEW");
   assert.equal(result.reason, "PATCH_PROPOSAL_PROVIDER_REQUIRED");
 });
+
+
+test("worker routes missing OpenAI auth to human review", async () => {
+  const result = await processJob({
+    id: "job-provider-auth",
+    workflowRunId: 792,
+    commit: "d".repeat(40),
+    repository: "acme/site"
+  }, {
+    diagnose: async () => evidence(792),
+    proposePatch: async () => { throw new Error("OPENAI_API_KEY is required"); },
+    transition: (id, stage, patch) => ({ id, stage, ...patch })
+  });
+  assert.equal(result.stage, "HUMAN_REVIEW");
+  assert.equal(result.reason, "PATCH_PROVIDER_AUTH_NOT_CONFIGURED");
+});
