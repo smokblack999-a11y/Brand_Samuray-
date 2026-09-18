@@ -44,10 +44,7 @@ function updateRecoveryCi(payload = {}) {
   const jobs = store.listJobs(500);
   const job = jobs.find(candidate =>
     candidate.source?.repo === repo &&
-    (
-      candidate.recovery?.commitSha === sha ||
-      candidate.recovery?.branch === branch
-    )
+    candidate.recovery?.commitSha === sha
   );
   if (!job) return { updated: false, reason: "recovery_job_not_found" };
 
