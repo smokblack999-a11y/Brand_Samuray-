@@ -149,6 +149,25 @@ async function verifyNext() {
       });
       return { processed: true, state: "verified", jobId: job.id, checks, job: updated };
     }
+
+    // A completed failed check is actionable: send the same bounded repair job
+    // back through diagnosis/sandbox/PR instead of leaving it in pr_open forever.
+    if (checks.failures.length > 0 && checks.pending === 0) {
+      const reason = checks.failures
+        .slice(0, 5)
+        .map(item => `${item.name}:${item.conclusion}`)
+        .join(", ");
+      const updated = githubAgent.retry(job.id, `Repair PR CI failed: ${reason}`);
+      return {
+        processed: true,
+        state: updated.state,
+        jobId: job.id,
+        checks,
+        job: updated,
+        retryScheduled: updated.state === "queued"
+      };
+    }
+
     return { processed: true, state: "pr_open", jobId: job.id, checks };
   } catch (error) {
     return { processed: false, reason: "verification_error", jobId: job.id, error: error.message };
