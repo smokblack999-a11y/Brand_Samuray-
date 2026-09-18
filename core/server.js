@@ -8,11 +8,13 @@ const { generateReply, checkOpenAI } = require("./openai");
 const { sendBusinessMessage } = require("./business-bot");
 const { saveLead, claimEvent, updateLead, listLeads, stats } = require("./store");
 const { createRateLimiter } = require("./rate-limit");
+const { createRecoveryRouter } = require("./recovery-router");
 
 const app = express();
 const PORT = Number(process.env.PORT || 8787);
 const API_KEY = String(process.env.CORE_API_KEY || "").trim();
 const WEBHOOK_SECRET = String(process.env.TELEGRAM_WEBHOOK_SECRET || "").trim();
+const RECOVERY_API_KEY = String(process.env.X10THINK_RECOVERY_API_KEY || "").trim();
 const MAX_MESSAGE_CHARS = Math.max(100, Math.min(Number(process.env.MAX_MESSAGE_CHARS || 4000), 10000));
 const CORS_ORIGIN = String(process.env.CORS_ORIGIN || "").trim();
 const REQUEST_TIMEOUT_MS = Math.max(5000, Number(process.env.REQUEST_TIMEOUT_MS || 30000));
@@ -23,6 +25,7 @@ if (process.env.NODE_ENV === "production") {
   const missing = [];
   if (!API_KEY) missing.push("CORE_API_KEY");
   if (!WEBHOOK_SECRET) missing.push("TELEGRAM_WEBHOOK_SECRET");
+  if (!RECOVERY_API_KEY) missing.push("X10THINK_RECOVERY_API_KEY");
   if (missing.length) throw new Error(`Production startup blocked: missing ${missing.join(", ")}`);
 }
 
@@ -34,7 +37,6 @@ app.use(express.json({ limit: "256kb" }));
 function errorBody(code, message, requestId) {
   return { ok: false, error: { code, message, requestId } };
 }
-
 function safeEqual(expected, actual) {
   const a = Buffer.from(String(expected || ""));
   const b = Buffer.from(String(actual || ""));
@@ -49,6 +51,11 @@ function requireWebhookSecret(req, res, next) {
   if (!WEBHOOK_SECRET) return res.status(503).json(errorBody("WEBHOOK_AUTH_NOT_CONFIGURED", "Webhook authentication is not configured", req.requestId));
   if (safeEqual(WEBHOOK_SECRET, req.get("X-Telegram-Bot-Api-Secret-Token"))) return next();
   return res.status(401).json(errorBody("UNAUTHORIZED_WEBHOOK", "Unauthorized webhook", req.requestId));
+}
+function requireRecoveryAuth(req, res, next) {
+  if (!RECOVERY_API_KEY) return res.status(503).json(errorBody("RECOVERY_AUTH_NOT_CONFIGURED", "Recovery authentication is not configured", req.requestId));
+  if (safeEqual(RECOVERY_API_KEY, req.get("X-API-Key"))) return next();
+  return res.status(401).json(errorBody("UNAUTHORIZED_RECOVERY", "Unauthorized recovery request", req.requestId));
 }
 function requestId(req, res, next) {
   const id = crypto.randomUUID();
@@ -68,16 +75,17 @@ app.use((req, res, next) => {
 
 const leadRateLimit = createRateLimiter({ windowMs: LEAD_RATE_LIMIT_WINDOW_MS, max: LEAD_RATE_LIMIT_MAX });
 
-app.get("/health", (_req, res) => res.json({ ok: true, service: "SamuraiOS Core", version: "2.7.0" }));
+app.get("/health", (_req, res) => res.json({ ok: true, service: "SamuraiOS Core", version: "2.8.0" }));
 app.get("/ready", (req, res) => {
   try {
     const current = stats();
-    const ready = Boolean(API_KEY && WEBHOOK_SECRET && current && Number.isFinite(current.total));
-    return res.status(ready ? 200 : 503).json({ ok: ready, service: "SamuraiOS Core", ready, requestId: req.requestId });
+    const ready = Boolean(API_KEY && WEBHOOK_SECRET && RECOVERY_API_KEY && current && Number.isFinite(current.total));
+    return res.status(ready ? 200 : 503).json({ ok: ready, service: "SamuraiOS Core", ready, recovery: Boolean(RECOVERY_API_KEY), requestId: req.requestId });
   } catch (_error) {
     return res.status(503).json(errorBody("NOT_READY", "Service is not ready", req.requestId));
   }
 });
+
 app.get("/health/openai", requireApiKey, async (req, res) => {
   if (!process.env.OPENAI_API_KEY) return res.status(503).json(errorBody("OPENAI_NOT_CONFIGURED", "OpenAI is not configured", req.requestId));
   try {
@@ -88,8 +96,10 @@ app.get("/health/openai", requireApiKey, async (req, res) => {
     return res.status(503).json(errorBody("OPENAI_UNAVAILABLE", "OpenAI service is unavailable", req.requestId));
   }
 });
+
 app.get("/api/leads", requireApiKey, (req, res) => res.json({ ok: true, leads: listLeads(req.query.limit), requestId: req.requestId }));
 app.get("/api/stats", requireApiKey, (req, res) => res.json({ ok: true, stats: stats(), requestId: req.requestId }));
+app.use("/api/recovery", createRecoveryRouter({ requireRecoveryAuth, recoveryApiKey: RECOVERY_API_KEY }));
 
 async function analyze(message, business) {
   const text = String(message || "").trim();
@@ -156,7 +166,7 @@ app.post("/api/telegram/webhook", requireWebhookSecret, async (req, res) => {
 
 app.use((req, res) => res.status(404).json(errorBody("NOT_FOUND", "Endpoint not found", req.requestId)));
 
-const server = app.listen(PORT, "0.0.0.0", () => console.log(`SamuraiOS Core 2.7.0 listening on :${PORT}`));
+const server = app.listen(PORT, "0.0.0.0", () => console.log(`SamuraiOS Core 2.8.0 listening on :${PORT}`));
 server.requestTimeout = REQUEST_TIMEOUT_MS;
 server.headersTimeout = REQUEST_TIMEOUT_MS + 5000;
 
