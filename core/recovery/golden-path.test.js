@@ -47,3 +47,22 @@ test("X20 golden path closes only on exact successful recovery SHA",()=>{
 
   fs.rmSync(dir,{recursive:true,force:true});
 });
+
+
+test("GitHub delivery is idempotent for the same workflow run",()=>{
+  const dir=fs.mkdtempSync(path.join(os.tmpdir(),"x20-dedupe-test-"));
+  process.env.RECOVERY_DATA_DIR=dir;
+  const recovery=require("./index");
+  const payload={
+    repository:{full_name:"test/repo"},
+    workflow_run:{id:91,name:"CI",conclusion:"failure",head_sha:"source-sha",head_branch:"main"}
+  };
+  const first=recovery.enqueueFromGithub(payload,[], "delivery-91");
+  const second=recovery.enqueueFromGithub(payload,[], "delivery-91-retry");
+  assert.equal(first.queued,true);
+  assert.equal(first.duplicate,false);
+  assert.equal(second.queued,false);
+  assert.equal(second.duplicate,true);
+  assert.equal(second.job.id,first.job.id);
+  fs.rmSync(dir,{recursive:true,force:true});
+});
