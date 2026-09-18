@@ -32,6 +32,7 @@ services:
       RECOVERY_AUTO_CREATE_PR: ${RECOVERY_AUTO_CREATE_PR:-false}
       RECOVERY_BASE_BRANCH: ${RECOVERY_BASE_BRANCH:-main}
       RECOVERY_TEST_COMMAND: ${RECOVERY_TEST_COMMAND:-["npm","test","--prefix","core"]}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
     depends_on:
       core:
         condition: service_healthy
