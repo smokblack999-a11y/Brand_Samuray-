@@ -30,6 +30,7 @@ test.before(async () => {
       OPENAI_API_KEY: '',
       CORE_API_KEY: API_KEY,
       TELEGRAM_WEBHOOK_SECRET: WEBHOOK_SECRET,
+      X10THINK_RECOVERY_API_KEY: 'test-recovery-api-key-123456',
       MAX_MESSAGE_CHARS: '4000'
     },
     stdio: ['ignore', 'pipe', 'pipe']
