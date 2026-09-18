@@ -1,8 +1,18 @@
 "use strict";
 
 const { Router } = require("express");
-const { enqueue, list } = require("./recovery-store");
-const { decide } = require("./kill-critic");
+const { enqueue, list, update } = require("./recovery-store");
+const { fingerprint, decide } = require("./kill-critic");
+
+const PATTERNS = [
+  { type: "dependency_error", re: /(npm ERR!|module not found|could not resolve|dependency|gradle.*failed|aapt2)/i, weight: 0.30 },
+  { type: "test_failure", re: /(test failed|assertionerror|failing tests|failed tests|tests? failed)/i, weight: 0.25 },
+  { type: "syntax_error", re: /(syntaxerror|parse error|unexpected token)/i, weight: 0.30 },
+  { type: "timeout", re: /(timed out|timeout|deadline exceeded)/i, weight: 0.25 },
+  { type: "auth_error", re: /(401 unauthorized|403 forbidden|authentication failed|permission denied)/i, weight: 0.25 },
+  { type: "oom", re: /(out of memory|heap out of memory|oomkilled|exit code 137)/i, weight: 0.30 },
+  { type: "network_error", re: /(econnreset|enotfound|network error|connection refused|could not resolve host)/i, weight: 0.20 }
+];
 
 function normalizeWorkflowRun(payload = {}) {
   const run = payload.workflow_run || payload;
@@ -10,67 +20,71 @@ function normalizeWorkflowRun(payload = {}) {
   const conclusion = String(run.conclusion || "unknown");
   const eventKey = `github:workflow_run:${repo.full_name || repo.id || "unknown"}:${run.id || run.run_number || "unknown"}`;
   return {
-    eventKey,
-    source: "github_workflow_run",
-    repository: repo.full_name || null,
-    workflow: run.name || null,
-    runId: run.id || null,
-    runNumber: run.run_number || null,
-    conclusion,
-    status: run.status || null,
-    branch: run.head_branch || null,
-    sha: run.head_sha || null,
-    htmlUrl: run.html_url || null,
-    sender: payload.sender?.login || null,
-    raw: {
-      conclusion,
-      status: run.status || null,
-      name: run.name || null,
-      headBranch: run.head_branch || null,
-      headSha: run.head_sha || null
+    eventKey, source: "github_workflow_run",
+    repository: repo.full_name || null, workflow: run.name || null,
+    runId: run.id || null, runNumber: run.run_number || null,
+    conclusion, status: run.status || null, branch: run.head_branch || null,
+    sha: run.head_sha || null, htmlUrl: run.html_url || null,
+    sender: payload.sender?.login || null
+  };
+}
+
+function diagnose(logs = "") {
+  const text = String(logs || "");
+  const matches = PATTERNS.filter(x => x.re.test(text));
+  const primary = matches.sort((a,b) => b.weight-a.weight)[0];
+  return {
+    errorType: primary?.type || "generic",
+    confidence: primary ? Math.min(0.9, 0.45 + primary.weight) : 0.15,
+    matches: matches.map(x => x.type),
+    evidence: {
+      exactErrorMatch: primary ? 0.8 : 0,
+      stackTraceMatch: /(at\s+\S+|Exception|Traceback)/i.test(text) ? 0.7 : 0,
+      changedFileMatch: 0,
+      dependencyMatch: matches.some(x => x.type === "dependency_error") ? 0.9 : 0,
+      historicalMatch: 0,
+      scopeMatch: 1,
+      sandboxPass: false,
+      regressionPass: false
     }
   };
 }
 
-function createRecoveryRouter({ requireRecoveryAuth, recoveryApiKey }) {
+function createRecoveryRouter({ requireRecoveryAuth }) {
   const router = Router();
 
   router.post("/github", requireRecoveryAuth, (req, res) => {
     try {
       const job = normalizeWorkflowRun(req.body || {});
-      if (!job.runId && !job.runNumber) {
-        return res.status(400).json({ ok: false, error: { code: "INVALID_WORKFLOW_RUN", message: "workflow_run.id is required" } });
-      }
+      if (!job.runId && !job.runNumber) return res.status(400).json({ ok:false, error:{ code:"INVALID_WORKFLOW_RUN", message:"workflow_run.id is required" } });
 
-      const isFailure = ["failure", "timed_out", "cancelled", "startup_failure", "action_required"].includes(job.conclusion);
-      if (!isFailure) {
-        return res.status(202).json({ ok: true, accepted: false, reason: "not_recoverable_failure", job });
-      }
+      const failures = ["failure","timed_out","cancelled","startup_failure","action_required"];
+      if (!failures.includes(job.conclusion)) return res.status(202).json({ ok:true, accepted:false, reason:"not_recoverable_failure", job });
 
-      const result = enqueue(job);
-      const decision = decide({
+      const logs = String(req.body?.failure_logs || "");
+      const diagnosis = diagnose(logs);
+      const fp = fingerprint({
+        workflow: job.workflow, job: job.runId, step: job.branch, exitCode: 1,
+        errorType: diagnosis.errorType, errorMessage: logs.slice(-12000), command: job.sha
+      });
+      const result = enqueue({ ...job, fingerprint: fp, diagnosis });
+      const critic = decide({
         attempts: result.job.attempts,
-        evidence: {},
-        patch: {}
+        evidence: diagnosis.evidence,
+        patch: { changedFiles: 0, changedLines: 0 }
       });
+      const saved = result.created
+        ? update(result.job.id, { diagnosis, critic, status: critic.action === "SANDBOX" ? "ready_for_patch" : "queued" })
+        : result.job;
 
-      return res.status(result.created ? 202 : 200).json({
-        ok: true,
-        accepted: true,
-        created: result.created,
-        job: result.job,
-        critic: decision
-      });
+      return res.status(result.created ? 202 : 200).json({ ok:true, accepted:true, created:result.created, job:saved, critic });
     } catch (error) {
-      return res.status(500).json({ ok: false, error: { code: "RECOVERY_ENQUEUE_FAILED", message: error.message } });
+      return res.status(500).json({ ok:false, error:{ code:"RECOVERY_ENQUEUE_FAILED", message:error.message } });
     }
   });
 
-  router.get("/jobs", requireRecoveryAuth, (_req, res) => {
-    res.json({ ok: true, jobs: list(100) });
-  });
-
+  router.get("/jobs", requireRecoveryAuth, (_req,res) => res.json({ ok:true, jobs:list(100) }));
   return router;
 }
 
-module.exports = { createRecoveryRouter, normalizeWorkflowRun };
+module.exports = { createRecoveryRouter, normalizeWorkflowRun, diagnose };
