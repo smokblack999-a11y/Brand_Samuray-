@@ -2,38 +2,69 @@
 
 const { ArchitectCore } = require("./architect-core");
 
-function createX29Runtime({ queue, x28Adapter, candidateProvider, sandbox, pullRequest, ciVerifier, maxAttempts = 2 } = {}) {
-  if (!queue || !x28Adapter) throw new TypeError("queue and x28Adapter are required");
+function createX29Runtime({ queue, x28Adapter, candidateProvider, sandbox, ciVerifier, maxAttempts = 2 } = {}) {
+  if (!queue || typeof queue.complete !== "function") throw new TypeError("queue is required");
+  if (!x28Adapter) throw new TypeError("x28Adapter is required");
 
   const candidate = candidateProvider || (async () => null);
-  const sandboxAdapter = sandbox || (async () => ({ passed: false, command: "sandbox:not-configured", exitCode: 78 }));
-  const prAdapter = pullRequest || (async () => { throw new Error("github_pr_adapter_not_configured"); });
-  const verifier = ciVerifier || (async () => ({ passed: false, reason: "ci_verifier_not_configured" }));
+  const sandboxAdapter = sandbox || (async () => ({
+    passed: false,
+    command: "sandbox:not-configured",
+    exitCode: 78
+  }));
+  const verifier = ciVerifier || (async () => ({
+    passed: false,
+    reason: "ci_verifier_not_configured"
+  }));
 
-  const runtime = new ArchitectCore({
+  return new ArchitectCore({
     maxAttempts,
-    persistence: {
-      save(job) { return queue.complete(job.id, job); }
+    store: {
+      save(job) {
+        return queue.complete(job.id, job);
+      }
     },
-    planner: async mission => x28Adapter.plan({ mission }),
-    critic: async ({ mission, plan }) => {
-      const candidatePatch = await candidate({ mission, plan });
-      if (!candidatePatch) return { decision: "ESCALATE", reason: "repair_candidate_not_available" };
-      return x28Adapter.criticEvaluate({ x28: plan.x28, candidate: candidatePatch });
+    planner: {
+      async plan({ mission }) {
+        return x28Adapter.plan({ mission });
+      }
     },
-    executor: async ({ mission, critic }) => {
-      const result = await sandboxAdapter({ mission, critic });
-      return { candidate: critic, testResult: result };
+    critic: {
+      async evaluate({ mission, plan }) {
+        const candidatePatch = await candidate({ mission, plan });
+        if (!candidatePatch) {
+          return { decision: "ESCALATE", reason: "repair_candidate_not_available" };
+        }
+        return x28Adapter.criticEvaluate({
+          x28: plan.x28,
+          candidate: candidatePatch
+        });
+      }
     },
-    verifier: async ({ mission, execution }) => {
-      if (!execution?.testResult?.passed) return { verified: false, reason: "sandbox_not_proven" };
-      const ci = await verifier({ mission, execution });
-      if (ci?.passed !== true) return { verified: false, reason: "ci_not_verified", ci };
-      return { verified: true, ci };
+    executor: {
+      async execute({ mission, plan }) {
+        const result = await sandboxAdapter({ mission, plan });
+        return { testResult: result };
+      }
+    },
+    verifier: {
+      async verify({ mission, plan, execution }) {
+        if (execution?.testResult?.passed !== true) {
+          return { verified: false, reason: "sandbox_not_proven" };
+        }
+
+        const ci = await verifier({ mission, plan, execution });
+        if (ci?.passed !== true) {
+          return { verified: false, reason: "ci_not_verified", ci };
+        }
+
+        return {
+          verified: true,
+          evidence: [{ type: "github_ci", result: ci }]
+        };
+      }
     }
   });
-
-  return runtime;
 }
 
 module.exports = { createX29Runtime };
