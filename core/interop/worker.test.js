@@ -141,3 +141,28 @@ test("worker routes missing OpenAI auth to human review", async () => {
   assert.equal(result.stage, "HUMAN_REVIEW");
   assert.equal(result.reason, "PATCH_PROVIDER_AUTH_NOT_CONFIGURED");
 });
+
+
+test("worker provides changed-file source context to patch proposer", async () => {
+  let proposalArgs = null;
+  const sha = "e".repeat(40);
+  const result = await processJob({
+    id: "job-context",
+    workflowRunId: 793,
+    commit: sha,
+    repository: "acme/site",
+    changedFiles: ["src/app.js"]
+  }, {
+    diagnose: async () => evidence(793),
+    provisionWorkspace: async () => ({ workspace: "/tmp/repo", cleanup: async () => {} }),
+    readSourceContext: async () => [{ path: "src/app.js", content: "const x = 1;", truncated: false }],
+    buildPatchProposal: input => {
+      proposalArgs = input;
+      return { accepted: true, proposal: { diff: "--- a/src/app.js\n+++ b/src/app.js\n@@ -1 +1 @@\n-const x = 1;\n+const x = 2;\n" } };
+    },
+    runReproduction: async () => ({ reproduction: true, causality: true, passed: true }),
+    transition: (id, stage, patch) => ({ id, stage, ...patch })
+  });
+  assert.equal(result.stage, "CRITIC_REVIEW");
+  assert.ok(proposalArgs);
+});
