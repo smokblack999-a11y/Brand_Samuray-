@@ -17,7 +17,7 @@ test("uses bearer auth and GitHub API version", async () => {
   const result = await github.getWorkflowRun(7);
   assert.equal(result.id, 7);
   assert.equal(seen.options.headers.authorization, "Bearer secret");
-  assert.equal(seen.options.headers["x-github-api-version"], "2022-11-28");
+  assert.equal(seen.options.headers["x-github-api-version"], "2026-03-10");
 });
 
 test("surfaces GitHub API failures", async () => {
