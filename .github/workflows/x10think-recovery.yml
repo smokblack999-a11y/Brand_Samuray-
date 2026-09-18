@@ -1,0 +1,38 @@
+name: X10THINK Recovery Enqueue
+
+on:
+  workflow_run:
+    workflows: ["SamuraiOS Core CI", "SamuraiOS Core X22 CI"]
+    types: [completed]
+
+permissions:
+  contents: read
+
+jobs:
+  enqueue:
+    if: >-
+      github.event.workflow_run.conclusion == 'failure' ||
+      github.event.workflow_run.conclusion == 'timed_out' ||
+      github.event.workflow_run.conclusion == 'cancelled'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Validate recovery endpoint configuration
+        env:
+          RECOVERY_URL: ${{ secrets.X10THINK_RECOVERY_URL }}
+          RECOVERY_API_KEY: ${{ secrets.X10THINK_RECOVERY_API_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "${RECOVERY_URL:-}" || { echo "X10THINK_RECOVERY_URL is not configured"; exit 1; }
+          test -n "${RECOVERY_API_KEY:-}" || { echo "X10THINK_RECOVERY_API_KEY is not configured"; exit 1; }
+
+      - name: Enqueue failed workflow
+        env:
+          RECOVERY_URL: ${{ secrets.X10THINK_RECOVERY_URL }}
+          RECOVERY_API_KEY: ${{ secrets.X10THINK_RECOVERY_API_KEY }}
+          PAYLOAD: ${{ toJSON(github.event) }}
+        run: |
+          set -euo pipefail
+          code="$(curl -sS -o /tmp/recovery.json -w '%{http_code}'             --connect-timeout 5 --max-time 20             -X POST "${RECOVERY_URL}/api/recovery/github"             -H "Content-Type: application/json"             -H "X-API-Key: ${RECOVERY_API_KEY}"             --data "${PAYLOAD}")"
+          cat /tmp/recovery.json
+          test "${code}" -ge 200 -a "${code}" -lt 300
