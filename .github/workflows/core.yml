@@ -66,6 +66,9 @@ jobs:
           node --check autonomy/event-proof-router.js
           node --check x29-runtime.js
           node --check adapters/github-pr-adapter.js
+          node --check adapters/github-live-ci.js
+          node --check adapters/github-pr-live.js
+          node --check adapters/github-rest.js
           node --check adapters/github-ci-verifier.js
           node --check adapters/sandbox-adapter.js
           node --check adapters/repair-candidate-provider.js
