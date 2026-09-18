@@ -59,6 +59,11 @@ jobs:
           node --check lead-engine.js
           node --check scripts/set-webhook.js
           node --check scripts/verify-config.js
+          node --check recovery/state.js
+          node --check recovery/store.js
+          node --check recovery/kill-critic.js
+          node --check recovery/github.js
+          node --check recovery/index.js
 
       - name: Unit tests
         run: npm test
