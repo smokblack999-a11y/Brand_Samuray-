@@ -4,6 +4,8 @@ const recovery=require("./index");
 const {applyPatch}=require("./patch-executor");
 const {createSandbox,verifyWorkspace}=require("./sandbox");
 const {createGitHubAdapter,recoveryBranchName}=require("./github-adapter");
+const {evaluatePatch}=require("./policy");
+const {sandboxConfig,assertProductionSandbox}=require("./sandbox-policy");
 
 function resolveTestOptions(result,options={}){
   return {
@@ -28,9 +30,13 @@ async function processJob(id,executor,options={}){
     const sourceDir=result.sourceDir || options.sourceDir;
     if(!sourceDir) throw new Error("sourceDir is required for sandbox verification");
 
+    const policy=evaluatePatch(result.patch.files,job.budget);
+    recovery.recordAction(id,{type:"kill_critic_policy",policy});
+    if(!policy.allow) return recovery.updateJob(id,{status:policy.decision,lastDecision:policy});
+    const sandboxOptions=assertProductionSandbox(sandboxConfig(options.sandbox||{}));
     sandbox=await createSandbox(sourceDir);
     const applied=applyPatch(sandbox,result.patch,job.budget);
-    const test=await verifyWorkspace(sandbox,resolveTestOptions(result,options));
+    const test=await verifyWorkspace(sandbox,{...resolveTestOptions(result,options),sandboxOptions});
 
     recovery.recordAction(id,{
       type:"recovery_execution",
