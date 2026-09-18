@@ -25,3 +25,24 @@ test("supports cancelled runs", () => {
   });
   assert.equal(job.conclusion, "cancelled");
 });
+
+const { diagnose } = require("../recovery-router");
+
+test("diagnoses dependency failures from CI logs", () => {
+  const result = diagnose("Execution failed for task :app:mergeDebugResources\nAAPT2 error: could not resolve dependency");
+  assert.equal(result.errorType, "dependency_error");
+  assert.ok(result.confidence >= 0.7);
+  assert.equal(result.evidence.dependencyMatch, 0.9);
+});
+
+test("diagnoses test failures from CI logs", () => {
+  const result = diagnose("FAIL tests/foo.test.js\nAssertionError: expected true\n    at foo.js:1:1");
+  assert.equal(result.errorType, "test_failure");
+  assert.ok(result.evidence.stackTraceMatch > 0);
+});
+
+test("does not invent a diagnosis when logs are empty", () => {
+  const result = diagnose("");
+  assert.equal(result.errorType, "generic");
+  assert.equal(result.confidence, 0.15);
+});
