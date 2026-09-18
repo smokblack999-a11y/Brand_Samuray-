@@ -12,8 +12,8 @@ function enqueueFromGithub(payload, evidence = [], deliveryId = null) {
   const delivery = deliveryId ? String(deliveryId) : null;
   if (!github.isRecoverableFailure(payload)) return { queued: false, reason: "not_recoverable_failure", failure };
   const id = `github:${failure.repo}:${failure.runId}`;
-  const job = store.createJob({ id, source: failure, failure, evidence: { items: evidence, githubDeliveryId: delivery } });
-  return { queued: job.created === true, duplicate: job.created !== true, job, deliveryId: delivery };
+  const createdJob = store.createJob({ id, source: failure, failure, evidence, githubDeliveryId: delivery });
+  return { queued: createdJob.created === true, duplicate: createdJob.created !== true, job: createdJob.job, deliveryId: delivery };
 }
 function diagnoseJob(id) {
   const job = store.getJob(id);
