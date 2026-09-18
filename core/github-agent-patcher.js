@@ -58,12 +58,12 @@ function safeTestCommands(commands) {
   return commands.map(String);
 }
 
-async function runSandbox({ repoDir, patches, tests }) {
+async function runSandbox({ repoDir, baseSha, patches, tests }) {
   const normalized = normalizePatch({ patches });
   const commands = safeTestCommands(tests || ["npm test"]);
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), "samurai-x18-") );
   try {
-    await execFileAsync("git", ["-C", repoDir, "archive", "HEAD", "-o", path.join(temp, "source.tar")]);
+    if (baseSha) {\n      const { stdout } = await execFileAsync("git", ["-C", repoDir, "rev-parse", "HEAD"]);\n      if (stdout.trim() !== String(baseSha)) throw new Error("Sandbox source HEAD does not match job headSha");\n    }\n    await execFileAsync("git", ["-C", repoDir, "archive", "HEAD", "-o", path.join(temp, "source.tar")]);
     await execFileAsync("tar", ["-xf", path.join(temp, "source.tar"), "-C", temp]);
     for (const patch of normalized) {
       const target = path.join(temp, patch.path);
