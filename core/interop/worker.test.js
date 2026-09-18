@@ -77,3 +77,36 @@ test("worker sends missing GitHub auth to human review", async () => {
   assert.equal(result.stage, "HUMAN_REVIEW");
   assert.equal(result.reason, "GITHUB_AUTH_NOT_CONFIGURED");
 });
+
+test("worker provisions the failed commit when a patch is available", async () => {
+  let provisionArgs = null;
+  let cleaned = false;
+  const sha = "b".repeat(40);
+  const result = await processJob({ id: "job-provision", workflowRunId: 789, commit: sha, repository: "acme/site" }, {
+    diagnose: async () => evidence(789),
+    patch: "--- a/test.js\n+++ b/test.js\n@@ -1 +1 @@\n-fail\n+pass\n",
+    provisionWorkspace: async args => {
+      provisionArgs = args;
+      return { workspace: "/tmp/isolated/repo", cleanup: async () => { cleaned = true; } };
+    },
+    runReproduction: async ({ workspace, plan, patch }) => {
+      assert.equal(workspace, "/tmp/isolated/repo");
+      assert.deepEqual(plan.command, ["npm", "test"]);
+      assert.ok(patch);
+      return { reproduction: true, causality: true, passed: true, gates: { sameCommand: true } };
+    },
+    transition: (id, stage, patch) => ({ id, stage, ...patch })
+  });
+  assert.equal(provisionArgs.repository, "acme/site");
+  assert.equal(provisionArgs.headSha, sha);
+  assert.equal(result.repairPlan.patchCandidateAllowed, true);
+  assert.equal(cleaned, true);
+});
+
+test("worker refuses a job without an exact commit SHA", async () => {
+  const result = await processJob({ id: "job-no-sha", workflowRunId: 790, repository: "acme/site" }, {
+    transition: (id, stage, patch) => ({ id, stage, ...patch })
+  });
+  assert.equal(result.stage, "HUMAN_REVIEW");
+  assert.equal(result.reason, "MISSING_EXACT_COMMIT_SHA");
+});
