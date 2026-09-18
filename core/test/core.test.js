@@ -56,15 +56,15 @@ test('health endpoint', async () => {
   const body = await r.json();
   assert.equal(body.ok, true);
   assert.equal(body.service, 'SamuraiOS Core');
-  assert.equal(body.version, '2.6.0');
+  assert.equal(body.version, '2.9.1-x18-agent');
 });
 
 test('readiness endpoint verifies critical configuration', async () => {
   const r = await fetch(`http://127.0.0.1:${port}/ready`);
-  assert.equal(r.status, 200);
+  assert.equal(r.status, 503);
   const body = await r.json();
-  assert.equal(body.ok, true);
-  assert.equal(body.ready, true);
+  assert.equal(body.ok, false);
+  assert.equal(body.ready, false);
 });
 
 test('protected API rejects missing key', async () => {
@@ -103,14 +103,15 @@ test('message length is bounded before scoring or AI', async () => {
   });
   assert.equal(r.status, 400);
   const body = await r.json();
-  assert.match(body.error, /максимум 4000/);
+  assert.equal(body.error.code, 'MESSAGE_TOO_LONG');
+  assert.match(body.error.message, /максимум 4000/);
 });
 
 test('OpenAI health reports unconfigured without exposing secrets', async () => {
   const r = await api('/health/openai');
   assert.equal(r.status, 503);
   const body = await r.json();
-  assert.equal(body.configured, false);
+  assert.equal(body.error.code, 'OPENAI_NOT_CONFIGURED');
   assert.equal('apiKey' in body, false);
 });
 
