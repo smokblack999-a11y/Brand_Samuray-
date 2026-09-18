@@ -35,19 +35,6 @@ function repoPath(repository) {
   return parts.map(encodeURIComponent).join("/");
 }
 
-async function githubJson(url) {
-  const response = await fetch(url, {
-    headers: {
-      Accept: "application/vnd.github+json",
-      Authorization: `Bearer ${requiredToken()}`,
-      "X-GitHub-Api-Version": "2022-11-28",
-      "User-Agent": "SamuraiOS-X18-Agent"
-    }
-  });
-  const text = await response.text();
-  if (!response.ok) throw new Error(`GitHub API ${response.status}: ${text.slice(0, 1000)}`);
-  return text ? JSON.parse(text) : {};
-}
 
 async function getFailureEvidence(job) {
   const repo = repoPath(job.repository);
