@@ -3,9 +3,10 @@
 const githubAgent = require("./github-agent");
 const { githubJson } = require("./github-app");
 
-const API = "https://api.github.com";
 const MAX_RUNS = 50;
+const MAX_CHECK_RUNS = 100;
 const IGNORE_WORKFLOWS = new Set(["SamuraiOS X18 Agent"]);
+const SUCCESS_CONCLUSIONS = new Set(["success", "neutral", "skipped"]);
 
 function repoPath(repository) {
   const parts = String(repository || "").split("/");
@@ -20,25 +21,103 @@ function relevantRuns(runs, headSha) {
     .slice(0, MAX_RUNS);
 }
 
+function relevantCheckRuns(checkRuns, headSha) {
+  return (checkRuns || [])
+    .filter(run => run.head_sha === headSha)
+    .filter(run => !IGNORE_WORKFLOWS.has(String(run.app?.name || run.name || "")))
+    .slice(0, MAX_CHECK_RUNS);
+}
+
+function checkRunFailures(checkRuns) {
+  return (checkRuns || []).filter(run => {
+    if (run.status !== "completed") return false;
+    return !SUCCESS_CONCLUSIONS.has(String(run.conclusion || ""));
+  });
+}
+
 async function getPRChecks(job) {
   if (!job?.repository || !job?.pr?.number) throw new Error("Job repository/pr.number is required");
   const repo = repoPath(job.repository);
   const pr = await githubJson(`/repos/${repo}/pulls/${encodeURIComponent(job.pr.number)}`);
+  if (String(pr?.state || "") !== "open") {
+    return {
+      pr: { number: pr.number, state: pr.state, draft: pr.draft, headSha: String(pr?.head?.sha || ""), mergeableState: pr.mergeable_state },
+      runs: [],
+      checkRuns: [],
+      ready: false,
+      pending: 0,
+      failures: [{ reason: "pr_not_open", state: pr.state }]
+    };
+  }
+
   const headSha = String(pr?.head?.sha || "");
   if (!headSha) throw new Error("PR head SHA is unavailable");
 
-  const runs = await githubJson(`${API}/repos/${repo}/actions/runs?head_sha=${encodeURIComponent(headSha)}&per_page=${MAX_RUNS}`);
-  const relevant = relevantRuns(runs.workflow_runs, headSha);
+  const runsResponse = await githubJson(
+    `/repos/${repo}/actions/runs?head_sha=${encodeURIComponent(headSha)}&per_page=${MAX_RUNS}`
+  );
+  const checksResponse = await githubJson(
+    `/repos/${repo}/commits/${encodeURIComponent(headSha)}/check-runs?per_page=${MAX_CHECK_RUNS}`
+  );
+
+  const relevant = relevantRuns(runsResponse.workflow_runs, headSha);
+  const checkRuns = relevantCheckRuns(checksResponse.check_runs, headSha);
   const completed = relevant.filter(run => run.status === "completed");
-  const failures = completed.filter(run => run.conclusion !== "success" && run.conclusion !== "neutral" && run.conclusion !== "skipped");
-  const pending = relevant.filter(run => run.status !== "completed");
+  const failures = completed.filter(run => !SUCCESS_CONCLUSIONS.has(String(run.conclusion || "")));
+  const pendingRuns = relevant.filter(run => run.status !== "completed");
+  const pendingChecks = checkRuns.filter(run => run.status !== "completed");
+  const checkFailures = checkRunFailures(checkRuns);
+
+  const failuresWithChecks = [
+    ...failures.map(run => ({
+      id: run.id,
+      name: run.name,
+      conclusion: run.conclusion,
+      url: run.html_url
+    })),
+    ...checkFailures.map(run => ({
+      id: run.id,
+      name: run.name,
+      conclusion: run.conclusion,
+      url: run.html_url
+    }))
+  ];
+
+  const mergeableState = String(pr?.mergeable_state || "");
+  const mergeBlocked = new Set(["dirty", "unknown"]).has(mergeableState);
 
   return {
-    pr: { number: pr.number, state: pr.state, draft: pr.draft, headSha, mergeableState: pr.mergeable_state },
-    runs: relevant.map(run => ({ id: run.id, name: run.name, status: run.status, conclusion: run.conclusion, url: run.html_url })),
-    ready: relevant.length > 0 && pending.length === 0 && failures.length === 0,
-    pending: pending.length,
-    failures: failures.map(run => ({ id: run.id, name: run.name, conclusion: run.conclusion, url: run.html_url }))
+    pr: {
+      number: pr.number,
+      state: pr.state,
+      draft: pr.draft,
+      headSha,
+      mergeableState
+    },
+    runs: relevant.map(run => ({
+      id: run.id,
+      name: run.name,
+      status: run.status,
+      conclusion: run.conclusion,
+      url: run.html_url
+    })),
+    checkRuns: checkRuns.map(run => ({
+      id: run.id,
+      name: run.name,
+      status: run.status,
+      conclusion: run.conclusion,
+      url: run.html_url
+    })),
+    ready:
+      relevant.length > 0 &&
+      checkRuns.length > 0 &&
+      pendingRuns.length === 0 &&
+      pendingChecks.length === 0 &&
+      failuresWithChecks.length === 0 &&
+      !mergeBlocked,
+    pending: pendingRuns.length + pendingChecks.length,
+    failures: failuresWithChecks,
+    mergeBlocked
   };
 }
 
@@ -72,4 +151,10 @@ if (require.main === module) {
     });
 }
 
-module.exports = { getPRChecks, relevantRuns, verifyNext };
+module.exports = {
+  getPRChecks,
+  relevantRuns,
+  relevantCheckRuns,
+  checkRunFailures,
+  verifyNext
+};
