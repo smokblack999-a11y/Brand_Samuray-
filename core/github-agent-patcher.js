@@ -61,9 +61,13 @@ function safeTestCommands(commands) {
 async function runSandbox({ repoDir, baseSha, patches, tests }) {
   const normalized = normalizePatch({ patches });
   const commands = safeTestCommands(tests || ["npm test"]);
-  const temp = fs.mkdtempSync(path.join(os.tmpdir(), "samurai-x18-") );
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), "samurai-x18-"));
   try {
-    if (baseSha) {\n      const { stdout } = await execFileAsync("git", ["-C", repoDir, "rev-parse", "HEAD"]);\n      if (stdout.trim() !== String(baseSha)) throw new Error("Sandbox source HEAD does not match job headSha");\n    }\n    await execFileAsync("git", ["-C", repoDir, "archive", "HEAD", "-o", path.join(temp, "source.tar")]);
+    if (baseSha) {
+      const { stdout } = await execFileAsync("git", ["-C", repoDir, "rev-parse", "HEAD"]);
+      if (stdout.trim() !== String(baseSha)) throw new Error("Sandbox source HEAD does not match job headSha");
+    }
+    await execFileAsync("git", ["-C", repoDir, "archive", "HEAD", "-o", path.join(temp, "source.tar")]);
     await execFileAsync("tar", ["-xf", path.join(temp, "source.tar"), "-C", temp]);
     for (const patch of normalized) {
       const target = path.join(temp, patch.path);
@@ -73,6 +77,17 @@ async function runSandbox({ repoDir, baseSha, patches, tests }) {
       fs.writeFileSync(target, patch.content, "utf8");
     }
     const results = [];
+    if (commands.includes("npm test")) {
+      try {
+        const install = await execFileAsync("npm", ["ci", "--ignore-scripts", "--no-audit", "--no-fund"], {
+          cwd: temp, timeout: 180_000, maxBuffer: 2_000_000
+        });
+        results.push({ command: "npm ci --ignore-scripts", ok: true, stdout: install.stdout.slice(-12000), stderr: install.stderr.slice(-12000) });
+      } catch (error) {
+        results.push({ command: "npm ci --ignore-scripts", ok: false, stdout: String(error.stdout || "").slice(-12000), stderr: String(error.stderr || error.message).slice(-12000) });
+        return { ok: false, results };
+      }
+    }
     for (const command of commands) {
       const [bin, ...args] = command.split(" ");
       try {
@@ -86,9 +101,10 @@ async function runSandbox({ repoDir, baseSha, patches, tests }) {
     return { ok: true, results };
   } catch (error) {
     return { ok: false, results: [], error: error.message };
+  } finally {
+    fs.rmSync(temp, { recursive: true, force: true });
   }
 }
-
 function repairBranchName(jobId) {
   const suffix = crypto.createHash("sha256").update(String(jobId)).digest("hex").slice(0, 12);
   return `repair/x18-${suffix}`;
