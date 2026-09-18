@@ -3,6 +3,7 @@
 const { diagnose } = require("./diagnoser");
 const { buildRepairPlan } = require("./repair-plan");
 const { buildPatchCandidate } = require("./patch-candidate");
+const { buildPatchProposal } = require("./patch-proposal");
 const { buildReproductionPlan } = require("./reproduction-gate");
 const { runReproduction } = require("./reproduction-runner");
 const { provisionWorkspace } = require("./workspace-provisioner");
@@ -28,6 +29,7 @@ async function processJob(job, deps = {}) {
   const runDiagnose = deps.diagnose || diagnose;
   const makeRepairPlan = deps.buildRepairPlan || buildRepairPlan;
   const makePatchCandidate = deps.buildPatchCandidate || buildPatchCandidate;
+  const makePatchProposal = deps.buildPatchProposal || buildPatchProposal;
   const makeReproductionPlan = deps.buildReproductionPlan || buildReproductionPlan;
   const executeReproduction = deps.runReproduction || runReproduction;
   const provision = deps.provisionWorkspace || provisionWorkspace;
@@ -51,15 +53,32 @@ async function processJob(job, deps = {}) {
       return move(job.id, "STOPPED", { reason: "INVALID_EVIDENCE" });
     }
 
+    const proposalInput = deps.patch ? {
+      evidenceOnly: evidence.evidenceOnly,
+      diff: deps.patch,
+      changedFiles: job.changedFiles || [],
+      source: deps.patchSource || "worker-input"
+    } : null;
+    if (!proposalInput && typeof deps.proposePatch !== "function") {
+      return move(job.id, "HUMAN_REVIEW", { reason: "PATCH_PROPOSAL_PROVIDER_REQUIRED", evidence });
+    }
+    const proposal = proposalInput
+      ? makePatchProposal(proposalInput)
+      : await deps.proposePatch({ evidence, changedFiles: job.changedFiles || [], repository: job.repository, commit: job.commit });
+    if (!proposal?.accepted || !proposal?.proposal?.diff) {
+      return move(job.id, "HUMAN_REVIEW", { reason: proposal?.reason || "PATCH_PROPOSAL_REJECTED", evidence, proposal });
+    }
+
     const reproductionPlan = makeReproductionPlan(evidence, deps.reproductionCommand);
     let reproductionProof = null;
+    const patch = proposal.proposal.diff;
 
-    if (deps.patch) {
+    if (patch) {
       if (deps.workspace) {
         reproductionProof = await executeReproduction({
           workspace: deps.workspace,
           plan: reproductionPlan,
-          patch: deps.patch,
+          patch,
           timeoutMs: deps.reproductionTimeoutMs
         });
       } else {
@@ -72,7 +91,7 @@ async function processJob(job, deps = {}) {
         reproductionProof = await executeReproduction({
           workspace: provisioned.workspace,
           plan: reproductionPlan,
-          patch: deps.patch,
+          patch,
           timeoutMs: deps.reproductionTimeoutMs
         });
       }
