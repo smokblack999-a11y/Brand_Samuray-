@@ -36,6 +36,8 @@ async function processJob(job, deps = {}) {
   const makeReproductionPlan = deps.buildReproductionPlan || buildReproductionPlan;
   const executeReproduction = deps.runReproduction || runReproduction;
   const provision = deps.provisionWorkspace || provisionWorkspace;
+  const loadSourceContext = deps.readSourceContext || readSourceContext;
+  const formatContext = deps.formatSourceContext || formatSourceContext;
   const move = deps.transition || transition;
 
   if (!job.workflowRunId) {
@@ -75,7 +77,7 @@ async function processJob(job, deps = {}) {
     let sourceContext = deps.sourceContext || "";
     const sourceWorkspace = deps.workspace || provisioned?.workspace;
     if (!sourceContext && sourceWorkspace && job.changedFiles?.length) {
-      sourceContext = formatSourceContext(await readSourceContext(sourceWorkspace, job.changedFiles));
+      sourceContext = formatContext(await loadSourceContext(sourceWorkspace, job.changedFiles));
     }
 
     const proposal = proposalInput
