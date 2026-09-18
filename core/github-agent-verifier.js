@@ -13,7 +13,7 @@ function token() {
 
 function repoPath(repository) {
   const parts = String(repository || "").split("/");
-  if (parts.length !== 2 || parts.some(Boolean) === false) throw new Error("Invalid GitHub repository name");
+  if (parts.length !== 2 || !parts[0] || !parts[1]) throw new Error("Invalid GitHub repository name");
   return parts.map(encodeURIComponent).join("/");
 }
 
