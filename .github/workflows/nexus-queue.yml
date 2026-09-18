@@ -18,6 +18,7 @@ on:
       - "core/nexus-diagnosis.test.js"
       - "core/nexus-failure-handler.test.js"
       - "core/nexus-patch-proposal.test.js"
+      - "core/nexus-kill-critic.test.js"
       - ".github/workflows/nexus-queue.yml"
   pull_request:
     paths:
@@ -36,6 +37,7 @@ on:
       - "core/nexus-diagnosis.test.js"
       - "core/nexus-failure-handler.test.js"
       - "core/nexus-patch-proposal.test.js"
+      - "core/nexus-kill-critic.test.js"
       - ".github/workflows/nexus-queue.yml"
 
 permissions:
@@ -55,4 +57,4 @@ jobs:
           cache: npm
           cache-dependency-path: core/package-lock.json
       - run: npm ci
-      - run: node --test nexus-queue.test.js nexus-worker.test.js nexus-webhook.test.js nexus-diagnosis.test.js nexus-failure-handler.test.js nexus-patch-proposal.test.js proof-engine.test.js nexus-policy.test.js
+      - run: node --test nexus-queue.test.js nexus-worker.test.js nexus-webhook.test.js nexus-diagnosis.test.js nexus-failure-handler.test.js nexus-patch-proposal.test.js nexus-kill-critic.test.js proof-engine.test.js nexus-policy.test.js
