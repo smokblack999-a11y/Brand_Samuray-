@@ -80,12 +80,12 @@ async function runSandbox({ repoDir, baseSha, patches, tests }) {
         results.push({ command, ok: true, stdout: result.stdout.slice(-12000), stderr: result.stderr.slice(-12000) });
       } catch (error) {
         results.push({ command, ok: false, stdout: String(error.stdout || "").slice(-12000), stderr: String(error.stderr || error.message).slice(-12000) });
-        return { ok: false, temp, results };
+        return { ok: false, results };
       }
     }
-    return { ok: true, temp, results };
+    return { ok: true, results };
   } catch (error) {
-    return { ok: false, temp, results: [], error: error.message };
+    return { ok: false, results: [], error: error.message };
   }
 }
 
