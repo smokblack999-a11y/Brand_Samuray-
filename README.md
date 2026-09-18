@@ -19,6 +19,9 @@ SamuraiOS Core превращает входящие Telegram Business сооб�
 - Health endpoint: `GET /health`
 - OpenAI readiness check: `GET /health/openai`
 - Smoke и E2E-подобные тесты для API, auth и Telegram webhook
+- X10THINK commercial readiness engine with 15 evidence gates
+- Deterministic lead-to-action routing
+- Conservative customer ROI calculator
 
 Telegram Bot API поддерживает `business_connection` и `business_message`; connected Business Bots могут обрабатывать сообщения бизнеса и отвечать от его имени. urlTelegram Bot APIhttps://core.telegram.org/bots/api
 
@@ -51,6 +54,30 @@ npm run set-webhook
 ```
 
 Ключи и секреты не коммитить. Использовать GitHub/VPS secrets или переменные окружения.
+
+## X10THINK commercial gate
+
+Техническая готовность и вероятность продажи намеренно разделены. Endpoint `GET /api/commercial/readiness` выдаёт объективный readiness score и следующие действия. Он **не называет score вероятностью продажи**.
+
+15 gates:
+
+1. CI
+2. Automated tests
+3. Android artifact
+4. Lead API
+5. Telegram Business path
+6. Security
+7. Safe defaults
+8. Event deduplication
+9. Rate limiting
+10. Observability
+11. Persistence
+12. AI fallback
+13. Real pilot evidence
+14. Real revenue
+15. Repeatable deployment/sales
+
+Цель `86` — это productization target. Для честного повышения шанса продажи нужны реальные внешние доказательства: пилот, измеримый результат, отзыв/кейс, платёж и повторяемая поставка.
 
 ## MVP commercial gate
 
