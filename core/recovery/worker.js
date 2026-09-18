@@ -2,7 +2,7 @@
 
 const recovery=require("./index");
 const {applyPatch}=require("./patch-executor");
-const {createSandbox,verifyWorkspace}=require("./sandbox");
+const {createSandbox,verifyWorkspace,cleanupSandbox}=require("./sandbox");
 const {createGitHubAdapter,recoveryBranchName}=require("./github-adapter");
 const {evaluatePatch}=require("./policy");
 const {sandboxConfig,assertProductionSandbox}=require("./sandbox-policy");
@@ -121,6 +121,8 @@ async function processJob(id,executor,options={}){
     return {job:recovery.getJob(id)||updated,verification,commit,pr};
   }catch(error){
     return recovery.updateJob(id,{status:"retryable",lastError:String(error?.message||error)});
+  }finally{
+    if(sandbox) cleanupSandbox(sandbox);
   }
 }
 
