@@ -90,7 +90,21 @@ function updateRecoveryCi(payload = {}) {
 function gate(id, verification) {
   const job = store.getJob(id);
   if (!job) throw new Error("recovery job not found");
-  const decision = critic.evaluate({ ...verification, attempts: job.attempts, ...job.budget });
+  const persistedCi = job.verification?.ci;
+  const ciVerified = Boolean(
+    job.verification?.ciPassed === true &&
+    persistedCi?.conclusion === "success" &&
+    persistedCi?.sha &&
+    job.recovery?.commitSha &&
+    persistedCi.sha === job.recovery.commitSha
+  );
+  const decision = critic.evaluate({
+    ...verification,
+    ciPassed: ciVerified,
+    ciVerified,
+    attempts: job.attempts,
+    ...job.budget
+  });
   if (decision.decision === "recovered") {
     return store.createProof(job, "recovered", verification);
   }
