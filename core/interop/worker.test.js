@@ -110,3 +110,18 @@ test("worker refuses a job without an exact commit SHA", async () => {
   assert.equal(result.stage, "HUMAN_REVIEW");
   assert.equal(result.reason, "MISSING_EXACT_COMMIT_SHA");
 });
+
+
+test("worker requires a real patch proposal provider", async () => {
+  const result = await processJob({
+    id: "job-no-proposal",
+    workflowRunId: 791,
+    commit: "c".repeat(40),
+    repository: "acme/site"
+  }, {
+    diagnose: async () => evidence(791),
+    transition: (id, stage, patch) => ({ id, stage, ...patch })
+  });
+  assert.equal(result.stage, "HUMAN_REVIEW");
+  assert.equal(result.reason, "PATCH_PROPOSAL_PROVIDER_REQUIRED");
+});
