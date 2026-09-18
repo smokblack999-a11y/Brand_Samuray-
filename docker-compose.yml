@@ -9,6 +9,8 @@ services:
       - "8787:8787"
     volumes:
       - samurai-data:/app/data
+    environment:
+      DATA_DIR: /app/data
     healthcheck:
       test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:8787/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
       interval: 30s
