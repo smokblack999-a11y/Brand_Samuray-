@@ -101,6 +101,6 @@ function createProof(job, finalState, extra = {}) {
     filesChanged: extra.filesChanged || [],
     generatedAt: new Date().toISOString()
   });
-  return updateJob(job.id, { proof });
+  return updateJob(job.id, { proof, status: finalState === "recovered" ? "recovered" : finalState });
 }
 module.exports = { createJob, getJob, listJobs, updateJob, appendEvent, listEvents, createProof };
