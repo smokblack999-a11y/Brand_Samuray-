@@ -10,16 +10,24 @@ function createWorker({ store = createStore(), handler = async () => {}, concurr
     if (running) return { processed: false, reason: "busy" };
     const job = store.list({ status: "QUEUED" })[0];
     if (!job) return { processed: false, reason: "empty" };
+
     running = true;
     store.update(job.jobId, { status: "RUNNING", startedAt: new Date().toISOString() });
+
     try {
       const result = await handler(job);
-      const finalJob = store.update(job.jobId, { status: "COMPLETED", result });
+      const requestedStatus = result && typeof result.status === "string" ? result.status : "COMPLETED";
+      const finalJob = store.update(job.jobId, {
+        status: requestedStatus,
+        result,
+        completedAt: new Date().toISOString()
+      });
       return { processed: true, job: finalJob };
     } catch (error) {
       const finalJob = store.update(job.jobId, {
         status: "FAILED",
-        error: String(error?.message || "worker failure")
+        error: String(error?.message || "worker failure"),
+        failedAt: new Date().toISOString()
       });
       return { processed: true, job: finalJob };
     } finally {
