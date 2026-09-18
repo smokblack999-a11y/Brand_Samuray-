@@ -2,7 +2,7 @@ name: SamuraiOS Core CI
 
 on:
   push:
-    branches: [ "main", "master" ]
+    branches: [ "main", "master", "x29/**" ]
     paths:
       - 'core/**'
       - 'docker-compose.yml'
@@ -67,11 +67,12 @@ jobs:
           node --check x29-runtime.js
           node --check adapters/github-pr-adapter.js
           node --check adapters/github-live-ci.js
-          node --check adapters/github-pr-live.js
+          node --check adapters/github-pr-live-adapter.js
           node --check adapters/github-rest.js
           node --check adapters/github-ci-verifier.js
           node --check adapters/sandbox-adapter.js
           node --check adapters/repair-candidate-provider.js
+          node --check adapters/repair-candidate-http.js
           node --check autonomy/repair-orchestrator.js
           node --check autonomy/architect-repair-adapter.js
           node --check scripts/set-webhook.js
