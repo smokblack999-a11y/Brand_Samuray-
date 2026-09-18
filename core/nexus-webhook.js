@@ -4,7 +4,7 @@ const crypto = require("crypto");
 const { normalizeWorkflowRun } = require("./nexus-workflow-intake");
 
 function verifyGitHubSignature(rawBody, signature, secret) {
-  if (!secret || !signature || !rawBody) return false;
+  if (!secret || !signature || rawBody == null) return false;
   const expected = `sha256=${crypto.createHmac("sha256", secret).update(rawBody).digest("hex")}`;
   const a = Buffer.from(expected);
   const b = Buffer.from(String(signature));
@@ -23,8 +23,10 @@ function registerNexusWebhook(app, { store, secret } = {}) {
   if (!app || !store) throw new Error("app and store are required");
   app.post("/api/nexus/github/workflow-run", (req, res) => {
     try {
-      const raw = req.rawBody || JSON.stringify(req.body || {});
-      if (!verifyGitHubSignature(raw, req.get("x-hub-signature-256"), secret)) {
+      if (!Buffer.isBuffer(req.rawBody)) {
+        return res.status(400).json({ ok: false, error: "Raw request body is required" });
+      }
+      if (!verifyGitHubSignature(req.rawBody, req.get("x-hub-signature-256"), secret)) {
         return res.status(401).json({ ok: false, error: "Invalid GitHub signature" });
       }
       const result = handleWorkflowRun(req.body, store);
