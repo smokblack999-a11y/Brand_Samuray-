@@ -66,6 +66,8 @@ jobs:
           node --check github-agent-patcher.js
           node --check github-app.js
           node --check github-agent-patcher.test.js
+          node --check github-agent-pr-verifier.js
+          node --check github-agent-pr-verifier.test.js
           node --check github-patch-executor.js
           node --check github-patch-executor.test.js
           node --check github-agent-patcher.js
