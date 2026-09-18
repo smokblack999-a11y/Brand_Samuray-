@@ -4,6 +4,10 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=8787
 
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends git ca-certificates \
+  && rm -rf /var/lib/apt/lists/*
+
 COPY package*.json ./
 RUN npm ci --omit=dev
 
