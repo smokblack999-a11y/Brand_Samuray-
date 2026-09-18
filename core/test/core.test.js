@@ -9,6 +9,7 @@ const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'samurai-core-'));
 const port = 18000 + Math.floor(Math.random() * 1000);
 const API_KEY = 'test-core-api-key-123456';
 const WEBHOOK_SECRET = 'test-webhook-secret-123456';
+const GITHUB_WEBHOOK_SECRET = 'test-github-webhook-secret-123456';
 
 let child;
 
@@ -30,6 +31,7 @@ test.before(async () => {
       OPENAI_API_KEY: '',
       CORE_API_KEY: API_KEY,
       TELEGRAM_WEBHOOK_SECRET: WEBHOOK_SECRET,
+      GITHUB_WEBHOOK_SECRET,
       MAX_MESSAGE_CHARS: '4000'
     },
     stdio: ['ignore', 'pipe', 'pipe']
@@ -56,7 +58,7 @@ test('health endpoint', async () => {
   const body = await r.json();
   assert.equal(body.ok, true);
   assert.equal(body.service, 'SamuraiOS Core');
-  assert.equal(body.version, '2.6.0');
+  assert.equal(body.version, '2.7.0');
 });
 
 test('readiness endpoint verifies critical configuration', async () => {
@@ -103,14 +105,16 @@ test('message length is bounded before scoring or AI', async () => {
   });
   assert.equal(r.status, 400);
   const body = await r.json();
-  assert.match(body.error, /максимум 4000/);
+  assert.equal(body.ok, false);
+  assert.equal(body.error.code, 'MESSAGE_TOO_LONG');
+  assert.match(body.error.message, /максимум 4000/);
 });
 
 test('OpenAI health reports unconfigured without exposing secrets', async () => {
   const r = await api('/health/openai');
   assert.equal(r.status, 503);
   const body = await r.json();
-  assert.equal(body.configured, false);
+  assert.equal(body.error.code, 'OPENAI_NOT_CONFIGURED');
   assert.equal('apiKey' in body, false);
 });
 

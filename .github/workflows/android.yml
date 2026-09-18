@@ -9,6 +9,10 @@ on:
 permissions:
   contents: read
 
+env:
+  ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+  ANDROID_HOME: /usr/local/lib/android/sdk
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -35,13 +39,17 @@ jobs:
           java-version: '17'
           cache: gradle
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Install required Android SDK packages
+      - name: Prepare Android SDK
+        shell: bash
         run: |
-          sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
-          yes | sdkmanager --licenses || true
+          set -euo pipefail
+          SDKMANAGER="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$SDKMANAGER" ]; then
+            SDKMANAGER="$ANDROID_SDK_ROOT/cmdline-tools/16.0/bin/sdkmanager"
+          fi
+          test -x "$SDKMANAGER"
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+          "$SDKMANAGER" "platform-tools" "platforms;android-35" "build-tools;35.0.0"
 
       - name: Make Gradle executable
         working-directory: android

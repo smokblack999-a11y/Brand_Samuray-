@@ -59,6 +59,23 @@ jobs:
           node --check lead-engine.js
           node --check scripts/set-webhook.js
           node --check scripts/verify-config.js
+          node --check interop/job-contract.js
+          node --check interop/url-policy.js
+          node --check interop/github-webhook.js
+          node --check interop/store.js
+          node --check interop/diagnoser.js
+          node --check interop/repair-plan.js
+          node --check interop/worker.js
+          node --check interop/patch-candidate.js
+          node --check interop/sandbox-verifier.js
+          node --check interop/job-contract.test.js
+          node --check interop/url-policy.test.js
+          node --check interop/github-webhook.test.js
+          node --check interop/diagnoser.test.js
+          node --check interop/repair-plan.test.js
+          node --check interop/worker.test.js
+          node --check interop/patch-candidate.test.js
+          node --check interop/sandbox-verifier.test.js
 
       - name: Unit tests
         run: npm test
