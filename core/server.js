@@ -111,6 +111,8 @@ const x29Runtime = githubLive && candidateProvider
     })
   : null;
 
+let repairWorkerBusy = false;
+let repairWorkerTimer = null;
 const repairWorker = GITHUB_WEBHOOK_SECRET
   ? createX29QueueWorker({
       queue: repairQueue,
@@ -139,6 +141,20 @@ const repairWorker = GITHUB_WEBHOOK_SECRET
       maxAttempts: 2
     })
   : null;
+async function processRepairQueue() {
+  if (!repairWorker || repairWorkerBusy) return;
+  repairWorkerBusy = true;
+  try { await repairWorker.processOnce(); }
+  catch (error) { console.error(JSON.stringify({ event: "x29_worker_failed", error: error.message })); }
+  finally {
+    repairWorkerBusy = false;
+    repairWorkerTimer = setTimeout(processRepairQueue, 250);
+    repairWorkerTimer.unref?.();
+  }
+}
+
+if (repairWorker) processRepairQueue();
+
 const githubIngress = GITHUB_WEBHOOK_SECRET
   ? createWorkflowRunIngress({ queue: repairQueue, secret: GITHUB_WEBHOOK_SECRET })
   : null;
@@ -155,11 +171,7 @@ app.post("/api/github/webhook", async (req, res) => {
     payload
   });
   if (!result.accepted) return res.status(401).json(errorBody("INVALID_GITHUB_WEBHOOK", result.reason, req.requestId));
-  if (result.queued) {
-    try { await repairWorker.processOnce(); } catch (error) {
-      console.error(JSON.stringify({ event: "x29_worker_failed", requestId: req.requestId, error: error.message }));
-    }
-  }
+  if (result.queued) processRepairQueue();
   return res.status(202).json({ ok: true, accepted: true, result, requestId: req.requestId });
 });
 
@@ -257,6 +269,7 @@ server.headersTimeout = REQUEST_TIMEOUT_MS + 5000;
 
 function shutdown(signal) {
   console.log(JSON.stringify({ event: "shutdown", signal }));
+  if (repairWorkerTimer) clearTimeout(repairWorkerTimer);
   server.close(() => process.exit(0));
   setTimeout(() => process.exit(1), 10000).unref();
 }
