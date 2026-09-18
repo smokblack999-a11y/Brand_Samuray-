@@ -44,7 +44,8 @@ function updateRecoveryCi(payload = {}) {
   const jobs = store.listJobs(500);
   const job = jobs.find(candidate =>
     candidate.source?.repo === repo &&
-    candidate.recovery?.commitSha === sha
+    candidate.recovery?.commitSha === sha &&
+    candidate.recovery?.branch === branch
   );
   if (!job) return { updated: false, reason: "recovery_job_not_found" };
 
@@ -108,7 +109,13 @@ function gate(id, verification) {
       ciVerified: true,
       ciPassed: true
     };
-    return store.createProof(job, "recovered", finalVerification);
+    return store.createProof(job, "recovered", {
+      verified: true,
+      ci: persistedCi,
+      filesChanged: finalVerification.filesChanged,
+      sandbox: finalVerification.sandbox || null,
+      tests: finalVerification.tests || null
+    });
   }
   return store.updateJob(id, { status: decision.decision, lastDecision: decision });
 }
