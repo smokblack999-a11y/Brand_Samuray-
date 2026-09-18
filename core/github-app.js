@@ -81,10 +81,10 @@ async function createBranch({ repository, branchName, baseSha }) {
   try {
     const existing = await githubJson(refPath);
     const existingSha = String(existing?.object?.sha || "");
-    if (existingSha !== String(baseSha)) {
+    if (existingSha && existingSha !== String(baseSha) && !String(branchName).startsWith("repair/")) {
       throw new Error(`GitHub branch already exists at a different SHA: ${branchName}`);
     }
-    return existing;
+    return { ...existing, reused: true };
   } catch (error) {
     if (!/GitHub API 404:/.test(String(error?.message || ""))) throw error;
   }
@@ -167,7 +167,19 @@ async function applyFiles({ repository, branchName, patches, message }) {
   return { ...updated, commitSha, parentSha, treeSha, atomic: true };
 }
 async function createPullRequest({ repository, head, base, title, body, draft }) {
-  return githubJson(`/repos/${repoPath(repository)}/pulls`, {
+  const repo = repoPath(repository);
+  const owner = String(repository).split("/")[0];
+  const query = new URLSearchParams({
+    state: "open",
+    head: `${owner}:${head}`,
+    base
+  });
+  const existing = await githubJson(`/repos/${repo}/pulls?${query.toString()}`);
+  if (Array.isArray(existing) && existing.length > 0) {
+    return { ...existing[0], reused: true };
+  }
+
+  return githubJson(`/repos/${repo}/pulls`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ title, body, head, base, draft: Boolean(draft) })
