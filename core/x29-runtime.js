@@ -1,6 +1,9 @@
 "use strict";
 
 const { ArchitectCore } = require("./architect-core");
+const { createRepairCandidateProvider } = require("./adapters/repair-candidate-provider");
+const { createSandboxAdapter } = require("./adapters/sandbox-adapter");
+const { createGithubCiVerifier } = require("./adapters/github-ci-verifier");
 
 function createX29Runtime({ queue, x28Adapter, candidateProvider, sandbox, ciVerifier, maxAttempts = 2 } = {}) {
   if (!queue || typeof queue.complete !== "function") throw new TypeError("queue is required");
