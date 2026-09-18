@@ -15,7 +15,7 @@ test("repair branch is deterministic and bounded", () => {
   assert.match(branchName("job/123", "a".repeat(40)), /^samurai\/repair-/);
 });
 
-test("repair PR publishes only after proof", async () => {
+test("repair PR publishes final verified files without merge", async () => {
   const calls=[];
   const out=await createRepairPullRequest({
     repository:"smokblack999-a11y/Brand_Samuray-",
@@ -26,13 +26,12 @@ test("repair PR publishes only after proof", async () => {
     reproductionProof:{passed:true,reproduction:true,causality:true},
     finalFiles:[{path:"core/fix.js",content:"b\n"}]
   },{
-    createBranch: async x=>{calls.push(["branch",x]);},
-    createBlob: async x=>({result:{sha:"b".repeat(40)}}),
-    createTree: async x=>({result:{sha:"c".repeat(40)}}),
-    createCommit: async x=>({result:{sha:"d".repeat(40)}}),
-    createPullRequest: async x=>({result:{number:99,html_url:"https://github.com/example/pr/99",head:{sha:"d".repeat(40)}}})
+    createBranch: async x=>calls.push(["branch",x]),
+    fetchFile: async x=>({result:{sha:"e".repeat(40)}}),
+    updateFile: async x=>{calls.push(["update",x]); return {result:{commit_sha:"d".repeat(40)}}},
+    createPullRequest: async x=>({result:{number:99,html_url:"https://github.com/example/pr/99"}})
   });
-  assert.equal(out.commitSha,"d".repeat(40));
+  assert.equal(out.commitShas[0],"d".repeat(40));
   assert.equal(out.pr.number,99);
   assert.equal(calls[0][1].sha,"a".repeat(40));
   assert.equal(out.autonomousMerge,false);
