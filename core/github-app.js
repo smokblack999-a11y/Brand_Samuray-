@@ -89,11 +89,23 @@ async function createBranch({ repository, branchName, baseSha }) {
     if (!/GitHub API 404:/.test(String(error?.message || ""))) throw error;
   }
 
-  return githubJson(`/repos/${repoPath(repository)}/git/refs`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ ref: `refs/heads/${branchName}`, sha: baseSha })
-  });
+  try {
+    return await githubJson(`/repos/${repoPath(repository)}/git/refs`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ref: `refs/heads/${branchName}`, sha: baseSha })
+    });
+  } catch (error) {
+    // Concurrent callers may race after the initial 404. Re-read and accept
+    // only if the branch landed exactly on the requested immutable base SHA.
+    if (!/GitHub API 422:/.test(String(error?.message || ""))) throw error;
+    const raced = await githubJson(refPath);
+    const racedSha = String(raced?.object?.sha || "");
+    if (racedSha !== String(baseSha)) {
+      throw new Error(`GitHub branch race produced an unexpected SHA: ${branchName}`);
+    }
+    return { ...raced, reused: true };
+  }
 }
 
 async function applyFiles({ repository, branchName, patches, message }) {
