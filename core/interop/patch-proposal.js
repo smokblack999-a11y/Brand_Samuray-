@@ -1,6 +1,7 @@
 "use strict";
 
 const { validateUnifiedDiff, MAX_PATCH_BYTES } = require("./patch-candidate");
+const { assessPatch } = require("../kill-critic");
 
 const MAX_PROPOSAL_BYTES = MAX_PATCH_BYTES;
 
@@ -28,19 +29,27 @@ function buildPatchProposal(input = {}) {
     return { accepted: false, reason: "PATCH_TOUCHES_UNRELATED_FILE" };
   }
 
+  const critic = assessPatch({
+    ...input,
+    changedFiles: validated.files,
+    changedLines: Number(input.changedLines) || 0
+  });
+
   return {
     accepted: true,
     source: String(input.source || "external-proposal"),
+    critic,
     proposal: {
-      version: 1,
+      version: 2,
       diff: validated.diff,
       files: validated.files,
       evidenceOnly: true,
       reproduction: true,
       causality: true,
-      requiresSandbox: true,
+      requiresSandbox: critic.action !== "OPEN_PR",
       autonomousWrite: false,
-      autonomousMerge: false
+      autonomousMerge: false,
+      autonomousPr: critic.action === "OPEN_PR"
     }
   };
 }
