@@ -32,7 +32,9 @@ function createWorkflowRunIngress({ queue, secret } = {}) {
       const queued = queue.enqueue({
         ...routed.job,
         event: "workflow_run",
-        jobKey: routed.jobKey
+        jobKey: routed.jobKey,
+        workflow_run: payload?.workflow_run || payload,
+        eventPayload: payload
       });
       return Object.freeze({ accepted: true, routed, queued });
     }
