@@ -52,6 +52,16 @@ test("proves a mission only after verifier evidence", async () => {
   assert.equal(result.events.at(-1).event, "PROOF_ACCEPTED");
 });
 
+test("planner output is normalized for X28 handoff", async () => {
+  const a = adapters();
+  a.planner.plan = async () => ({ actions: ["patch"] });
+  const core = new ArchitectCore({ ...a, maxAttempts: 1 });
+  const result = await core.run({ id: "job-plan", type: "repair", input: {} });
+  assert.deepEqual(result.plan.tests, []);
+  assert.deepEqual(result.plan.constraints, []);
+  assert.equal(result.status, STATUS.PROVEN);
+});
+
 test("critic rejection prevents execution", async () => {
   const a = adapters({ critic: { decision: DECISION.REJECT } });
   let executions = 0;
