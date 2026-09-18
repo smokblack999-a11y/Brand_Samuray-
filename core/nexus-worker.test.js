@@ -30,3 +30,21 @@ test("worker records failures instead of losing jobs", async () => {
   assert.equal(store.get("job-2").error, "boom");
   fs.rmSync(dir, { recursive: true, force: true });
 });
+
+test("worker preserves bounded diagnosis gate instead of overwriting it with completed", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "nexus-worker-stage-"));
+  const store = createStore(path.join(dir, "jobs.json"));
+  store.enqueue({ jobId: "job-3", repository: "repo", runId: "3" });
+  const worker = createWorker({
+    store,
+    handler: async () => ({
+      status: "DIAGNOSED",
+      nextAction: "PATCH_CANDIDATE",
+      diagnosis: { category: "test_failure", confidence: 0.98 }
+    })
+  });
+  await worker.tick();
+  assert.equal(store.get("job-3").status, "DIAGNOSED");
+  assert.equal(store.get("job-3").result.nextAction, "PATCH_CANDIDATE");
+  fs.rmSync(dir, { recursive: true, force: true });
+});
