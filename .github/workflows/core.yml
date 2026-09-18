@@ -59,6 +59,8 @@ jobs:
           node --check github-agent.test.js
           node --check github-agent-worker.js
           node --check github-agent-worker.test.js
+          node --check github-patch-executor.js
+          node --check github-patch-executor.test.js
           node --check scripts/set-webhook.js
           node --check scripts/verify-config.js
       - name: Unit tests
