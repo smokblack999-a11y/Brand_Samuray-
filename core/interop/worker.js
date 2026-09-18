@@ -4,6 +4,7 @@ const { diagnose } = require("./diagnoser");
 const { buildRepairPlan } = require("./repair-plan");
 const { buildPatchCandidate } = require("./patch-candidate");
 const { buildPatchProposal } = require("./patch-proposal");
+const { proposePatch: proposePatchWithOpenAI } = require("./openai-patch-proposer");
 const { buildReproductionPlan } = require("./reproduction-gate");
 const { runReproduction } = require("./reproduction-runner");
 const { provisionWorkspace } = require("./workspace-provisioner");
@@ -30,6 +31,7 @@ async function processJob(job, deps = {}) {
   const makeRepairPlan = deps.buildRepairPlan || buildRepairPlan;
   const makePatchCandidate = deps.buildPatchCandidate || buildPatchCandidate;
   const makePatchProposal = deps.buildPatchProposal || buildPatchProposal;
+  const proposePatch = deps.proposePatch || proposePatchWithOpenAI;
   const makeReproductionPlan = deps.buildReproductionPlan || buildReproductionPlan;
   const executeReproduction = deps.runReproduction || runReproduction;
   const provision = deps.provisionWorkspace || provisionWorkspace;
@@ -59,12 +61,9 @@ async function processJob(job, deps = {}) {
       changedFiles: job.changedFiles || [],
       source: deps.patchSource || "worker-input"
     } : null;
-    if (!proposalInput && typeof deps.proposePatch !== "function") {
-      return move(job.id, "HUMAN_REVIEW", { reason: "PATCH_PROPOSAL_PROVIDER_REQUIRED", evidence });
-    }
     const proposal = proposalInput
       ? makePatchProposal(proposalInput)
-      : await deps.proposePatch({ evidence, changedFiles: job.changedFiles || [], repository: job.repository, commit: job.commit });
+      : await proposePatch({ evidence, changedFiles: job.changedFiles || [], repository: job.repository, commit: job.commit, source: deps.sourceContext || "", apiKey: deps.openaiApiKey });
     if (!proposal?.accepted || !proposal?.proposal?.diff) {
       return move(job.id, "HUMAN_REVIEW", { reason: proposal?.reason || "PATCH_PROPOSAL_REJECTED", evidence, proposal });
     }
