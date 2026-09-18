@@ -27,7 +27,7 @@ test("runtime never claims verified without sandbox and CI evidence", async () =
 
   const result = await runtime.run({ id: "mission-1", type: "ci-repair", input: { workflowRun: { id: 1 } } });
   assert.notEqual(result.status, "PROVEN");
-  assert.ok(saved.length >= 1);
+  assert.equal(saved.length, 0);
 });
 
 test("runtime escalates when no repair candidate exists", async () => {
