@@ -4,6 +4,8 @@ const store = require("./store");
 const state = require("./state");
 const critic = require("./kill-critic");
 const github = require("./github");
+const rootCause = require("./root-cause");
+const patchPlan = require("./patch-plan");
 
 function enqueueFromGithub(payload, evidence = []) {
   const failure = github.normalizeWorkflowFailure(payload);
@@ -11,6 +13,13 @@ function enqueueFromGithub(payload, evidence = []) {
   const id = `github:${failure.repo}:${failure.runId}`;
   const job = store.createJob({ id, source: failure, failure, evidence });
   return { queued: true, job };
+}
+function diagnoseJob(id) {
+  const job = store.getJob(id);
+  if (!job) throw new Error("recovery job not found");
+  const diagnosis = rootCause.diagnose(job.failure, job.evidence);
+  const plans = patchPlan.buildPatchPlan(diagnosis.hypotheses, job.budget);
+  return store.updateJob(id, { hypotheses: diagnosis.hypotheses, patchPlans: plans });
 }
 function startJob(id) {
   const job = store.getJob(id);
@@ -33,4 +42,4 @@ function gate(id, verification) {
   }
   return store.updateJob(id, { status: decision.decision, lastDecision: decision });
 }
-module.exports = { ...store, ...state, ...critic, ...github, enqueueFromGithub, startJob, recordAction, gate };
+module.exports = { ...store, ...state, ...critic, ...github, ...rootCause, ...patchPlan, enqueueFromGithub, diagnoseJob, startJob, recordAction, gate };
