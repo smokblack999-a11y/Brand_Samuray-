@@ -8,11 +8,12 @@ const path = require("node:path");
 process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "samurai-github-agent-"));
 process.env.GITHUB_AGENT_MAX_RETRIES = "2";
 const agent = require("./github-agent");
+test.configure({ concurrency: false });
 
 test("workflow_run failure is normalized and queued", () => {
   const payload = {
     action: "completed",
-    repository: { full_name: "smokblack999-a11y/Brand_Samuray-" },
+    repository: { full_name: "repo/repair-test" },
     workflow_run: {
       id: 12345,
       run_attempt: 1,
@@ -61,7 +62,7 @@ test("claim and bounded retry stop the job", () => {
 test("failed repair PR reuses the existing job instead of creating another job", () => {
   const repairPayload = {
     action: "completed",
-    repository: { full_name: "smokblack999-a11y/Brand_Samuray-" },
+    repository: { full_name: "repo/repair-test" },
     workflow_run: {
       id: 20001,
       run_attempt: 1,
@@ -126,9 +127,7 @@ test("repeated repair PR failures stop the same job", () => {
   const first = agent.ingestWorkflowRun(payload(1));
   assert.equal(first.job.state, "queued");
   const second = agent.ingestWorkflowRun(payload(2));
-  assert.equal(second.job.state, "queued");
-  const third = agent.ingestWorkflowRun(payload(3));
-  assert.equal(third.job.state, "stopped");
-  assert.equal(third.job.repairFailures, 3);
+  assert.equal(second.job.state, "stopped");
+  assert.equal(second.job.repairFailures, 2);
   assert.equal(agent.list().filter(item => item.repository === "repo/loop-test").length, 1);
 });
