@@ -90,7 +90,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          code="$(curl -sS -o /tmp/openai.json -w '%{http_code}' --connect-timeout 5 --max-time 20             -H "Authorization: Bearer ${OPENAI_API_KEY}"             https://api.openai.com/v1/models)"
+          code="$(curl -sS -o /tmp/openai.json -w '%{http_code}' \
+            --connect-timeout 5 --max-time 20 \
+            -H "Authorization: Bearer ${OPENAI_API_KEY}" \
+            https://api.openai.com/v1/models)"
           if [ "$code" != "200" ]; then
             echo "OpenAI smoke test failed (HTTP ${code})"
             rm -f /tmp/openai.json
@@ -113,4 +116,7 @@ jobs:
         with:
           context: ./core
           push: false
+          load: true
           tags: samuraios-core:ci
+      - name: Verify recovery runtime dependencies
+        run: docker run --rm samuraios-core:ci git --version
