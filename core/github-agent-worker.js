@@ -91,7 +91,7 @@ function buildTask(job, evidence) {
     "Identify the smallest defensible root cause and the minimum safe repair plan.",
     "Do not recommend pushing directly to main. Any repair must use a separate branch and pass CI before merge.",
     "Return ONLY one JSON object with exactly these keys:",
-    '{"root_cause":"","confidence":0,"affected_files":[],"repair_steps":[],"tests_to_run":[],"blockers":[],"patch_ready":false}',
+    '{"root_cause":"","confidence":0,"affected_files":[],"repair_steps":[],"tests_to_run":[],"blockers":[],"patch_ready":false,"patches":[]}',
     "confidence must be 0..1; patch_ready=true only when the evidence is sufficient to specify an exact patch without guessing.",
     "If evidence is insufficient, set blockers and patch_ready=false.",
     "GITHUB JOB:",
@@ -110,10 +110,15 @@ function parseDiagnosis(text) {
   if (start < 0 || end <= start) throw new Error("X10THINK diagnosis is not valid JSON");
   const parsed = JSON.parse(candidate.slice(start, end + 1));
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("X10THINK diagnosis must be an object");
-  const arrays = ["affected_files", "repair_steps", "tests_to_run", "blockers"];
+  const arrays = ["affected_files", "repair_steps", "tests_to_run", "blockers", "patches"];
   for (const key of arrays) if (!Array.isArray(parsed[key])) throw new Error(`X10THINK diagnosis field ${key} must be an array`);
   if (typeof parsed.root_cause !== "string") throw new Error("X10THINK diagnosis root_cause must be a string");
   if (typeof parsed.patch_ready !== "boolean") throw new Error("X10THINK diagnosis patch_ready must be boolean");
+  for (const patch of parsed.patches) {
+    if (!patch || typeof patch !== "object" || typeof patch.path !== "string" || typeof patch.content !== "string") {
+      throw new Error("X10THINK diagnosis patches must contain path/content objects");
+    }
+  }
   const confidence = Number(parsed.confidence);
   if (!Number.isFinite(confidence) || confidence < 0 || confidence > 1) throw new Error("X10THINK diagnosis confidence must be 0..1");
   return { ...parsed, confidence };
@@ -128,14 +133,14 @@ async function processNext({ evidenceProvider = getFailureEvidence, ai = runDual
     const result = await ai(buildTask(job, evidence), { maxRounds: 3 });
     if (result.status !== "verified") throw new Error("X10THINK did not verify diagnosis");
     const diagnosis = parseDiagnosis(result.finalAnswer);
-    const safeToPatch = diagnosis.patch_ready === true && diagnosis.blockers.length === 0 && diagnosis.confidence >= 0.7;
+    const safeToPatch = diagnosis.patch_ready === true && diagnosis.blockers.length === 0 && diagnosis.confidence >= 0.7 && diagnosis.patches.length > 0;
     const storedDiagnosis = {
       evidence,
       diagnosis,
       aiConfidence: Number(result.confidence) || diagnosis.confidence,
       analyzedAt: new Date().toISOString()
     };
-    githubAgent.transition(job.id, "diagnosed", { diagnosis: storedDiagnosis });
+    githubAgent.transition(job.id, "diagnosed", { diagnosis: storedDiagnosis, safeToPatch });
     return { processed: true, state: "diagnosed", safeToPatch, jobId: job.id, diagnosis: storedDiagnosis };
   } catch (error) {
     try {
