@@ -13,11 +13,9 @@ const good = [
   ""
 ].join("\n");
 
-test("accepts only a bounded validated proposal after reproduction and causality", () => {
+test("accepts a bounded validated proposal before verification", () => {
   const result = buildPatchProposal({
     evidenceOnly: true,
-    reproduction: true,
-    causality: true,
     diff: good,
     changedFiles: ["test.js"],
     source: "agent"
