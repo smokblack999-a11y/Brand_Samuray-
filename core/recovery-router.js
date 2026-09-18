@@ -51,6 +51,12 @@ function diagnose(logs = "") {
   };
 }
 
+function isBoundToJob(current, proposalInput = {}) {
+  const expected = String(current?.fingerprint || "").trim().toLowerCase();
+  const supplied = String(proposalInput?.evidenceFingerprint || "").trim().toLowerCase();
+  return Boolean(expected && /^[a-f0-9]{24}$/.test(expected) && supplied === expected);
+}
+
 function createRecoveryRouter({ requireRecoveryAuth }) {
   const router = Router();
 
@@ -92,6 +98,18 @@ function createRecoveryRouter({ requireRecoveryAuth }) {
         return res.status(409).json({ ok:false, error:{ code:"INVALID_RECOVERY_STATE", message:"job is not accepting a patch proposal" } });
       }
 
+      // Bind the proposal to the exact failure evidence that created this job.
+      // A caller cannot present evidence from a different incident as proof for this repair.
+      if (!isBoundToJob(current, req.body || {})) {
+        return res.status(409).json({
+          ok:false,
+          error:{
+            code:"EVIDENCE_BINDING_MISMATCH",
+            message:"proposal evidenceFingerprint must match the persisted job fingerprint"
+          }
+        });
+      }
+
       const proposal = buildPatchProposal(req.body || {});
       if (!proposal.accepted) return res.status(422).json({ ok:false, error:{ code:"INVALID_PATCH_PROPOSAL", message:proposal.reason } });
 
@@ -121,4 +139,4 @@ function createRecoveryRouter({ requireRecoveryAuth }) {
   return router;
 }
 
-module.exports = { createRecoveryRouter, normalizeWorkflowRun, diagnose };
+module.exports = { createRecoveryRouter, normalizeWorkflowRun, diagnose, isBoundToJob };
