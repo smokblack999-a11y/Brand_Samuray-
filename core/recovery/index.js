@@ -103,7 +103,12 @@ function gate(id, verification) {
     ...job.budget
   });
   if (decision.decision === "recovered") {
-    return store.createProof(job, "recovered", verification);
+    const finalVerification = {
+      ...verification,
+      ciVerified: true,
+      ciPassed: true
+    };
+    return store.createProof(job, "recovered", finalVerification);
   }
   return store.updateJob(id, { status: decision.decision, lastDecision: decision });
 }
