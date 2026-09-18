@@ -74,6 +74,7 @@ function createPersistentQueue(filePath) {
       const index = state.jobs.findIndex(x => x.queueStatus === "queued");
       if (index < 0) return null;
       state.jobs[index].queueStatus = "processing";
+      state.jobs[index].workerAttempts = Number(state.jobs[index].workerAttempts || 0) + 1;
       state.jobs[index].updatedAt = new Date().toISOString();
       write(state);
       return clone(state.jobs[index]);
