@@ -59,6 +59,11 @@ jobs:
           node --check lead-engine.js
           node --check architect-core.js
           node --check architect-x28-adapter.js
+          node --check github-workflow-run.js
+          node --check autonomy/persistent-repair-worker.js
+          node --check autonomy/persistent-queue.js
+          node --check autonomy/x29-queue-worker.js
+          node --check autonomy/event-proof-router.js
           node --check autonomy/repair-orchestrator.js
           node --check autonomy/architect-repair-adapter.js
           node --check scripts/set-webhook.js
