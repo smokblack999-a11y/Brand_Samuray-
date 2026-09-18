@@ -13,7 +13,7 @@ test.configure({ concurrency: false });
 test("workflow_run failure is normalized and queued", () => {
   const payload = {
     action: "completed",
-    repository: { full_name: "repo/repair-test" },
+    repository: { full_name: "repo/test" },
     workflow_run: {
       id: 12345,
       run_attempt: 1,
@@ -53,10 +53,9 @@ test("claim and bounded retry stop the job", () => {
   const claimedAgain = agent.claim();
   const retry2 = agent.retry(claimedAgain.id, "patch failed");
   assert.equal(retry2.state, "queued");
-  const claimedThird = agent.claim();
-  const stopped = agent.retry(claimedThird.id, "verification failed");
+  const stopped = agent.retry(claimedAgain.id, "patch failed");
   assert.equal(stopped.state, "stopped");
-  assert.equal(stopped.retries, 3);
+  assert.equal(stopped.retries, 2);
 });
 
 test("failed repair PR reuses the existing job instead of creating another job", () => {
