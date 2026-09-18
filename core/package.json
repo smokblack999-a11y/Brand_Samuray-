@@ -9,7 +9,8 @@
     "test": "node --test",
     "verify-config": "node scripts/verify-config.js",
     "set-webhook": "node scripts/set-webhook.js",
-    "x18.5:test": "node --test github-patch-executor.test.js"
+    "x18.5:test": "node --test github-patch-executor.test.js",
+    "x18:repair": "node github-agent-repair-worker.js"
   },
   "dependencies": {
     "cors": "^2.8.6",
