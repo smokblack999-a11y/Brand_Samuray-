@@ -13,7 +13,8 @@ const { ArchitectCore } = require("./architect-core");
 function createX29Runtime({
   queue, x28Adapter, candidateProvider, sandbox, pullRequest, ciVerifier, maxAttempts = 2
 } = {}) {
-  if (!queue || typeof queue.complete !== "function") throw new TypeError("queue is required");
+  if (!queue) throw new TypeError("queue is required");
+  if (typeof queue.complete !== "function") throw new TypeError("queue.complete is required");
   if (!x28Adapter) throw new TypeError("x28Adapter is required");
   const candidate = candidateProvider || (async () => null);
   const sandboxAdapter = sandbox || (async () => ({ passed: false, reason: "sandbox_not_configured" }));
