@@ -24,7 +24,7 @@ The critic never accepts an AI-generated confidence value as proof. Evidence is 
 
 ## Default thresholds
 
-- Sandbox threshold: `0.75`
+- Sandbox threshold: `0.25`
 - PR threshold: `0.90`
 - Maximum autonomous attempts: `3`
 - High-risk: sensitive paths, >100 deletions, >12 files, or >600 changed lines.
