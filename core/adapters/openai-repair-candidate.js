@@ -5,11 +5,12 @@ const OpenAI = require("openai");
 function createOpenAIRepairCandidateProvider({
   apiKey = process.env.OPENAI_API_KEY,
   model = process.env.OPENAI_REPAIR_MODEL || process.env.OPENAI_MODEL || "gpt-5.6-luna",
-  timeoutMs = Number(process.env.OPENAI_REPAIR_TIMEOUT_MS || 30000)
+  timeoutMs = Number(process.env.OPENAI_REPAIR_TIMEOUT_MS || 30000),
+  client: injectedClient
 } = {}) {
-  if (!apiKey) throw new TypeError("OPENAI_API_KEY is required");
+  if (!apiKey && !injectedClient) throw new TypeError("OPENAI_API_KEY is required");
 
-  const client = new OpenAI({ apiKey, timeout: timeoutMs, maxRetries: 1 });
+  const client = injectedClient || new OpenAI({ apiKey, timeout: timeoutMs, maxRetries: 1 });
 
   return async function candidateProvider({ mission, plan }) {
     const sourceContext = mission?.input?.sourceContext;
@@ -82,7 +83,11 @@ function createOpenAIRepairCandidateProvider({
     if (!candidate.files.length || !candidate.changed_files.length) return null;
     if (candidate.files.some(file => !candidate.changed_files.includes(file.path))) return null;
     if (candidate.changed_lines < 0 || candidate.changed_files.length > 8 || candidate.changed_lines > 400) return null;
+    const unsafePath = path => !path || path.startsWith("/") || path.includes("\\") || path.split("/").includes("..");
+    if (candidate.changed_files.some(unsafePath)) return null;
+    if (candidate.files.some(file => unsafePath(file.path))) return null;
     if (candidate.changed_files.some(path => path === ".env" || path.startsWith(".github/workflows/"))) return null;
+    if (!/^x29\\/[a-z0-9._-]+$/.test(candidate.branch)) return null;
 
     return candidate;
   };
