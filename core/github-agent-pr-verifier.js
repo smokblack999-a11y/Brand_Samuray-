@@ -1,31 +1,11 @@
 "use strict";
 
 const githubAgent = require("./github-agent");
+const { githubJson } = require("./github-app");
 
 const API = "https://api.github.com";
-const VERSION = "2022-11-28";
 const MAX_RUNS = 50;
 const IGNORE_WORKFLOWS = new Set(["SamuraiOS X18 Agent"]);
-
-function token() {
-  const value = String(process.env.GITHUB_TOKEN || "").trim();
-  if (!value) throw new Error("GITHUB_TOKEN is not configured");
-  return value;
-}
-
-async function githubJson(url) {
-  const response = await fetch(url, {
-    headers: {
-      Accept: "application/vnd.github+json",
-      Authorization: `Bearer ${token()}`,
-      "X-GitHub-Api-Version": VERSION,
-      "User-Agent": "SamuraiOS-X18-Agent"
-    }
-  });
-  const body = await response.text();
-  if (!response.ok) throw new Error(`GitHub API ${response.status}: ${body.slice(0, 1000)}`);
-  return body ? JSON.parse(body) : {};
-}
 
 function repoPath(repository) {
   const parts = String(repository || "").split("/");
@@ -43,7 +23,7 @@ function relevantRuns(runs, headSha) {
 async function getPRChecks(job) {
   if (!job?.repository || !job?.pr?.number) throw new Error("Job repository/pr.number is required");
   const repo = repoPath(job.repository);
-  const pr = await githubJson(`${API}/repos/${repo}/pulls/${encodeURIComponent(job.pr.number)}`);
+  const pr = await githubJson(`/repos/${repo}/pulls/${encodeURIComponent(job.pr.number)}`);
   const headSha = String(pr?.head?.sha || "");
   if (!headSha) throw new Error("PR head SHA is unavailable");
 
@@ -74,12 +54,7 @@ async function verifyNext() {
       });
       return { processed: true, state: "verified", jobId: job.id, checks, job: updated };
     }
-    return {
-      processed: true,
-      state: "pr_open",
-      jobId: job.id,
-      checks
-    };
+    return { processed: true, state: "pr_open", jobId: job.id, checks };
   } catch (error) {
     return { processed: false, reason: "verification_error", jobId: job.id, error: error.message };
   }
