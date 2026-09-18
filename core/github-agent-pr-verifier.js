@@ -137,6 +137,10 @@ async function getPRChecks(job) {
   };
 }
 
+function shouldRetryChecks(checks) {
+  return Boolean(checks && checks.pending === 0 && Array.isArray(checks.failures) && checks.failures.length > 0);
+}
+
 async function verifyNext() {
   const job = githubAgent.list(200).find(item => item.state === "pr_open");
   if (!job) return { processed: false, reason: "no_pr_open_job" };
@@ -152,7 +156,7 @@ async function verifyNext() {
 
     // A completed failed check is actionable: send the same bounded repair job
     // back through diagnosis/sandbox/PR instead of leaving it in pr_open forever.
-    if (checks.failures.length > 0 && checks.pending === 0) {
+    if (shouldRetryChecks(checks)) {
       const reason = checks.failures
         .slice(0, 5)
         .map(item => `${item.name}:${item.conclusion}`)
@@ -191,5 +195,6 @@ module.exports = {
   relevantRuns,
   relevantCheckRuns,
   checkRunFailures,
+  shouldRetryChecks,
   verifyNext
 };
