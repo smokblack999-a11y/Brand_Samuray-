@@ -20,7 +20,7 @@ async function processJob(id,executor){
       patchApplied:result?.patchApplied===true,
       sandboxPassed:result?.sandboxPassed===true,
       testsPassed:result?.testsPassed===true,
-      ciPassed:result?.ciPassed===true,
+      ciPassed:result?.ciPassed===true && result?.ciVerified===true,\n      ciVerified:result?.ciVerified===true,
       regressionDetected:result?.regressionDetected===true,
       filesChanged:Array.isArray(result?.filesChanged)?result.filesChanged:[],
       runtimeSeconds:Math.ceil((Date.now()-started)/1000)
