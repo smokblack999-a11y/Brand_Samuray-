@@ -103,14 +103,15 @@ test('message length is bounded before scoring or AI', async () => {
   });
   assert.equal(r.status, 400);
   const body = await r.json();
-  assert.equal(body.error.code, 'MESSAGE_TOO_LONG');\n  assert.match(body.error.message, /максимум 4000/);
+  assert.equal(body.error.code, 'MESSAGE_TOO_LONG');
+  assert.match(body.error.message, /максимум 4000/);
 });
 
 test('OpenAI health reports unconfigured without exposing secrets', async () => {
   const r = await api('/health/openai');
   assert.equal(r.status, 503);
   const body = await r.json();
-  assert.equal(body.configured, false);
+  assert.equal(body.error.code, 'OPENAI_NOT_CONFIGURED');
   assert.equal('apiKey' in body, false);
 });
 
