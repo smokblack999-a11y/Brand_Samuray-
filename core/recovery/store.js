@@ -59,15 +59,16 @@ function createJob(input = {}) {
     },
     failure: sanitizeEvidence(input.failure || {}),
     evidence: sanitizeEvidence(input.evidence || []),
+    githubDeliveryId: input.githubDeliveryId ? String(input.githubDeliveryId) : null,
     hypotheses: [],
     actions: [],
     proof: null
   };
   const jobs = read(JOB_FILE);
-  if (jobs.some(x => x.id === job.id)) return jobs.find(x => x.id === job.id);
+  if (jobs.some(x => x.id === job.id)) return { created: false, job: jobs.find(x => x.id === job.id) };
   jobs.push(job); write(JOB_FILE, jobs);
-  appendEvent(job.id, "job.created", { status: job.status, source: job.source, failure: job.failure });
-  return job;
+  appendEvent(job.id, "job.created", { status: job.status, source: job.source, failure: job.failure, githubDeliveryId: job.githubDeliveryId });
+  return { created: true, job };
 }
 function getJob(id) { return read(JOB_FILE).find(x => x.id === id) || null; }
 function listJobs(limit = 100) { return read(JOB_FILE).slice(-Math.min(Math.max(Number(limit) || 100, 1), 500)).reverse(); }
