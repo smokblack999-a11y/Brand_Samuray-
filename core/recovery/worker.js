@@ -1,5 +1,7 @@
 "use strict";
 const recovery=require("./index");
+const {applyPatch}=require("./patch-executor");
+const {createSandbox,verifyWorkspace}=require("./sandbox");
 
 async function processJob(id,executor){
   let job=recovery.startJob(id);
