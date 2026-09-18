@@ -39,3 +39,11 @@ test("checkRunFailures treats non-success completed conclusions as failures", ()
   ]);
   assert.deepEqual(result.map(x => x.id), [4]);
 });
+
+
+test("shouldRetryChecks only retries completed failures", () => {
+  const { shouldRetryChecks } = require("./github-agent-pr-verifier");
+  assert.equal(shouldRetryChecks({ pending: 0, failures: [{ name: "Core CI", conclusion: "failure" }] }), true);
+  assert.equal(shouldRetryChecks({ pending: 1, failures: [{ name: "Core CI", conclusion: "failure" }] }), false);
+  assert.equal(shouldRetryChecks({ pending: 0, failures: [] }), false);
+});
