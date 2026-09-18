@@ -27,7 +27,7 @@ test("provisions an isolated workspace at the exact commit", async () => {
       if (args.includes("rev-parse")) return { stdout: targetSha + "\n", stderr: "" };
       return { stdout: "", stderr: "" };
     };
-    const result = await mod.provisionWorkspace({ repository: "owner/repo", headSha: targetSha, githubToken: "secret" });
+    const result = await provisionWorkspace({ repository: "owner/repo", headSha: targetSha, githubToken: "secret", runGit });
     assert.equal(result.headSha, targetSha);
     assert.equal(result.isolated, true);
     assert.match(result.workspace, /samurai-interop-/);
