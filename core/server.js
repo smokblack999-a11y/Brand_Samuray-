@@ -16,6 +16,7 @@ const { createGithubRestClient } = require("./adapters/github-rest");
 const { createX29Runtime } = require("./x29-runtime");
 const { createHttpRepairCandidateProvider } = require("./adapters/repair-candidate-http");
 const { createLiveGithubPrAdapter } = require("./adapters/github-pr-live-adapter");
+const { createGithubSandboxAdapter } = require("./adapters/github-sandbox-adapter");
 const { createLiveGithubCiVerifier } = require("./adapters/github-live-ci");
 
 const app = express();
@@ -99,6 +100,7 @@ const x29Runtime = githubLive && candidateProvider
       queue: repairQueue,
       x28Adapter,
       candidateProvider,
+      sandbox: createGithubSandboxAdapter({ github: githubLive }),
       pullRequest: createLiveGithubPrAdapter({ github: githubLive }),
       ciVerifier: createLiveGithubCiVerifier({ github: githubLive }),
       maxAttempts: 2
