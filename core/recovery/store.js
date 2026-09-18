@@ -20,8 +20,13 @@ function read(file) {
 function write(file, rows) {
   ensure();
   const tmp = `${file}.${process.pid}.tmp`;
-  fs.writeFileSync(tmp, JSON.stringify(rows, null, 2) + "\n");
+  const payload = JSON.stringify(rows, null, 2) + "\n";
+  fs.writeFileSync(tmp, payload, { mode: 0o600 });
+  const fd = fs.openSync(tmp, "r");
+  try { fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
   fs.renameSync(tmp, file);
+  const dirFd = fs.openSync(path.dirname(file), "r");
+  try { fs.fsyncSync(dirFd); } finally { fs.closeSync(dirFd); }
 }
 function safeId(prefix) {
   return `${prefix}_${Date.now().toString(36)}_${crypto.randomBytes(4).toString("hex")}`;
@@ -77,7 +82,16 @@ function updateJob(id, patch) {
 }
 function appendEvent(jobId, type, data = {}) {
   const events = read(EVENT_FILE);
-  const event = { id: safeId("evt"), jobId, type, at: new Date().toISOString(), data: sanitizeEvidence(data) };
+  const prev = events.length ? events[events.length - 1] : null;
+  const event = {
+    id: safeId("evt"), jobId, type, at: new Date().toISOString(),
+    prevHash: prev?.eventHash || null,
+    data: sanitizeEvidence(data)
+  };
+  event.eventHash = crypto.createHash("sha256").update(JSON.stringify({
+    id:event.id, jobId:event.jobId, type:event.type, at:event.at,
+    prevHash:event.prevHash, data:event.data
+  })).digest("hex");
   events.push(event); write(EVENT_FILE, events); return event;
 }
 function listEvents(jobId, limit = 200) {
