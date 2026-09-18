@@ -12,7 +12,7 @@ const agent = require("./github-agent");
 test("workflow_run failure is normalized and queued", () => {
   const payload = {
     action: "completed",
-    repository: { full_name: "smokblack999-a11y/Brand_Samuray-" },
+    repository: { full_name: "repo/repair-loop-test" },
     workflow_run: {
       id: 12345,
       run_attempt: 1,
