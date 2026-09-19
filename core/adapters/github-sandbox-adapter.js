@@ -1,7 +1,5 @@
 "use strict";
 
-const { createGithubPrAdapter } = require("./github-pr-adapter");
-
 function sleep(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
 
 function createGithubSandboxAdapter({
@@ -19,6 +17,11 @@ function createGithubSandboxAdapter({
     if (!branch || !files.length) throw new Error("candidate_branch_and_files_required");
     if (!/^x29\\/[a-z0-9._-]+$/.test(branch)) throw new Error("unsafe_candidate_branch");
     if (!changedFiles.size) throw new Error("candidate_changed_files_required");
+    if (changedFiles.size > 8) throw new Error("candidate_too_many_files");
+    if (Number(candidate?.changed_lines) < 0 || Number(candidate?.changed_lines) > 400) throw new Error("candidate_too_many_lines");
+    for (const path of changedFiles) {
+      if (path === ".env" || path.startsWith(".github/workflows/")) throw new Error("blocked_candidate_path");
+    }
 
     for (const file of files) {
       if (!file?.path || typeof file.content !== "string") throw new Error("invalid_candidate_file");
