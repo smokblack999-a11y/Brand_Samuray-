@@ -91,6 +91,7 @@ async function processJob(job) {
     try {
       const candidate = await generatePatchCandidate({
         repoDir: REPO_DIR,
+        sourceRef: job.sha || BASE_BRANCH,
         failureLogs: job.failureLogs || "",
         diagnosis: job.diagnosis || {},
         fingerprint: job.fingerprint || job.id
