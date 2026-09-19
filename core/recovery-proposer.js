@@ -3,6 +3,9 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const OpenAI = require("openai");
+const { execFile } = require("node:child_process");
+const { promisify } = require("node:util");
+const exec = promisify(execFile);
 const { validateUnifiedDiff, MAX_PATCH_BYTES } = require("./interop/patch-candidate");
 
 const MAX_LOG_BYTES = 12000;
@@ -14,15 +17,22 @@ function extractCandidatePaths(text = "") {
   return [...new Set(matches)].slice(0, MAX_FILES);
 }
 
-function collectSourceContext(repoDir, failureLogs) {
+async function collectSourceContext(repoDir, failureLogs, sourceRef) {
   const parts = []; let used = 0;
   for (const file of extractCandidatePaths(failureLogs)) {
     const full = path.resolve(repoDir, file);
     if (!full.startsWith(repoDir + path.sep)) continue;
     try {
-      const stat = fs.statSync(full);
-      if (!stat.isFile() || stat.size > MAX_SOURCE_BYTES) continue;
-      const chunk = "FILE: " + file + "\\n" + fs.readFileSync(full, "utf8").slice(0, MAX_SOURCE_BYTES);
+      let content;
+      if (sourceRef) {
+        const shown = await exec("git", ["show", sourceRef + ":" + file], { cwd: repoDir, timeout: 15000, maxBuffer: MAX_SOURCE_BYTES + 1024 });
+        content = String(shown.stdout || "");
+      } else {
+        const stat = fs.statSync(full);
+        if (!stat.isFile() || stat.size > MAX_SOURCE_BYTES) continue;
+        content = fs.readFileSync(full, "utf8");
+      }
+      const chunk = "FILE: " + file + "\\n" + content.slice(0, MAX_SOURCE_BYTES);
       const bytes = Buffer.byteLength(chunk, "utf8");
       if (used + bytes > MAX_SOURCE_BYTES) break;
       parts.push(chunk); used += bytes;
@@ -37,7 +47,7 @@ function extractDiff(text) {
   return start < 0 ? "" : value.slice(start).split("```")[0].trim();
 }
 
-async function generatePatchCandidate({ repoDir, failureLogs, diagnosis, fingerprint }) {
+async function generatePatchCandidate({ repoDir, sourceRef, failureLogs, diagnosis, fingerprint }) {
   if (String(process.env.RECOVERY_AI_PROPOSALS || "").toLowerCase() !== "true") return { accepted:false, reason:"AI_PROPOSALS_DISABLED" };
   const apiKey = String(process.env.OPENAI_API_KEY || "").trim();
   if (!apiKey) return { accepted:false, reason:"OPENAI_API_KEY_REQUIRED" };
@@ -45,7 +55,7 @@ async function generatePatchCandidate({ repoDir, failureLogs, diagnosis, fingerp
   if (!model) return { accepted:false, reason:"RECOVERY_AI_MODEL_REQUIRED" };
   const client = new OpenAI({ apiKey });
   const logs = String(failureLogs || "").slice(-MAX_LOG_BYTES);
-  const source = collectSourceContext(repoDir, logs);
+  const source = await collectSourceContext(repoDir, logs, sourceRef);
   const response = await client.responses.create({
     model,
     input: [
