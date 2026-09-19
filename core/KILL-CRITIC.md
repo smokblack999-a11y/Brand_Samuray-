@@ -56,3 +56,12 @@ if (decision.action === "CREATE_PR") {
   // Only now is PR creation allowed.
 }
 ```
+### Recovery worker reproduction gate
+
+Before applying a persisted patch, the worker runs the configured regression command against the original failure SHA in an isolated worktree.
+
+- baseline fails -> the incident is reproducible locally and patch sandboxing may continue;
+- baseline passes -> recovery stops with `BASELINE_DID_NOT_REPRODUCE`;
+- the patch is never evaluated as a successful recovery without a post-patch regression pass.
+
+This separates **reproduction of the incident** from **validation of the proposed fix** and keeps the recovery path fail-closed.
