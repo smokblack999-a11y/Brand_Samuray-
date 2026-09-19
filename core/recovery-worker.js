@@ -84,7 +84,7 @@ async function processJob(job) {
 
   let validation;
   try {
-    validation = validateUnifiedDiff(job.patchProposal.diff);
+    validation = validateUnifiedDiff(candidate.diff);
   } catch (error) {
     update(job.id, { status: "stopped", workerError: `INVALID_PERSISTED_PATCH: ${String(error?.message || error)}` });
     return;
@@ -165,8 +165,27 @@ async function processJob(job) {
       return;
     }
 
+    const promotedProposal = {
+      version: 1,
+      diff: validation.diff,
+      files: validation.files,
+      source: job.patchCandidate ? "sandbox-promoted-candidate" : String(job.patchProposal?.source || "external-proposal"),
+      evidenceOnly: true,
+      reproduction: true,
+      causality: true,
+      requiresSandbox: true,
+      autonomousWrite: false,
+      autonomousMerge: false
+    };
+
     if (!AUTO_CREATE_PR) {
-      update(job.id, { status:"pr_ready", sandbox:{ pass:true, regression, files:validation.files }, critic, diagnosis:{ ...(job.diagnosis || {}), evidence } });
+      update(job.id, {
+        status:"pr_ready",
+        patchProposal: promotedProposal,
+        sandbox:{ pass:true, regression, files:validation.files },
+        critic,
+        diagnosis:{ ...(job.diagnosis || {}), evidence }
+      });
       return;
     }
 
