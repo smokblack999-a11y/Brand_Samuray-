@@ -87,7 +87,7 @@ function createOpenAIRepairCandidateProvider({
     if (candidate.changed_files.some(unsafePath)) return null;
     if (candidate.files.some(file => unsafePath(file.path))) return null;
     if (candidate.changed_files.some(path => path === ".env" || path.startsWith(".github/workflows/"))) return null;
-    if (!/^x29\\/[a-z0-9._-]+$/.test(candidate.branch)) return null;
+    if (!/^x29\/[a-z0-9._-]+$/.test(candidate.branch)) return null;
 
     return candidate;
   };
