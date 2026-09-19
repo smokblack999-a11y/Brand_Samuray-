@@ -74,4 +74,4 @@ async function generatePatchCandidate({ repoDir, sourceRef, failureLogs, diagnos
   return { accepted:true, candidate:{ version:1, diff:validated.diff, files:validated.files, source:"ai-candidate", evidenceOnly:false, reproduction:false, causality:false, autonomousWrite:false, autonomousMerge:false } };
 }
 
-module.exports = { generatePatchCandidate, extractCandidatePaths, collectSourceContext };
+module.exports = { generatePatchCandidate, extractCandidatePaths, collectSourceContext, extractDiff };
