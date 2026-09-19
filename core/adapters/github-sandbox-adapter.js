@@ -15,7 +15,7 @@ function createGithubSandboxAdapter({
     const changedFiles = new Set(Array.isArray(candidate?.changed_files) ? candidate.changed_files : []);
 
     if (!branch || !files.length) throw new Error("candidate_branch_and_files_required");
-    if (!/^x29\\/[a-z0-9._-]+$/.test(branch)) throw new Error("unsafe_candidate_branch");
+    if (!/^x29\/[a-z0-9._-]+$/.test(branch)) throw new Error("unsafe_candidate_branch");
     if (!changedFiles.size) throw new Error("candidate_changed_files_required");
     if (changedFiles.size > 8) throw new Error("candidate_too_many_files");
     if (Number(candidate?.changed_lines) < 0 || Number(candidate?.changed_lines) > 400) throw new Error("candidate_too_many_lines");
