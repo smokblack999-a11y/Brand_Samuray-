@@ -75,7 +75,7 @@ function createRecoveryRouter({ requireRecoveryAuth }) {
         workflow: job.workflow, job: job.runId, step: job.branch, exitCode: 1,
         errorType: diagnosis.errorType, errorMessage: logs.slice(-12000), command: job.sha
       });
-      const result = enqueue({ ...job, fingerprint: fp, diagnosis });
+      const result = enqueue({ ...job, fingerprint: fp, diagnosis, failureLogs: logs.slice(-12000) });
       const critic = decide({
         attempts: result.job.attempts,
         evidence: diagnosis.evidence,
