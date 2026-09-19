@@ -122,7 +122,6 @@ function createRecoveryRouter({ requireRecoveryAuth }) {
       }
 
       const saved = update(current.id, {
-        patchProposal: candidate.candidate,
         patchCandidate: candidate.candidate,
         patch,
         diagnosis: { ...(current.diagnosis || {}), evidence },
