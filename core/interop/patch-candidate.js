@@ -34,4 +34,35 @@ function validateUnifiedDiff(input = "") {
   return { diff, files: [...new Set(files)] };
 }
 
-module.exports = { MAX_PATCH_BYTES, validateUnifiedDiff };
+function buildPatchCandidate(input = {}) {
+  const diff = String(input.diff || "");
+  let validated;
+  try {
+    validated = validateUnifiedDiff(diff);
+  } catch (error) {
+    return { accepted: false, reason: String(error?.message || error) };
+  }
+
+  const suppliedFiles = Array.isArray(input.changedFiles) ? input.changedFiles.filter(Boolean) : [];
+  if (suppliedFiles.length && validated.files.some(file => !suppliedFiles.includes(file))) {
+    return { accepted: false, reason: "PATCH_TOUCHES_UNRELATED_FILE" };
+  }
+
+  return {
+    accepted: true,
+    source: String(input.source || "external-candidate"),
+    candidate: {
+      version: 1,
+      diff: validated.diff,
+      files: validated.files,
+      evidenceOnly: true,
+      reproduction: false,
+      causality: false,
+      requiresSandbox: true,
+      autonomousWrite: false,
+      autonomousMerge: false
+    }
+  };
+}
+
+module.exports = { MAX_PATCH_BYTES, validateUnifiedDiff, buildPatchCandidate };
