@@ -93,6 +93,33 @@ async function processJob(job) {
   try {
     await ensureBaseAvailable(base);
     await git(["worktree", "add", "--detach", worktree, base], REPO_DIR);
+
+    // Reproduce the original CI failure before touching the worktree.
+    // A passing baseline means the incident is not reproducible here, so fail closed.
+    let baselineReproduction = null;
+    try {
+      const result = await runCommand(TEST_COMMAND, worktree);
+      baselineReproduction = {
+        reproduced: false,
+        exitCode: 0,
+        stdout: String(result.stdout || "").slice(-12000),
+        stderr: String(result.stderr || "").slice(-12000)
+      };
+      update(job.id, {
+        status: "stopped",
+        sandbox: { pass:false, stage:"baseline_reproduction", baseline:baselineReproduction },
+        workerError: "BASELINE_DID_NOT_REPRODUCE"
+      });
+      return;
+    } catch (error) {
+      baselineReproduction = {
+        reproduced: true,
+        exitCode: Number.isInteger(error.code) ? error.code : 1,
+        stdout: String(error.stdout || "").slice(-12000),
+        stderr: String(error.stderr || error.message || "").slice(-12000)
+      };
+    }
+
     fs.writeFileSync(patchFile, validation.diff, "utf8");
 
     try {
