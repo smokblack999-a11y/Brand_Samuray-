@@ -4,6 +4,7 @@ const { Router } = require("express");
 const { enqueue, list, update } = require("./recovery-store");
 const { fingerprint, decide } = require("./kill-critic");
 const { buildPatchProposal } = require("./interop/patch-proposal");
+const { buildPatchCandidate } = require("./interop/patch-candidate");
 
 const PATTERNS = [
   { type: "dependency_error", re: /(npm ERR!|module not found|could not resolve|dependency|gradle.*failed|aapt2)/i, weight: 0.30 },
@@ -87,6 +88,50 @@ function createRecoveryRouter({ requireRecoveryAuth }) {
       return res.status(result.created ? 202 : 200).json({ ok:true, accepted:true, created:result.created, job:saved, critic });
     } catch (error) {
       return res.status(500).json({ ok:false, error:{ code:"RECOVERY_ENQUEUE_FAILED", message:error.message } });
+    }
+  });
+
+  router.post("/jobs/:id/candidate", requireRecoveryAuth, (req, res) => {
+    try {
+      const current = list(100).find(x => x.id === req.params.id);
+      if (!current) return res.status(404).json({ ok:false, error:{ code:"RECOVERY_JOB_NOT_FOUND", message:"recovery job not found" } });
+      if (!["ready_for_patch","queued"].includes(current.status)) {
+        return res.status(409).json({ ok:false, error:{ code:"INVALID_RECOVERY_STATE", message:"job is not accepting a patch candidate" } });
+      }
+      if (!isBoundToJob(current, req.body || {})) {
+        return res.status(409).json({ ok:false, error:{ code:"EVIDENCE_BINDING_MISMATCH", message:"candidate evidenceFingerprint must match the persisted job fingerprint" } });
+      }
+
+      const candidate = buildPatchCandidate(req.body || {});
+      if (!candidate.accepted) {
+        return res.status(422).json({ ok:false, error:{ code:"INVALID_PATCH_CANDIDATE", message:candidate.reason } });
+      }
+
+      const changedFiles = candidate.candidate.files;
+      const changedLines = String(candidate.candidate.diff).split(/\r?\n/).filter(line => /^\+[^+]|^-[^-]/.test(line)).length;
+      const deletions = String(candidate.candidate.diff).split(/\r?\n/).filter(line => /^-[^-]/.test(line)).length;
+      const sensitivePaths = changedFiles.filter(p => /(^|\/)(\.github|\.env|package-lock\.json|yarn\.lock|pnpm-lock\.yaml|android\/app\/src\/main\/AndroidManifest\.xml)(\/|$)/i.test(p));
+      const patch = { changedFiles: changedFiles.length, changedLines, deletions, sensitivePaths };
+      const evidence = { ...(current.diagnosis?.evidence || {}), scopeMatch: 1, changedFileMatch: 1, sandboxPass: false, regressionPass: false };
+      const critic = decide({ attempts: current.attempts, evidence, patch });
+
+      if (critic.action !== "SANDBOX") {
+        const status = critic.action === "HUMAN_REVIEW" ? "human_review" : "stopped";
+        const saved = update(current.id, { patchCandidate:candidate.candidate, patch, diagnosis:{ ...(current.diagnosis || {}), evidence }, critic, status });
+        return res.status(202).json({ ok:true, job:saved, critic });
+      }
+
+      const saved = update(current.id, {
+        patchProposal: candidate.candidate,
+        patchCandidate: candidate.candidate,
+        patch,
+        diagnosis: { ...(current.diagnosis || {}), evidence },
+        critic,
+        status: "sandbox_pending"
+      });
+      return res.status(202).json({ ok:true, job:saved, critic });
+    } catch (error) {
+      return res.status(500).json({ ok:false, error:{ code:"PATCH_CANDIDATE_FAILED", message:error.message } });
     }
   });
 
