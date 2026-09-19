@@ -82,7 +82,13 @@ async function cleanup(worktree) {
 async function processJob(job) {
   if (!job.patchProposal?.diff || job.status !== "sandbox_pending") return;
 
-  let validation;\n  try {\n    validation = validateUnifiedDiff(job.patchProposal.diff);\n  } catch (error) {\n    update(job.id, { status: "stopped", workerError: `INVALID_PERSISTED_PATCH: ${String(error?.message || error)}` });\n    return;\n  }
+  let validation;
+  try {
+    validation = validateUnifiedDiff(job.patchProposal.diff);
+  } catch (error) {
+    update(job.id, { status: "stopped", workerError: `INVALID_PERSISTED_PATCH: ${String(error?.message || error)}` });
+    return;
+  }
   if (!validation.files.length) throw new Error("NO_CHANGED_FILES");
 
   const base = job.sha || BASE_BRANCH;
