@@ -8,6 +8,17 @@ const { generateReply, checkOpenAI } = require("./openai");
 const { sendBusinessMessage } = require("./business-bot");
 const { saveLead, claimEvent, updateLead, listLeads, stats } = require("./store");
 const { createRateLimiter } = require("./rate-limit");
+const { createPersistentQueue } = require("./autonomy/persistent-queue");
+const { createWorkflowRunIngress } = require("./github-workflow-run");
+const { createX29QueueWorker } = require("./autonomy/x29-queue-worker");
+const { createX28Adapter } = require("./architect-x28-adapter");
+const { createGithubRestClient } = require("./adapters/github-rest");
+const { createX29Runtime } = require("./x29-runtime");
+const { createHttpRepairCandidateProvider } = require("./adapters/repair-candidate-http");
+const { createOpenAIRepairCandidateProvider } = require("./adapters/openai-repair-candidate");
+const { createLiveGithubPrAdapter } = require("./adapters/github-pr-live-adapter");
+const { createGithubSandboxAdapter } = require("./adapters/github-sandbox-adapter");
+const { createLiveGithubCiVerifier } = require("./adapters/github-live-ci");
 
 const app = express();
 const PORT = Number(process.env.PORT || 8787);
@@ -18,6 +29,16 @@ const CORS_ORIGIN = String(process.env.CORS_ORIGIN || "").trim();
 const REQUEST_TIMEOUT_MS = Math.max(5000, Number(process.env.REQUEST_TIMEOUT_MS || 30000));
 const LEAD_RATE_LIMIT_WINDOW_MS = Math.max(1000, Number(process.env.LEAD_RATE_LIMIT_WINDOW_MS || 60000));
 const LEAD_RATE_LIMIT_MAX = Math.max(1, Number(process.env.LEAD_RATE_LIMIT_MAX || 20));
+const GITHUB_WEBHOOK_SECRET = String(process.env.GITHUB_WEBHOOK_SECRET || "").trim();
+const GITHUB_TOKEN = String(process.env.GITHUB_TOKEN || "").trim();
+const GITHUB_OWNER = String(process.env.GITHUB_OWNER || "").trim();
+const GITHUB_REPO = String(process.env.GITHUB_REPO || "").trim();
+const REPAIR_CANDIDATE_URL = String(process.env.REPAIR_CANDIDATE_URL || "").trim();
+const REPAIR_CONTEXT_PATHS = String(process.env.REPAIR_CONTEXT_PATHS || "").split(",").map(value => value.trim()).filter(Boolean);
+const githubLive = GITHUB_TOKEN && GITHUB_OWNER && GITHUB_REPO
+  ? createGithubRestClient({ token: GITHUB_TOKEN, owner: GITHUB_OWNER, repo: GITHUB_REPO })
+  : null;
+const REPAIR_QUEUE_FILE = String(process.env.REPAIR_QUEUE_FILE || "./data/repair-queue.json").trim();
 
 if (process.env.NODE_ENV === "production") {
   const missing = [];
@@ -29,7 +50,7 @@ if (process.env.NODE_ENV === "production") {
 app.disable("x-powered-by");
 app.set("trust proxy", process.env.TRUST_PROXY === "true" ? 1 : false);
 app.use(cors(CORS_ORIGIN ? { origin: CORS_ORIGIN } : { origin: false }));
-app.use(express.json({ limit: "256kb" }));
+app.use(express.json({ limit: "256kb", verify: (req, _res, buf) => { req.rawBody = Buffer.from(buf); } }));
 
 function errorBody(code, message, requestId) {
   return { ok: false, error: { code, message, requestId } };
@@ -67,6 +88,92 @@ app.use((req, res, next) => {
 });
 
 const leadRateLimit = createRateLimiter({ windowMs: LEAD_RATE_LIMIT_WINDOW_MS, max: LEAD_RATE_LIMIT_MAX });
+const repairQueue = createPersistentQueue(REPAIR_QUEUE_FILE);
+const x28Adapter = createX28Adapter({
+  existingJobKeys: new Set(),
+  policy: { maxAttempts: 2, maxChangedFiles: 8, maxChangedLines: 400, blockedPaths: [".env"] }
+});
+const candidateProvider = REPAIR_CANDIDATE_URL
+  ? createHttpRepairCandidateProvider({ url: REPAIR_CANDIDATE_URL })
+  : process.env.OPENAI_API_KEY
+    ? createOpenAIRepairCandidateProvider()
+    : null;
+
+const x29Runtime = githubLive && candidateProvider
+  ? createX29Runtime({
+      queue: repairQueue,
+      x28Adapter,
+      candidateProvider,
+      sandbox: createGithubSandboxAdapter({ github: githubLive }),
+      pullRequest: createLiveGithubPrAdapter({ github: githubLive }),
+      ciVerifier: createLiveGithubCiVerifier({ github: githubLive }),
+      maxAttempts: 2
+    })
+  : null;
+
+let repairWorkerBusy = false;
+let repairWorkerTimer = null;
+const repairWorker = GITHUB_WEBHOOK_SECRET
+  ? createX29QueueWorker({
+      queue: repairQueue,
+      handler: async item => {
+        const workflowRun = item.workflow_run || item.eventPayload || item;
+        const contextRef = workflowRun?.head_branch || workflowRun?.repository?.default_branch || "main";
+        const sourceContext = githubLive && REPAIR_CONTEXT_PATHS.length
+          ? (await Promise.all(REPAIR_CONTEXT_PATHS.map(async path => {
+              try { return await githubLive.getFile({ path, ref: contextRef }); }
+              catch (error) { return { path, error: error.message }; }
+            }))).filter(Boolean)
+          : [];
+        const mission = {
+          id: item.id,
+          type: "ci-repair",
+          input: { workflowRun, sourceContext }
+        };
+        if (!x29Runtime) {
+          return {
+            status: "escalated",
+            reason: githubLive ? "REPAIR_CANDIDATE_URL_NOT_CONFIGURED" : "GITHUB_LIVE_ADAPTER_NOT_CONFIGURED"
+          };
+        }
+        return x29Runtime.run(mission);
+      },
+      maxAttempts: 2
+    })
+  : null;
+async function processRepairQueue() {
+  if (!repairWorker || repairWorkerBusy) return;
+  repairWorkerBusy = true;
+  try { await repairWorker.processOnce(); }
+  catch (error) { console.error(JSON.stringify({ event: "x29_worker_failed", error: error.message })); }
+  finally {
+    repairWorkerBusy = false;
+    repairWorkerTimer = setTimeout(processRepairQueue, 250);
+    repairWorkerTimer.unref?.();
+  }
+}
+
+if (repairWorker) processRepairQueue();
+
+const githubIngress = GITHUB_WEBHOOK_SECRET
+  ? createWorkflowRunIngress({ queue: repairQueue, secret: GITHUB_WEBHOOK_SECRET })
+  : null;
+
+app.post("/api/github/webhook", async (req, res) => {
+  if (!githubIngress) return res.status(503).json(errorBody("GITHUB_WEBHOOK_NOT_CONFIGURED", "GitHub webhook is not configured", req.requestId));
+  const rawBody = Buffer.isBuffer(req.rawBody) ? req.rawBody : Buffer.from(JSON.stringify(req.body || {}));
+  const payload = req.body;
+
+  const result = githubIngress.accept({
+    rawBody,
+    signature: req.get("X-Hub-Signature-256"),
+    eventName: req.get("X-GitHub-Event"),
+    payload
+  });
+  if (!result.accepted) return res.status(401).json(errorBody("INVALID_GITHUB_WEBHOOK", result.reason, req.requestId));
+  if (result.queued) processRepairQueue();
+  return res.status(202).json({ ok: true, accepted: true, result, requestId: req.requestId });
+});
 
 app.get("/health", (_req, res) => res.json({ ok: true, service: "SamuraiOS Core", version: "2.7.0" }));
 app.get("/ready", (req, res) => {
@@ -162,6 +269,7 @@ server.headersTimeout = REQUEST_TIMEOUT_MS + 5000;
 
 function shutdown(signal) {
   console.log(JSON.stringify({ event: "shutdown", signal }));
+  if (repairWorkerTimer) clearTimeout(repairWorkerTimer);
   server.close(() => process.exit(0));
   setTimeout(() => process.exit(1), 10000).unref();
 }
