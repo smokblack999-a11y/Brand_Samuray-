@@ -65,3 +65,15 @@ Before applying a persisted patch, the worker runs the configured regression com
 - the patch is never evaluated as a successful recovery without a post-patch regression pass.
 
 This separates **reproduction of the incident** from **validation of the proposed fix** and keeps the recovery path fail-closed.
+
+### AI patch candidate
+
+AI generation is optional and fail-closed:
+
+- RECOVERY_AI_PROPOSALS must be explicitly true.
+- OPENAI_API_KEY and RECOVERY_AI_MODEL are required when enabled.
+- The model receives failure logs plus bounded source context; it does not receive authority to write or merge.
+- The output is parsed as an untrusted unified-diff candidate and validated before sandboxing.
+- The candidate starts with reproduction:false and causality:false.
+- Only independent baseline reproduction + post-patch regression can promote it to a PR-ready proposal.
+- AI failure, malformed diff, missing evidence, or failed verification stops the recovery path.
