@@ -87,6 +87,7 @@ async function processJob(job) {
   // A candidate becomes sandboxable only after the router's deterministic
   // evidence/risk gate. The worker treats candidate/proposal as untrusted input.
   let persistedPatch = job.patchProposal || job.patchCandidate;
+  await ensureBaseAvailable(job.sha || BASE_BRANCH);
   if (!persistedPatch?.diff && AI_PROPOSALS) {
     try {
       const candidate = await generatePatchCandidate({
