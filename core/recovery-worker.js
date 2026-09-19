@@ -80,11 +80,16 @@ async function cleanup(worktree) {
 }
 
 async function processJob(job) {
-  if (!job.patchProposal?.diff || job.status !== "sandbox_pending") return;
+  if (job.status !== "sandbox_pending") return;
+
+  // A candidate becomes sandboxable only after the router's deterministic
+  // evidence/risk gate. The worker treats candidate/proposal as untrusted input.
+  const persistedPatch = job.patchProposal || job.patchCandidate;
+  if (!persistedPatch?.diff) return;
 
   let validation;
   try {
-    validation = validateUnifiedDiff(candidate.diff);
+    validation = validateUnifiedDiff(persistedPatch.diff);
   } catch (error) {
     update(job.id, { status: "stopped", workerError: `INVALID_PERSISTED_PATCH: ${String(error?.message || error)}` });
     return;
