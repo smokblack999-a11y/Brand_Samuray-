@@ -8,6 +8,7 @@ const { promisify } = require("node:util");
 const { list, update } = require("./recovery-store");
 const { decide } = require("./kill-critic");
 const { validateUnifiedDiff } = require("./interop/patch-candidate");
+const { generatePatchCandidate } = require("./recovery-proposer");
 
 const exec = promisify(execFile);
 const POLL_MS = Math.max(1000, Number(process.env.RECOVERY_POLL_MS || 5000));
@@ -15,6 +16,7 @@ const REPO_DIR = path.resolve(process.env.RECOVERY_REPO_DIR || path.join(__dirna
 const TEST_COMMAND = parseCommand(process.env.RECOVERY_TEST_COMMAND, ["npm", "test", "--prefix", "core"]);
 const AUTO_CREATE_PR = String(process.env.RECOVERY_AUTO_CREATE_PR || "").toLowerCase() === "true";
 const BASE_BRANCH = String(process.env.RECOVERY_BASE_BRANCH || "main");
+const AI_PROPOSALS = String(process.env.RECOVERY_AI_PROPOSALS || "").toLowerCase() === "true";
 const GITHUB_TOKEN = String(process.env.GITHUB_TOKEN || process.env.GH_TOKEN || "");
 
 function parseCommand(value, fallback) {
@@ -84,7 +86,40 @@ async function processJob(job) {
 
   // A candidate becomes sandboxable only after the router's deterministic
   // evidence/risk gate. The worker treats candidate/proposal as untrusted input.
-  const persistedPatch = job.patchProposal || job.patchCandidate;
+  let persistedPatch = job.patchProposal || job.patchCandidate;
+  if (!persistedPatch?.diff && AI_PROPOSALS) {
+    try {
+      const candidate = await generatePatchCandidate({
+        repoDir: REPO_DIR,
+        failureLogs: job.failureLogs || "",
+        diagnosis: job.diagnosis || {},
+        fingerprint: job.fingerprint || job.id
+      });
+      if (candidate.accepted) {
+        const files = candidate.candidate.files;
+        const diff = candidate.candidate.diff;
+        const changedLines = String(diff).split(/\\r?\\n/).filter(line => /^\\+[^+]|^-[^-]/.test(line)).length;
+        const deletions = String(diff).split(/\\r?\\n/).filter(line => /^-[^-]/.test(line)).length;
+        const sensitivePaths = files.filter(p => /(^|\\/)(\\.github|\\.env|package-lock\\.json|yarn\\.lock|pnpm-lock\\.yaml|android\\/app\\/src\\/main\\/AndroidManifest\\.xml)(\\/|$)/i.test(p));
+        const patch = { changedFiles: files.length, changedLines, deletions, sensitivePaths };
+        const evidence = { ...(job.diagnosis?.evidence || {}), scopeMatch: 1, changedFileMatch: 1, sandboxPass: false, regressionPass: false };
+        const critic = decide({ attempts: job.attempts, evidence, patch });
+        if (critic.action !== "SANDBOX") {
+          update(job.id, { status: critic.action === "HUMAN_REVIEW" ? "human_review" : "stopped", patchCandidate:candidate.candidate, patch, critic, workerError:"AI_CANDIDATE_REJECTED_BY_KILL_CRITIC" });
+          return;
+        }
+        update(job.id, { status:"sandbox_pending", patchCandidate:candidate.candidate, patch, critic, diagnosis:{ ...(job.diagnosis || {}), evidence } });
+        persistedPatch = candidate.candidate;
+        job = { ...job, status:"sandbox_pending", patchCandidate:candidate.candidate, patch, critic, diagnosis:{ ...(job.diagnosis || {}), evidence } };
+      } else {
+        update(job.id, { status:"stopped", workerError:"AI_CANDIDATE_NOT_ACCEPTED: " + candidate.reason });
+        return;
+      }
+    } catch (error) {
+      update(job.id, { status:"stopped", workerError:"AI_CANDIDATE_GENERATION_FAILED: " + String(error?.message || error) });
+      return;
+    }
+  }
   if (!persistedPatch?.diff) return;
 
   let validation;
