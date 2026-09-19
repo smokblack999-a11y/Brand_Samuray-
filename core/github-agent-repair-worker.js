@@ -56,6 +56,13 @@ async function processRepair({ repoDir = process.env.GITHUB_AGENT_REPO_DIR } = {
   }
 }
 
+
+async function processNextStage(options = {}) {
+  const repair = await processRepair(options);
+  if (!repair.processed) return repair;
+  return repair;
+}
+
 if (require.main === module) {
   processRepair()
     .then(result => {
@@ -68,4 +75,4 @@ if (require.main === module) {
     });
 }
 
-module.exports = { processRepair, nextDiagnosed };
+module.exports = { processRepair, processNextStage, nextDiagnosed };
