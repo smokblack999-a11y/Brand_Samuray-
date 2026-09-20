@@ -1,0 +1,39 @@
+name: INCY Free MVP CI
+
+on:
+  push:
+    branches: [ "main", "feature/incy-free-mvp" ]
+    paths:
+      - "config/incy/**"
+      - "scripts/validate-incy.js"
+      - ".github/workflows/incy-free.yml"
+  pull_request:
+    paths:
+      - "config/incy/**"
+      - "scripts/validate-incy.js"
+      - ".github/workflows/incy-free.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Validate INCY profile and subscription
+        run: node scripts/validate-incy.js
+      - name: Scan INCY files for obvious secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          if grep -RInE 'sk-(proj|svcacct)-[A-Za-z0-9_-]{20,}|BEGIN [A-Z ]+ PRIVATE KEY' config/incy; then
+            echo "Potential secret found in INCY files"
+            exit 1
+          fi
+          echo "INCY secret scan: PASS"
