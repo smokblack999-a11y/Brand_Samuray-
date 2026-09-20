@@ -2,16 +2,16 @@ name: X10THINK Recovery Enqueue
 
 on:
   workflow_run:
-    workflows: ["SamuraiOS Core CI", "SamuraiOS Core X22 CI"]
+    workflows: ["SamuraiOS Core CI", "SamuraiOS Core X22 CI", "Build SamuraiOS APK"]
     types: [completed]
 
 permissions:
+  actions: read
   contents: read
 
 jobs:
   route:
     if: >-
-      github.event.workflow_run.conclusion == 'success' ||
       github.event.workflow_run.conclusion == 'failure' ||
       github.event.workflow_run.conclusion == 'timed_out' ||
       github.event.workflow_run.conclusion == 'cancelled' ||
@@ -28,23 +28,36 @@ jobs:
           test -n "${RECOVERY_URL:-}" || { echo "X10THINK_RECOVERY_URL is not configured"; exit 1; }
           test -n "${RECOVERY_API_KEY:-}" || { echo "X10THINK_RECOVERY_API_KEY is not configured"; exit 1; }
 
+      - name: Collect failed job logs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          set -euo pipefail
+          : > /tmp/failure-logs.txt
+          jobs="$(gh api "repos/${REPOSITORY}/actions/runs/${RUN_ID}/jobs?per_page=100" --jq '.jobs[] | select(.conclusion != "success") | .id')"
+          for job in $jobs; do
+            echo "===== JOB $job =====" >> /tmp/failure-logs.txt
+            gh api "repos/${REPOSITORY}/actions/jobs/${job}/logs" >> /tmp/failure-logs.txt 2>/dev/null || true
+            echo >> /tmp/failure-logs.txt
+          done
+          head -c 120000 /tmp/failure-logs.txt > /tmp/failure-logs-limited.txt
+
       - name: Route workflow result
         env:
           RECOVERY_URL: ${{ secrets.X10THINK_RECOVERY_URL }}
           RECOVERY_API_KEY: ${{ secrets.X10THINK_RECOVERY_API_KEY }}
-          PAYLOAD: ${{ toJSON(github.event) }}
-          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          EVENT_JSON: ${{ toJSON(github.event) }}
         run: |
           set -euo pipefail
-          endpoint="${RECOVERY_URL}/api/recovery/github"
-          if [[ "${HEAD_BRANCH}" == x10think/recovery-* ]]; then
-            endpoint="${RECOVERY_URL}/api/recovery/ci"
-          fi
-          code="$(curl -sS -o /tmp/recovery.json -w '%{http_code}' \
-            --connect-timeout 5 --max-time 20 \
-            -X POST "${endpoint}" \
-            -H "Content-Type: application/json" \
-            -H "X-API-Key: ${RECOVERY_API_KEY}" \
-            --data "${PAYLOAD}")"
-          cat /tmp/recovery.json
-          test "${code}" -ge 200 -a "${code}" -lt 300
+          python3 - <<'PY'
+          import json, os
+          event = json.loads(os.environ["EVENT_JSON"])
+          with open("/tmp/failure-logs-limited.txt", "r", encoding="utf-8", errors="replace") as f:
+              logs = f.read()
+          event["failure_logs"] = logs
+          with open("/tmp/recovery-payload.json", "w", encoding="utf-8") as f:
+              json.dump(event, f)
+          PY
+          curl -fsS --connect-timeout 5 --max-time 20             -X POST "${RECOVERY_URL}/api/recovery/github"             -H "Content-Type: application/json"             -H "X-API-Key: ${RECOVERY_API_KEY}"             --data-binary @/tmp/recovery-payload.json
