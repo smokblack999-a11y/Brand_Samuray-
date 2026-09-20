@@ -30,12 +30,12 @@ permissions:
   id-token: write
 
 env:
-  SOURCE_REPO: \${{ vars.X10THINC_SOURCE_REPO || github.repository }}
-  REGISTRY: \${{ vars.X10THINC_REGISTRY || 'ghcr.io' }}
-  IMAGE_REPO: \${{ vars.X10THINC_IMAGE || format('{0}/samurayos-core', github.repository_owner) }}
-  BUILD_CONTEXT: \${{ vars.X10THINC_BUILD_CONTEXT || 'core' }}
-  DOCKERFILE: \${{ vars.X10THINC_DOCKERFILE || 'core/Dockerfile' }}
-  ATTEST: \${{ vars.X10THINC_ATTEST || 'true' }}
+  SOURCE_REPO: ${ vars.X10THINC_SOURCE_REPO || github.repository }
+  REGISTRY: ${ vars.X10THINC_REGISTRY || 'ghcr.io' }
+  IMAGE_REPO: ${ vars.X10THINC_IMAGE || format('{0}/samurayos-core', github.repository_owner) }
+  BUILD_CONTEXT: ${ vars.X10THINC_BUILD_CONTEXT || 'core' }
+  DOCKERFILE: ${ vars.X10THINC_DOCKERFILE || 'core/Dockerfile' }
+  ATTEST: ${ vars.X10THINC_ATTEST || 'true' }
 
 jobs:
   relay:
@@ -46,36 +46,36 @@ jobs:
         id: config
         shell: bash
         env:
-          INPUT_SOURCE_REPO: \${{ inputs.source_repo }}
-          INPUT_SOURCE_REF: \${{ inputs.source_ref }}
-          GH_TOKEN: \${{ secrets.X10THINC_UPSTREAM_TOKEN || github.token }}
+          INPUT_SOURCE_REPO: ${ inputs.source_repo }
+          INPUT_SOURCE_REF: ${ inputs.source_ref }
+          GH_TOKEN: ${ secrets.X10THINC_UPSTREAM_TOKEN || github.token }
         run: |
           set -euo pipefail
 
-          source_repo="\${INPUT_SOURCE_REPO:-$SOURCE_REPO}"
+          source_repo="${INPUT_SOURCE_REPO:-$SOURCE_REPO}"
           [[ "$source_repo" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || {
             echo "::error::Invalid source repository: $source_repo"
             exit 1
           }
 
-          registry="\${REGISTRY,,}"
+          registry="${REGISTRY,,}"
           [[ "$registry" =~ ^[a-z0-9.-]+(:[0-9]+)?$ ]] || {
             echo "::error::Invalid registry: $registry"
             exit 1
           }
 
-          image_repo="\${IMAGE_REPO,,}"
+          image_repo="${IMAGE_REPO,,}"
           [[ "$image_repo" =~ ^[a-z0-9._/-]+$ ]] || {
             echo "::error::Invalid image repository: $image_repo"
             exit 1
           }
 
           source_ref="$INPUT_SOURCE_REF"
-          default_branch="\$(gh api "repos/$source_repo" --jq '.default_branch')"
+          default_branch="${gh api "repos/$source_repo" --jq '.default_branch'}"
 
           if [[ -z "$source_ref" ]]; then
-            source_ref="\$(gh api "repos/$source_repo/releases/latest" --jq '.tag_name' 2>/dev/null || true)"
-            source_ref="\${source_ref:-$default_branch}"
+            source_ref="${gh api "repos/$source_repo/releases/latest" --jq '.tag_name' 2>/dev/null || true}"
+            source_ref="${source_ref:-$default_branch}"
           fi
 
           [[ "$source_ref" =~ ^[A-Za-z0-9._/-]+$ ]] || {
@@ -83,7 +83,7 @@ jobs:
             exit 1
           }
 
-          safe_ref="\$(printf '%s' "$source_ref" | tr '/' '-' | tr -cd 'A-Za-z0-9._-')"
+          safe_ref="${printf '%s' "$source_ref" | tr '/' '-' | tr -cd 'A-Za-z0-9._-'}"
 
           {
             echo "source_repo=$source_repo"
@@ -97,9 +97,9 @@ jobs:
       - name: Checkout source
         uses: actions/checkout@v4
         with:
-          repository: \${{ steps.config.outputs.source_repo }}
-          ref: \${{ steps.config.outputs.source_ref }}
-          token: \${{ secrets.X10THINC_UPSTREAM_TOKEN || github.token }}
+          repository: ${ steps.config.outputs.source_repo }
+          ref: ${ steps.config.outputs.source_ref }
+          token: ${ secrets.X10THINC_UPSTREAM_TOKEN || github.token }
           fetch-depth: 0
           path: source
 
@@ -109,7 +109,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          sha="\$(git rev-parse HEAD)"
+          sha="${git rev-parse HEAD}"
           printf 'source_sha=%s\n' "$sha" >> "$GITHUB_OUTPUT"
           echo "Source SHA: $sha"
 
@@ -121,7 +121,7 @@ jobs:
           scripts/x10thinc-kill-critic.sh source "$BUILD_CONTEXT" "$DOCKERFILE"
 
       - name: Set up Node 22
-        if: hashFiles('source/**/package-lock.json') != ''
+        if: hashFiles('source/core/package-lock.json') != ''
         uses: actions/setup-node@v4
         with:
           node-version: "22"
@@ -145,41 +145,41 @@ jobs:
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
-          username: \${{ github.actor }}
-          password: \${{ github.token }}
+          username: ${ github.actor }
+          password: ${ github.token }
 
       - name: Validate external registry credentials
         if: steps.config.outputs.registry != 'ghcr.io'
         shell: bash
         env:
-          REGISTRY_USER: \${{ secrets.X10THINC_REGISTRY_USERNAME }}
-          REGISTRY_PASSWORD: \${{ secrets.X10THINC_REGISTRY_PASSWORD }}
+          REGISTRY_USER: ${ secrets.X10THINC_REGISTRY_USERNAME }
+          REGISTRY_PASSWORD: ${ secrets.X10THINC_REGISTRY_PASSWORD }
         run: |
           set -euo pipefail
-          test -n "\${REGISTRY_USER:-}" || { echo "::error::X10THINC_REGISTRY_USERNAME is required"; exit 1; }
-          test -n "\${REGISTRY_PASSWORD:-}" || { echo "::error::X10THINC_REGISTRY_PASSWORD is required"; exit 1; }
+          test -n "${REGISTRY_USER:-}" || { echo "::error::X10THINC_REGISTRY_USERNAME is required"; exit 1; }
+          test -n "${REGISTRY_PASSWORD:-}" || { echo "::error::X10THINC_REGISTRY_PASSWORD is required"; exit 1; }
 
       - name: Authenticate to external registry
         if: steps.config.outputs.registry != 'ghcr.io'
         uses: docker/login-action@v3
         with:
-          registry: \${{ steps.config.outputs.registry }}
-          username: \${{ secrets.X10THINC_REGISTRY_USERNAME }}
-          password: \${{ secrets.X10THINC_REGISTRY_PASSWORD }}
+          registry: ${ steps.config.outputs.registry }
+          username: ${ secrets.X10THINC_REGISTRY_USERNAME }
+          password: ${ secrets.X10THINC_REGISTRY_PASSWORD }
 
       - name: Detect content-addressed cache hit
         id: cachehit
         shell: bash
         env:
-          IMAGE: \${{ steps.config.outputs.image }}
-          SOURCE_SHA: \${{ steps.source.outputs.source_sha }}
-          FORCE_REBUILD: \${{ inputs.force }}
+          IMAGE: ${ steps.config.outputs.image }
+          SOURCE_SHA: ${ steps.source.outputs.source_sha }
+          FORCE_REBUILD: ${ inputs.force }
         run: |
           set -euo pipefail
-          tag="sha-\${SOURCE_SHA}"
+          tag="sha-${SOURCE_SHA}"
           if [[ "$FORCE_REBUILD" != "true" ]] && docker manifest inspect "$IMAGE:$tag" >/dev/null 2>&1; then
-            digest="\$(docker buildx imagetools inspect "$IMAGE:$tag" 2>/dev/null | awk '/^Digest:/ {print $2; exit}')"
-            test -n "\${digest:-}" || { echo "::error::Cache tag exists but its digest could not be resolved"; exit 1; }
+            digest="${docker buildx imagetools inspect "$IMAGE:$tag" 2>/dev/null | awk '/^Digest:/ {print $2; exit}'}"
+            test -n "${digest:-}" || { echo "::error::Cache tag exists but its digest could not be resolved"; exit 1; }
             {
               echo "hit=true"
               echo "digest=$digest"
@@ -195,17 +195,16 @@ jobs:
         if: steps.cachehit.outputs.hit != 'true'
         uses: docker/build-push-action@v6
         with:
-          context: source/\${{ env.BUILD_CONTEXT }}
-          file: source/\${{ env.DOCKERFILE }}
+          context: source/${ env.BUILD_CONTEXT }
+          file: source/${ env.DOCKERFILE }
           push: true
           tags: |
-            \${{ steps.config.outputs.image }}:sha-\${{ steps.source.outputs.source_sha }}
-            \${{ steps.config.outputs.image }}:\${{ steps.config.outputs.safe_ref }}
-            \${{ steps.config.outputs.source_ref == steps.config.outputs.default_branch && format('{0}:latest', steps.config.outputs.image) || '' }}
+            ${ steps.config.outputs.image }:sha-${ steps.source.outputs.source_sha }
+            ${ steps.config.outputs.image }:${ steps.config.outputs.safe_ref }
           labels: |
-            org.opencontainers.image.source=https://github.com/\${{ steps.config.outputs.source_repo }}
-            org.opencontainers.image.revision=\${{ steps.source.outputs.source_sha }}
-            org.opencontainers.image.version=\${{ steps.config.outputs.safe_ref }}
+            org.opencontainers.image.source=https://github.com/${ steps.config.outputs.source_repo }
+            org.opencontainers.image.revision=${ steps.source.outputs.source_sha }
+            org.opencontainers.image.version=${ steps.config.outputs.safe_ref }
           cache-from: type=gha,scope=x10thinc-relay
           cache-to: type=gha,mode=max,scope=x10thinc-relay
           provenance: mode=max
@@ -215,17 +214,16 @@ jobs:
         id: digest
         shell: bash
         env:
-          CACHE_HIT: \${{ steps.cachehit.outputs.hit }}
-          CACHE_DIGEST: \${{ steps.cachehit.outputs.digest }}
-          BUILD_DIGEST: \${{ steps.build.outputs.digest }}
+          CACHE_HIT: ${ steps.cachehit.outputs.hit }
+          CACHE_DIGEST: ${ steps.cachehit.outputs.digest }
+          BUILD_DIGEST: ${ steps.build.outputs.digest }
         run: |
           set -euo pipefail
-          if [[ "\${CACHE_HIT:-false}" == "true" ]]; then
+          if [[ "${CACHE_HIT:-false}" == "true" ]]; then
             digest="$CACHE_DIGEST"
           else
             digest="$BUILD_DIGEST"
           fi
-          printf '%s' "$digest" > /tmp/digest.txt
           [[ "$digest" =~ ^sha256:[a-f0-9]{64}$ ]] || {
             echo "::error::Invalid OCI digest: $digest"
             exit 1
@@ -237,20 +235,20 @@ jobs:
         if: env.ATTEST == 'true'
         uses: actions/attest@v4
         with:
-          subject-name: \${{ steps.config.outputs.image }}
-          subject-digest: \${{ steps.digest.outputs.digest }}
+          subject-name: ${ steps.config.outputs.image }
+          subject-digest: ${ steps.digest.outputs.digest }
           push-to-registry: true
 
       - name: Create X10THINC release manifest
         shell: bash
         env:
-          SOURCE_REPO: \${{ steps.config.outputs.source_repo }}
-          SOURCE_REF: \${{ steps.config.outputs.source_ref }}
-          SOURCE_SHA: \${{ steps.source.outputs.source_sha }}
-          IMAGE: \${{ steps.config.outputs.image }}
-          DIGEST: \${{ steps.digest.outputs.digest }}
-          RUN_ID: \${{ github.run_id }}
-          WORKFLOW_SHA: \${{ github.sha }}
+          SOURCE_REPO: ${ steps.config.outputs.source_repo }
+          SOURCE_REF: ${ steps.config.outputs.source_ref }
+          SOURCE_SHA: ${ steps.source.outputs.source_sha }
+          IMAGE: ${ steps.config.outputs.image }
+          DIGEST: ${ steps.digest.outputs.digest }
+          RUN_ID: ${ github.run_id }
+          WORKFLOW_SHA: ${ github.sha }
         run: |
           set -euo pipefail
           mkdir -p relay-manifest
