@@ -4,6 +4,28 @@ SamuraiOS Core превращает входящие Telegram Business сооб�
 
 `business_message → lead score → AI reply → human approval / auto-reply`
 
+## Что это за репозиторий
+
+Это **единый рабочий репозиторий** для SamuraiOS / X10THINC / NEXUS. GitHub здесь используется как источник кода, CI-проверок и контролируемых изменений.
+
+### Главная линия
+
+- `main` — только код, который считается текущей рабочей линией.
+- Pull Request — место для проверки новых функций перед попаданием в `main`.
+- Draft PR — незавершённая разработка; не считать готовым продуктом.
+- Старые эксперименты и E2E-пробы не должны смешиваться с production-потоком.
+
+### Слои проекта
+
+| Слой | Роль |
+|---|---|
+| **SamuraiOS Core** | Telegram Business, лиды, AI-ответы, API |
+| **X10THINC** | reasoning/control layer и доказательная логика |
+| **NEXUS** | orchestration / recovery runtime |
+| **Kill Critic** | deterministic safety/evidence gate |
+| **GitHub Actions** | CI, Android build, recovery routing и проверки |
+| **Android** | сборка SamuraiOS APK |
+
 ## Что уже есть
 
 - Telegram Business webhook endpoint: `POST /api/telegram/webhook`
@@ -21,6 +43,35 @@ SamuraiOS Core превращает входящие Telegram Business сооб�
 - Smoke и E2E-подобные тесты для API, auth и Telegram webhook
 
 Telegram Bot API поддерживает `business_connection` и `business_message`; connected Business Bots могут обрабатывать сообщения бизнеса и отвечать от его имени. urlTelegram Bot APIhttps://core.telegram.org/bots/api
+
+## CI / automation
+
+Основные workflows:
+
+- `.github/workflows/core.yml` — Core tests + Docker build + OpenAI smoke
+- `.github/workflows/core-x22.yml` — отдельный X22 CI-контур
+- `.github/workflows/android.yml` — Android APK build
+- `.github/workflows/x10think-recovery.yml` — X10THINK recovery enqueue
+- `.github/workflows/nexus-recovery-router.yml` — NEXUS workflow router
+- `.github/workflows/openai-secret-check.yml` — ручная/пуш-проверка OpenAI authentication
+
+Экспериментальный X20 failure-probe workflow удалён из `main`: он был предназначен только для искусственного падения CI.
+
+## X10THINC Artifact Relay
+
+Новая X10THINC-функция разрабатывается отдельно в PR, а не напрямую в `main`.
+
+Цепочка:
+
+`source SHA → Kill Critic → tests → Docker artifact → SBOM/provenance → immutable digest → registry → release manifest`
+
+Главное правило: один исходный SHA должен однозначно связываться с проверенным артефактом. Повторная сборка может использовать content-addressed cache.
+
+## Безопасность
+
+Ключи и секреты не коммитить. Использовать GitHub Secrets или переменные окружения.
+
+Kill Critic является **fail-closed базовым защитным gate**, а не полной системой аудита безопасности. Перед production-использованием нужны дополнительные проверки secret scanning, dependency/security scanning и реальные CI-доказательства.
 
 ## Быстрый запуск
 
@@ -44,17 +95,15 @@ BUSINESS_NAME=My Business
 AUTO_REPLY=false
 ```
 
-Для webhook нужен публичный HTTPS endpoint. После запуска зарегистрировать webhook:
+Для webhook нужен публичный HTTPS endpoint:
 
 ```bash
 npm run set-webhook
 ```
 
-Ключи и секреты не коммитить. Использовать GitHub/VPS secrets или переменные окружения.
-
 ## MVP commercial gate
 
-Не расширять продукт, пока не проверены реальные сообщения минимум одного пилотного бизнеса. Критерии:
+Не расширять продукт, пока не проверены реальные сообщения минимум одного пилотного бизнеса.
 
 1. Telegram Business Bot получает реальные сообщения.
 2. SamuraiOS корректно определяет лидов.
