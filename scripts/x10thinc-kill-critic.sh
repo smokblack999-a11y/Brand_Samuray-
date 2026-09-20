@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SOURCE_ROOT="\${1:-source}"
-BUILD_CONTEXT="\${2:-core}"
-DOCKERFILE="\${3:-core/Dockerfile}"
+SOURCE_ROOT="${1:-source}"
+BUILD_CONTEXT="${2:-core}"
+DOCKERFILE="${3:-core/Dockerfile}"
 
 fail() {
   echo "::error::$1"
@@ -18,7 +18,6 @@ if [[ -f "$SOURCE_ROOT/$BUILD_CONTEXT/package.json" ]]; then
   test -f "$SOURCE_ROOT/$BUILD_CONTEXT/package-lock.json" || fail "package-lock.json required for deterministic npm install"
 fi
 
-# Kill-Critic: fail closed on common credential formats.
 if git -C "$SOURCE_ROOT" grep -nE -- \
   ':!*.md' \
   -e 'sk-(proj|svcacct)-[A-Za-z0-9_-]{20,}' \
@@ -30,16 +29,14 @@ if git -C "$SOURCE_ROOT" grep -nE -- \
   fail "Potential credential material detected in source tree"
 fi
 
-# Dockerfile guardrails.
 if grep -nE '^[[:space:]]*(ADD|COPY)[[:space:]]+https?://' "$SOURCE_ROOT/$DOCKERFILE"; then
   fail "Remote Docker ADD/COPY is forbidden"
 fi
 
-if grep -nE '(curl|wget)[^\n|;]*\|[[:space:]]*(sh|bash|zsh)' "$SOURCE_ROOT/$DOCKERFILE"; then
+if grep -nE '(curl|wget)[^|;]*\|[[:space:]]*(sh|bash|zsh)' "$SOURCE_ROOT/$DOCKERFILE"; then
   fail "Pipe-to-shell install pattern is forbidden"
 fi
 
-# SamuraiOS-specific hardening.
 if [[ "$BUILD_CONTEXT" == "core" ]]; then
   grep -qE '^USER[[:space:]]+node[[:space:]]*$' "$SOURCE_ROOT/$DOCKERFILE" || fail "core/Dockerfile must run as non-root user 'node'"
   grep -qE 'npm ci --omit=dev' "$SOURCE_ROOT/$DOCKERFILE" || fail "core/Dockerfile must use npm ci --omit=dev"
