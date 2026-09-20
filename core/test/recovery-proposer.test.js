@@ -2,7 +2,7 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { extractCandidatePaths, extractDiff, generatePatchCandidate } = require("../recovery-proposer");
+const { extractCandidatePaths, extractDiff, generatePatchCandidate, redactSensitive } = require("../recovery-proposer");
 
 test("extracts bounded source paths from failure logs", () => {
   const paths = extractCandidatePaths("at core/server.js:10
@@ -22,4 +22,19 @@ test("AI proposer is fail-closed when disabled", async () => {
   assert.equal(result.reason, "AI_PROPOSALS_DISABLED");
   if (previous === undefined) delete process.env.RECOVERY_AI_PROPOSALS;
   else process.env.RECOVERY_AI_PROPOSALS = previous;
+});
+
+test("redacts common credentials before model submission", () => {
+  const input = [
+    "Authorization: Bearer ghp_exampleSecret123",
+    "OPENAI_API_KEY=sk-1234567890abcdef",
+    "api_key=super-secret-value",
+    "-----BEGIN PRIVATE KEY-----\\nsecret\\n-----END PRIVATE KEY-----"
+  ].join("\\n");
+  const output = redactSensitive(input);
+  assert.doesNotMatch(output, /ghp_exampleSecret123/);
+  assert.doesNotMatch(output, /sk-1234567890abcdef/);
+  assert.doesNotMatch(output, /super-secret-value/);
+  assert.doesNotMatch(output, /secret\\n-----END PRIVATE KEY-----/);
+  assert.match(output, /REDACTED/);
 });
