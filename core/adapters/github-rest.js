@@ -38,6 +38,7 @@ function createGithubRestClient({ token, owner, repo, apiBase = "https://api.git
       return request(`/repos/${owner}/${repo}/actions/runs?${params}`);
     },
     getPullRequest: number => request(`/repos/${owner}/${repo}/pulls/${number}`),
+    compareBranches: ({ base, head }) => request(`/repos/${owner}/${repo}/compare/${encodeURIComponent(base)}...${encodeURIComponent(head)}`),
     createPullRequest: input => request(`/repos/${owner}/${repo}/pulls`, { method: "POST", body: JSON.stringify(input) }),
     createBranch: async ({ branch, from }) => {
       const ref = await request(`/repos/${owner}/${repo}/git/ref/heads/${encodeURIComponent(from)}`);
