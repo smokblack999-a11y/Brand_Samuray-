@@ -102,7 +102,7 @@ async function processJob(job) {
         const diff = candidate.candidate.diff;
         const changedLines = String(diff).split(/\\r?\\n/).filter(line => /^\\+[^+]|^-[^-]/.test(line)).length;
         const deletions = String(diff).split(/\\r?\\n/).filter(line => /^-[^-]/.test(line)).length;
-        const sensitivePaths = files.filter(p => /(^|\\/)(\\.github|\\.env|package-lock\\.json|yarn\\.lock|pnpm-lock\\.yaml|android\\/app\\/src\\/main\\/AndroidManifest\\.xml)(\\/|$)/i.test(p));
+        const sensitivePaths = files.filter(p => /(^|\/)(\.github|\.env|package-lock\.json|yarn\.lock|pnpm-lock\.yaml|android\/app\/src\/main\/AndroidManifest\.xml)(\/|$)/i.test(p));
         const patch = { changedFiles: files.length, changedLines, deletions, sensitivePaths };
         const evidence = { ...(job.diagnosis?.evidence || {}), scopeMatch: 1, changedFileMatch: 1, sandboxPass: false, regressionPass: false };
         const critic = decide({ attempts: job.attempts, evidence, patch });
