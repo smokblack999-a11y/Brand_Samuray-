@@ -1,0 +1,58 @@
+name: NEXUS INCY Config Gate
+
+on:
+  pull_request:
+    paths:
+      - "config/incy/**"
+      - "scripts/validate-incy.js"
+      - ".github/workflows/incy-free.yml"
+      - ".github/workflows/nexus-incy-gate.yml"
+  push:
+    branches: ["main"]
+    paths:
+      - "config/incy/**"
+      - "scripts/validate-incy.js"
+      - ".github/workflows/incy-free.yml"
+      - ".github/workflows/nexus-incy-gate.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  incy-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Validate INCY config
+        run: node scripts/validate-incy.js
+      - name: Kill Critic — reject unsafe config material
+        shell: bash
+        run: |
+          set -euo pipefail
+          files="config/incy/profile.json config/incy/subscription.txt"
+          if grep -Ein '(PRIVATE KEY|BEGIN [A-Z ]+ PRIVATE KEY|sk-(proj|svcacct)-[A-Za-z0-9_-]{20,}|password[[:space:]]*[:=]|secret[[:space:]]*[:=])' $files; then
+            echo "Kill Critic: potential credential material detected"
+            exit 1
+          fi
+          echo "Kill Critic: PASS"
+
+  nexus-contract:
+    needs: incy-gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify NEXUS/INCY contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s config/incy/profile.json
+          test -s config/incy/subscription.txt
+          test -s docs/INCY-FREE-MVP.md
+          grep -q "GitHub -> validated config -> raw file -> INCY" docs/INCY-FREE-MVP.md
+          echo "NEXUS contract: PASS"
