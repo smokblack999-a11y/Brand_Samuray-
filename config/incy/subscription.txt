@@ -1,0 +1,7 @@
+#profile-title: SamuraiOS
+#profile-update-interval: 6
+#profile-web-page-url: https://github.com/smokblack999-a11y/Brand_Samuray-
+
+# Add real provider nodes here. Never commit real UUIDs, private keys, or passwords.
+# Example:
+# vless://UUID@server.example:443?security=tls&type=ws&path=%2F#Example
