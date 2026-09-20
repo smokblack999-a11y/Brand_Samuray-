@@ -93,11 +93,22 @@ const x28Adapter = createX28Adapter({
   existingJobKeys: new Set(),
   policy: { maxAttempts: 2, maxChangedFiles: 8, maxChangedLines: 400, blockedPaths: [".env"] }
 });
-const candidateProvider = REPAIR_CANDIDATE_URL
+const baseCandidateProvider = REPAIR_CANDIDATE_URL
   ? createHttpRepairCandidateProvider({ url: REPAIR_CANDIDATE_URL })
   : process.env.OPENAI_API_KEY
     ? createOpenAIRepairCandidateProvider()
     : null;
+const candidateProvider = baseCandidateProvider
+  ? async context => {
+      const candidate = await baseCandidateProvider(context);
+      if (!candidate) return null;
+      const rawId = String(context?.mission?.id || Date.now()).replace(/[^a-z0-9-]/gi, "-").toLowerCase();
+      return {
+        ...candidate,
+        branch: `x29/repair-${rawId.slice(-48)}`
+      };
+    }
+  : null;
 
 const x29Runtime = githubLive && candidateProvider
   ? createX29Runtime({
