@@ -21,7 +21,7 @@ if (!["AsIs", "IPIfNonMatch", "IPOnDemand"].includes(String(profile.DomainStrate
   throw new Error("INCY DomainStrategy is invalid");
 }
 
-for (const line of subscription.split(/\\r?\\n/)) {
+for (const line of subscription.split(/\r?\n/)) {
   const trimmed = line.trim();
   if (!trimmed || trimmed.startsWith("#")) continue;
   if (!/^[a-z][a-z0-9+.-]*:\\/\\//i.test(trimmed)) {
