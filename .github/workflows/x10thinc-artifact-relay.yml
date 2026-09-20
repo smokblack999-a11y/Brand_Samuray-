@@ -1,0 +1,304 @@
+name: X10THINC Artifact Relay
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_repo:
+        description: "Upstream repository owner/name"
+        required: false
+        default: ""
+      source_ref:
+        description: "Git ref/tag. Empty = latest release, then default branch"
+        required: false
+        default: ""
+      force:
+        description: "Rebuild even when the source SHA image already exists"
+        required: false
+        type: boolean
+        default: false
+  schedule:
+    - cron: "17 */4 * * *"
+  pull_request:
+    paths:
+      - ".github/workflows/x10thinc-artifact-relay.yml"
+      - "scripts/x10thinc-kill-critic.sh"
+      - "X10THINC_ARTIFACT_RELAY.md"
+
+concurrency:
+  group: x10thinc-artifact-relay
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  SOURCE_REPO: ${{ vars.X10THINC_SOURCE_REPO || github.repository }}
+  REGISTRY: ${{ vars.X10THINC_REGISTRY || 'ghcr.io' }}
+  IMAGE_REPO: ${{ vars.X10THINC_IMAGE || format('{0}/samurayos-core', github.repository_owner) }}
+  BUILD_CONTEXT: ${{ vars.X10THINC_BUILD_CONTEXT || 'core' }}
+  DOCKERFILE: ${{ vars.X10THINC_DOCKERFILE || 'core/Dockerfile' }}
+  ATTEST: ${{ vars.X10THINC_ATTEST || 'true' }}
+
+jobs:
+  pull-request-gate:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Validate workflow YAML
+        shell: bash
+        run: |
+          set -euo pipefail
+          ruby -e 'require "yaml"; YAML.load_file(".github/workflows/x10thinc-artifact-relay.yml"); puts "workflow YAML: OK"'
+      - name: Validate Kill Critic shell
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n scripts/x10thinc-kill-critic.sh
+          scripts/x10thinc-kill-critic.sh . core core/Dockerfile
+
+  relay:
+    if: github.event_name != 'pull_request'
+    permissions:
+      contents: read
+      packages: write
+      attestations: write
+      id-token: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Resolve target configuration
+        id: config
+        shell: bash
+        env:
+          INPUT_SOURCE_REPO: ${{ inputs.source_repo }}
+          INPUT_SOURCE_REF: ${{ inputs.source_ref }}
+          GH_TOKEN: ${{ secrets.X10THINC_UPSTREAM_TOKEN || github.token }}
+        run: |
+          set -euo pipefail
+
+          source_repo="${INPUT_SOURCE_REPO:-$SOURCE_REPO}"
+          [[ "$source_repo" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || {
+            echo "::error::Invalid source repository: $source_repo"
+            exit 1
+          }
+
+          registry="${REGISTRY,,}"
+          [[ "$registry" =~ ^[a-z0-9.-]+(:[0-9]+)?$ ]] || {
+            echo "::error::Invalid registry: $registry"
+            exit 1
+          }
+
+          image_repo="${IMAGE_REPO,,}"
+          [[ "$image_repo" =~ ^[a-z0-9._/-]+$ ]] || {
+            echo "::error::Invalid image repository: $image_repo"
+            exit 1
+          }
+
+          source_ref="$INPUT_SOURCE_REF"
+          default_branch="$(gh api "repos/$source_repo" --jq '.default_branch')"
+
+          if [[ -z "$source_ref" ]]; then
+            source_ref="$(gh api "repos/$source_repo/releases/latest" --jq '.tag_name' 2>/dev/null || true)"
+            source_ref="${source_ref:-$default_branch}"
+          fi
+
+          [[ "$source_ref" =~ ^[A-Za-z0-9._/-]+$ ]] || {
+            echo "::error::Invalid source ref: $source_ref"
+            exit 1
+          }
+
+          safe_ref="$(printf '%s' "$source_ref" | tr '/' '-' | tr -cd 'A-Za-z0-9._-')"
+
+          {
+            echo "source_repo=$source_repo"
+            echo "source_ref=$source_ref"
+            echo "default_branch=$default_branch"
+            echo "safe_ref=$safe_ref"
+            echo "registry=$registry"
+            echo "image=$registry/$image_repo"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ steps.config.outputs.source_repo }}
+          ref: ${{ steps.config.outputs.source_ref }}
+          token: ${{ secrets.X10THINC_UPSTREAM_TOKEN || github.token }}
+          fetch-depth: 0
+          path: source
+
+      - name: Resolve immutable source SHA
+        id: source
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          sha="$(git rev-parse HEAD)"
+          printf 'source_sha=%s\n' "$sha" >> "$GITHUB_OUTPUT"
+          echo "Source SHA: $sha"
+
+      - name: X10THINC Kill Critic
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x scripts/x10thinc-kill-critic.sh
+          scripts/x10thinc-kill-critic.sh source "$BUILD_CONTEXT" "$DOCKERFILE"
+
+      - name: Set up Node 22
+        if: hashFiles('source/core/package-lock.json') != ''
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: source/core/package-lock.json
+
+      - name: Deterministic application tests
+        if: hashFiles('source/core/package.json') != ''
+        working-directory: source/core
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci
+          npm test
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Authenticate to GHCR
+        if: steps.config.outputs.registry == 'ghcr.io'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Validate external registry credentials
+        if: steps.config.outputs.registry != 'ghcr.io'
+        shell: bash
+        env:
+          REGISTRY_USER: ${{ secrets.X10THINC_REGISTRY_USERNAME }}
+          REGISTRY_PASSWORD: ${{ secrets.X10THINC_REGISTRY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          test -n "${REGISTRY_USER:-}" || { echo "::error::X10THINC_REGISTRY_USERNAME is required"; exit 1; }
+          test -n "${REGISTRY_PASSWORD:-}" || { echo "::error::X10THINC_REGISTRY_PASSWORD is required"; exit 1; }
+
+      - name: Authenticate to external registry
+        if: steps.config.outputs.registry != 'ghcr.io'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ steps.config.outputs.registry }}
+          username: ${{ secrets.X10THINC_REGISTRY_USERNAME }}
+          password: ${{ secrets.X10THINC_REGISTRY_PASSWORD }}
+
+      - name: Detect content-addressed cache hit
+        id: cachehit
+        shell: bash
+        env:
+          IMAGE: ${{ steps.config.outputs.image }}
+          SOURCE_SHA: ${{ steps.source.outputs.source_sha }}
+          FORCE_REBUILD: ${{ inputs.force }}
+        run: |
+          set -euo pipefail
+          tag="sha-${SOURCE_SHA}"
+          if [[ "$FORCE_REBUILD" != "true" ]] && docker manifest inspect "$IMAGE:$tag" >/dev/null 2>&1; then
+            digest="$(docker buildx imagetools inspect "$IMAGE:$tag" 2>/dev/null | awk '/^Digest:/ {print $2; exit}')"
+            test -n "${digest:-}" || { echo "::error::Cache tag exists but its digest could not be resolved"; exit 1; }
+            {
+              echo "hit=true"
+              echo "digest=$digest"
+            } >> "$GITHUB_OUTPUT"
+            echo "CACHE HIT: $IMAGE:$tag -> $digest"
+          else
+            echo "hit=false" >> "$GITHUB_OUTPUT"
+            echo "CACHE MISS: $IMAGE:$tag"
+          fi
+
+      - name: Build and publish immutable release
+        id: build
+        if: steps.cachehit.outputs.hit != 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: source/${{ env.BUILD_CONTEXT }}
+          file: source/${{ env.DOCKERFILE }}
+          push: true
+          tags: |
+            ${{ steps.config.outputs.image }}:sha-${{ steps.source.outputs.source_sha }}
+            ${{ steps.config.outputs.image }}:${{ steps.config.outputs.safe_ref }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ steps.config.outputs.source_repo }}
+            org.opencontainers.image.revision=${{ steps.source.outputs.source_sha }}
+            org.opencontainers.image.version=${{ steps.config.outputs.safe_ref }}
+          cache-from: type=gha,scope=x10thinc-relay
+          cache-to: type=gha,mode=max,scope=x10thinc-relay
+          provenance: mode=max
+          sbom: true
+
+      - name: Normalize immutable digest
+        id: digest
+        shell: bash
+        env:
+          CACHE_HIT: ${{ steps.cachehit.outputs.hit }}
+          CACHE_DIGEST: ${{ steps.cachehit.outputs.digest }}
+          BUILD_DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          set -euo pipefail
+          if [[ "${CACHE_HIT:-false}" == "true" ]]; then
+            digest="$CACHE_DIGEST"
+          else
+            digest="$BUILD_DIGEST"
+          fi
+          [[ "$digest" =~ ^sha256:[a-f0-9]{64}$ ]] || {
+            echo "::error::Invalid OCI digest: $digest"
+            exit 1
+          }
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+          echo "Immutable digest: $digest"
+
+      - name: Generate GitHub build attestation
+        if: env.ATTEST == 'true'
+        uses: actions/attest@v4
+        with:
+          subject-name: ${{ steps.config.outputs.image }}
+          subject-digest: ${{ steps.digest.outputs.digest }}
+          push-to-registry: true
+
+      - name: Create X10THINC release manifest
+        shell: bash
+        env:
+          SOURCE_REPO: ${{ steps.config.outputs.source_repo }}
+          SOURCE_REF: ${{ steps.config.outputs.source_ref }}
+          SOURCE_SHA: ${{ steps.source.outputs.source_sha }}
+          IMAGE: ${{ steps.config.outputs.image }}
+          DIGEST: ${{ steps.digest.outputs.digest }}
+          RUN_ID: ${{ github.run_id }}
+          WORKFLOW_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p relay-manifest
+          jq -n \
+            --arg source_repo "$SOURCE_REPO" \
+            --arg source_ref "$SOURCE_REF" \
+            --arg source_sha "$SOURCE_SHA" \
+            --arg image "$IMAGE" \
+            --arg digest "$DIGEST" \
+            --arg run_id "$RUN_ID" \
+            --arg workflow_sha "$WORKFLOW_SHA" \
+            '{
+              schema: "x10thinc.release-manifest.v1",
+              source: { repository: $source_repo, ref: $source_ref, sha: $source_sha },
+              artifact: { image: $image, digest: $digest },
+              execution: { github_run_id: $run_id, workflow_sha: $workflow_sha },
+              policy: { immutable_tag: true, provenance: true, sbom: true, kill_critic: true }
+            }' > relay-manifest/release-manifest.json
+          cat relay-manifest/release-manifest.json >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload release manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: x10thinc-release-manifest
+          path: relay-manifest/release-manifest.json
+          retention-days: 30
