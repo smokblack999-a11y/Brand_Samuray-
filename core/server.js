@@ -119,8 +119,15 @@ const repairWorker = GITHUB_WEBHOOK_SECRET
       handler: async item => {
         const workflowRun = item.workflow_run || item.eventPayload || item;
         const contextRef = workflowRun?.head_branch || workflowRun?.repository?.default_branch || "main";
-        const sourceContext = githubLive && REPAIR_CONTEXT_PATHS.length
-          ? (await Promise.all(REPAIR_CONTEXT_PATHS.map(async path => {
+        const modifiedPaths = Array.isArray(workflowRun?.head_commit?.modified)
+          ? workflowRun.head_commit.modified
+          : [];
+        const configuredPaths = REPAIR_CONTEXT_PATHS;
+        const contextPaths = [...new Set([...modifiedPaths, ...configuredPaths])]
+          .filter(path => path && path !== ".env" && !path.startsWith(".github/workflows/"))
+          .slice(0, 8);
+        const sourceContext = githubLive
+          ? (await Promise.all(contextPaths.map(async path => {
               try { return await githubLive.getFile({ path, ref: contextRef }); }
               catch (error) { return { path, error: error.message }; }
             }))).filter(Boolean)
@@ -136,7 +143,8 @@ const repairWorker = GITHUB_WEBHOOK_SECRET
             reason: githubLive ? "REPAIR_CANDIDATE_URL_NOT_CONFIGURED" : "GITHUB_LIVE_ADAPTER_NOT_CONFIGURED"
           };
         }
-        return x29Runtime.run(mission);
+        const result = await x29Runtime.run(mission);
+        return result;
       },
       maxAttempts: 2
     })
