@@ -18,6 +18,11 @@ on:
         default: false
   schedule:
     - cron: "17 */4 * * *"
+  pull_request:
+    paths:
+      - ".github/workflows/x10thinc-artifact-relay.yml"
+      - "scripts/x10thinc-kill-critic.sh"
+      - "X10THINC_ARTIFACT_RELAY.md"
 
 concurrency:
   group: x10thinc-artifact-relay
@@ -25,9 +30,6 @@ concurrency:
 
 permissions:
   contents: read
-  packages: write
-  attestations: write
-  id-token: write
 
 env:
   SOURCE_REPO: ${{ vars.X10THINC_SOURCE_REPO || github.repository }}
@@ -38,7 +40,32 @@ env:
   ATTEST: ${{ vars.X10THINC_ATTEST || 'true' }}
 
 jobs:
+  pull-request-gate:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Validate workflow YAML
+        shell: bash
+        run: |
+          set -euo pipefail
+          ruby -e 'require "yaml"; YAML.load_file(".github/workflows/x10thinc-artifact-relay.yml"); puts "workflow YAML: OK"'
+      - name: Validate Kill Critic shell
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n scripts/x10thinc-kill-critic.sh
+          scripts/x10thinc-kill-critic.sh . core core/Dockerfile
+
   relay:
+    if: github.event_name != 'pull_request'
+    permissions:
+      contents: read
+      packages: write
+      attestations: write
+      id-token: write
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
