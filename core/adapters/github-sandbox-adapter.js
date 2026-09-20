@@ -39,6 +39,33 @@ function createGithubSandboxAdapter({
       });
     }
 
+    if (typeof github.compareBranches === "function") {
+      const comparison = await github.compareBranches({ base, head: branch });
+      const actualFiles = Array.isArray(comparison?.files) ? comparison.files : [];
+      const actualPaths = new Set(actualFiles.map(file => file?.filename).filter(Boolean));
+      const additions = actualFiles.reduce((sum, file) => sum + Number(file?.additions || 0), 0);
+      const deletions = actualFiles.reduce((sum, file) => sum + Number(file?.deletions || 0), 0);
+      if (actualPaths.size > 8 || additions + deletions > 400) {
+        return {
+          passed: false,
+          reason: "sandbox_diff_policy_failed",
+          branch,
+          base,
+          diff: { files: actualPaths.size, additions, deletions }
+        };
+      }
+      for (const path of actualPaths) {
+        if (path === ".env" || path.startsWith(".github/workflows/") || path.startsWith("/") || path.includes("\\") || path.split("/").includes("..")) {
+          return { passed: false, reason: "sandbox_diff_blocked_path", branch, base, path };
+        }
+      }
+      for (const path of changedFiles) {
+        if (!actualPaths.has(path)) {
+          return { passed: false, reason: "sandbox_declared_diff_mismatch", branch, base, path };
+        }
+      }
+    }
+
     const started = Date.now();
     let sandboxRun = null;
     while (Date.now() - started < timeoutMs) {
