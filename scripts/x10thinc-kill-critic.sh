@@ -18,14 +18,14 @@ if [[ -f "$SOURCE_ROOT/$BUILD_CONTEXT/package.json" ]]; then
   test -f "$SOURCE_ROOT/$BUILD_CONTEXT/package-lock.json" || fail "package-lock.json required for deterministic npm install"
 fi
 
-if git -C "$SOURCE_ROOT" grep -nE -- \
-  ':!*.md' \
+if git -C "$SOURCE_ROOT" grep -nE \
   -e 'sk-(proj|svcacct)-[A-Za-z0-9_-]{20,}' \
   -e 'ghp_[A-Za-z0-9]{30,}' \
   -e 'github_pat_[A-Za-z0-9_]{20,}' \
   -e 'AIza[0-9A-Za-z_-]{30,}' \
   -e 'AKIA[0-9A-Z]{16}' \
-  -e 'BEGIN (RSA|EC|OPENSSH|DSA|PRIVATE) KEY'; then
+  -e 'BEGIN (RSA|EC|OPENSSH|DSA|PRIVATE) KEY' \
+  -- ':(exclude)**/*.md'; then
   fail "Potential credential material detected in source tree"
 fi
 
