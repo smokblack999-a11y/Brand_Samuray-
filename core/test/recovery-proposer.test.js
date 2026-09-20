@@ -5,8 +5,7 @@ const assert = require("node:assert/strict");
 const { extractCandidatePaths, extractDiff, generatePatchCandidate, redactSensitive } = require("../recovery-proposer");
 
 test("extracts bounded source paths from failure logs", () => {
-  const paths = extractCandidatePaths("at core/server.js:10
-core/recovery-worker.js:4 package.json");
+  const paths = extractCandidatePaths("at core/server.js:10\ncore/recovery-worker.js:4 package.json");
   assert.deepEqual(paths, ["core/server.js", "core/recovery-worker.js", "package.json"]);
 });
 
@@ -35,6 +34,6 @@ test("redacts common credentials before model submission", () => {
   assert.doesNotMatch(output, /ghp_exampleSecret123/);
   assert.doesNotMatch(output, /sk-1234567890abcdef/);
   assert.doesNotMatch(output, /super-secret-value/);
-  assert.doesNotMatch(output, /secret\\n-----END PRIVATE KEY-----/);
+  assert.doesNotMatch(output, /-----BEGIN PRIVATE KEY-----/);
   assert.match(output, /REDACTED/);
 });
