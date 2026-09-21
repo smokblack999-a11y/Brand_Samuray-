@@ -8,7 +8,7 @@ const { generateReply, checkOpenAI } = require("./openai");
 const { sendBusinessMessage } = require("./business-bot");
 const { saveLead, claimEvent, updateLead, listLeads, stats } = require("./store");
 const { createRateLimiter } = require("./rate-limit");
-const recovery = require("./recovery");
+const recovery = require("./recovery");\nconst { startRecoveryRuntime } = require("./recovery/runtime");
 
 const app = express();
 const PORT = Number(process.env.PORT || 8787);
@@ -165,7 +165,7 @@ app.post("/api/telegram/webhook", requireWebhookSecret, async (req, res) => {
 
 app.use((req, res) => res.status(404).json(errorBody("NOT_FOUND", "Endpoint not found", req.requestId)));
 
-const server = app.listen(PORT, "0.0.0.0", () => console.log(`SamuraiOS Core 2.7.0 listening on :${PORT}`));
+const server = app.listen(PORT, "0.0.0.0", () => console.log(`SamuraiOS Core 2.7.0 listening on :${PORT}`));\nconst recoveryRuntime = startRecoveryRuntime();\nif (recoveryRuntime.enabled) console.log(JSON.stringify({ event: "recovery_scheduler_started", status: recoveryRuntime.scheduler.status() }));
 server.requestTimeout = REQUEST_TIMEOUT_MS;
 server.headersTimeout = REQUEST_TIMEOUT_MS + 5000;
 
