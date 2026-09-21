@@ -17,7 +17,7 @@ async function run() {
   const scheduler = createRecoveryScheduler({
     intervalMs: 100000,
     concurrency: 1,
-    executor: async () => ({ ok: false, error: "test" })
+    executor: async () => ({ ok: false, error: "test" }),\n    processJob: async id => { processed.push(id); }
   });
 
   assert.strictEqual(scheduler.status().running, false);
