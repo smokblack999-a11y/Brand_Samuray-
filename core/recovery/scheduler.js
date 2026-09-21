@@ -6,7 +6,7 @@ const recovery = require("./index");
 function createRecoveryScheduler(options = {}) {
   const intervalMs = Math.max(250, Number(options.intervalMs || 1000));
   const concurrency = Math.max(1, Number(options.concurrency || 1));
-  const executor = options.executor;
+  const executor = options.executor;\n  const runJob = options.processJob || processJob;
   if (typeof executor !== "function") throw new Error("recovery scheduler requires an executor function");
 
   const active = new Set();
@@ -26,7 +26,7 @@ function createRecoveryScheduler(options = {}) {
 
     for (const job of jobs.slice(0, capacity)) {
       active.add(job.id);
-      processJob(job.id, executor, options)
+      runJob(job.id, executor, options)
         .catch(() => null)
         .finally(() => active.delete(job.id));
     }
