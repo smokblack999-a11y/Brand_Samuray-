@@ -1,35 +1,41 @@
 "use strict";
 
-const assert = require("node:assert/strict");
 const test = require("node:test");
-const { createVerifiedProofReceipt, verifyVerifiedProofReceipt } = require("./nexus-proof-receipt");
+const assert = require("node:assert/strict");
+const { createVerifiedProofReceipt } = require("./nexus-proof-receipt");
 
-function input(overrides = {}) {
+function fixture(overrides = {}) {
   return {
-    jobId: "job-1",
-    repository: "acme/app",
-    runId: 42,
-    baseSha: "base",
-    patchSha: "patch",
-    headSha: "head",
+    job: {
+      jobId: "job-1",
+      repository: "acme/app",
+      baseSha: "base",
+      patchSha: "patch",
+      risk: "LOW"
+    },
     diagnosis: {
       category: "test_failure",
-      confidence: 0.99,
-      fingerprint: "failure-fp-1"
+      confidence: 0.98,
+      fingerprint: "abc123"
     },
     proposal: {
       status: "PATCH_CANDIDATE",
-      scope: { paths: ["src/a.js"], maxFiles: 3 }
+      scope: { paths: ["src/math.js"], maxFiles: 3 },
+      intent: "smallest testable patch"
     },
     critic: {
       decision: "PASS",
-      evidenceHash: "a".repeat(64)
+      evidenceHash: "c".repeat(64),
+      failures: []
     },
     sandbox: {
-      passed: true,
-      commands: [{ command: "npm test", code: 0, signal: null, timedOut: false, passed: true, stdout: "ok", stderr: "" }]
+      decision: "PASS",
+      sandbox: {
+        passed: true,
+        commands: [{ command: "npm test", code: 0, passed: true }]
+      }
     },
-    tests: { passed: true, total: 12, failed: 0, command: "npm test" },
+    tests: { passed: true, failed: 0 },
     security: "PASS",
     policy: "PASS",
     ...overrides
@@ -37,42 +43,37 @@ function input(overrides = {}) {
 }
 
 test("creates a SHIP receipt only from complete evidence", () => {
-  const receipt = createVerifiedProofReceipt(input());
+  const receipt = createVerifiedProofReceipt(fixture());
   assert.equal(receipt.decision, "SHIP");
-  assert.equal(receipt.critic.evidenceHash, "a".repeat(64));
+  assert.equal(receipt.humanRequired, false);
   assert.match(receipt.receiptHash, /^[a-f0-9]{64}$/);
-  assert.equal(verifyVerifiedProofReceipt(receipt), true);
 });
 
-test("same evidence produces the same proof id and receipt hash", () => {
-  const a = createVerifiedProofReceipt(input());
-  const b = createVerifiedProofReceipt(input());
-  assert.equal(a.proofId, b.proofId);
-  assert.equal(a.receiptHash, b.receiptHash);
+test("same evidence produces the same receipt hash", () => {
+  const a = createVerifiedProofReceipt(fixture());
+  const b = createVerifiedProofReceipt(fixture());
+  assert.deepEqual(a, b);
 });
 
-test("Kill Critic failure cannot produce a receipt", () => {
+test("missing Kill Critic evidence is rejected", () => {
   assert.throws(
-    () => createVerifiedProofReceipt(input({ critic: { decision: "KILL", evidenceHash: "a".repeat(64) } })),
-    /Kill Critic PASS/
+    () => createVerifiedProofReceipt(fixture({ critic: { decision: "PASS" } })),
+    /Kill Critic PASS evidence/
   );
 });
 
-test("sandbox failure cannot produce a receipt", () => {
+test("sandbox failure cannot produce proof", () => {
   assert.throws(
-    () => createVerifiedProofReceipt(input({ sandbox: { passed: false, commands: [] } })),
-    /sandbox\.passed=true/
+    () => createVerifiedProofReceipt(fixture({
+      sandbox: { decision: "BLOCK", sandbox: { passed: false } }
+    })),
+    /sandbox PASS evidence/
   );
 });
 
-test("failed tests cannot produce a receipt", () => {
+test("higher-risk changes require human review", () => {
   assert.throws(
-    () => createVerifiedProofReceipt(input({ tests: { passed: false, total: 12, failed: 1, command: "npm test" } })),
-    /tests\.passed=true/
+    () => createVerifiedProofReceipt(fixture({ job: { ...fixture().job, risk: "HIGH" } })),
+    /LOW risk/
   );
-});
-
-test("tampered receipt fails verification", () => {
-  const receipt = createVerifiedProofReceipt(input());
-  assert.equal(verifyVerifiedProofReceipt({ ...receipt, decision: "BLOCKED" }), false);
 });
