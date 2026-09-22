@@ -5,18 +5,20 @@ on:
     paths:
       - "core/nexus-*.js"
       - "core/nexus-*.test.js"
+      - "core/nexus-*.schema.json"
       - "core/proof-engine.js"
-      - "core/nexus-policy.js"
       - "core/proof-engine.test.js"
+      - "core/nexus-policy.js"
       - "core/nexus-policy.test.js"
       - ".github/workflows/nexus-queue.yml"
   pull_request:
     paths:
       - "core/nexus-*.js"
       - "core/nexus-*.test.js"
+      - "core/nexus-*.schema.json"
       - "core/proof-engine.js"
-      - "core/nexus-policy.js"
       - "core/proof-engine.test.js"
+      - "core/nexus-policy.js"
       - "core/nexus-policy.test.js"
       - ".github/workflows/nexus-queue.yml"
 
