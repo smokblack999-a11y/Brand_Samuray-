@@ -14,6 +14,9 @@ const {
   sendMessage,
 } = require("./telegram");
 
+const { evaluate } = require("./kill-critic/policy-engine");
+const { appendDecision, readDecisions } = require("./kill-critic/decision-ledger");
+
 const app = express();
 
 const HOST = "127.0.0.1";
@@ -35,11 +38,70 @@ app.get("/api/status", async (req, res) => {
   res.json({
     ok: true,
     service: "SamuraiOS Core",
-    version: "1.1.0",
+    version: "1.2.0",
     openai: Boolean(process.env.OPENAI_API_KEY),
     telegram: await telegramStatus(),
+    killCritic: {
+      enabled: true,
+      policyVersion: "kc-policy-1.0.0",
+    },
     time: new Date().toISOString(),
   });
+});
+
+// ================================
+// KILL CRITIC POLICY
+// ================================
+
+app.post("/api/kill-critic/evaluate", (req, res) => {
+  try {
+    const { diff, jobId, commit } = req.body || {};
+
+    if (!diff || !String(diff).trim()) {
+      return res.status(400).json({
+        ok: false,
+        error: "diff обязателен",
+      });
+    }
+
+    const decision = evaluate({
+      diff,
+      jobId,
+      commit,
+    });
+
+    appendDecision(decision);
+
+    res.status(decision.decision === "BLOCK" ? 422 : 200).json({
+      ok: true,
+      enforcement: decision,
+    });
+  } catch (error) {
+    console.error("Kill Critic evaluate error:", error);
+    res.status(500).json({
+      ok: false,
+      error: "Kill Critic evaluation failed",
+    });
+  }
+});
+
+app.get("/api/kill-critic/decisions", (req, res) => {
+  try {
+    const limit = Math.min(Math.max(Number(req.query.limit) || 50, 1), 200);
+    const decisions = readDecisions().slice(-limit).reverse();
+
+    res.json({
+      ok: true,
+      count: decisions.length,
+      decisions,
+    });
+  } catch (error) {
+    console.error("Kill Critic decisions error:", error);
+    res.status(500).json({
+      ok: false,
+      error: "Decision ledger unavailable",
+    });
+  }
 });
 
 // ================================
@@ -179,7 +241,8 @@ app.listen(PORT, HOST, async () => {
   console.log("       SAMURAIOS CORE");
   console.log("================================");
   console.log(`http://${HOST}:${PORT}`);
-  console.log("Version: 1.1.0");
+  console.log("Version: 1.2.0");
+  console.log("Kill Critic Policy: ENABLED");
   console.log("================================");
   console.log("");
 

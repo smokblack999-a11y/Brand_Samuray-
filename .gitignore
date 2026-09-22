@@ -20,6 +20,8 @@ pnpm-debug.log*
 # SamuraiOS runtime logs
 *.log
 core/samuraios.log
+core/kill-critic/data/
+core/kill-critic/*.ndjson
 
 # Android / Gradle
 .gradle/
