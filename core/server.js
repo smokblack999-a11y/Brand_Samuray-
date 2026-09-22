@@ -8,10 +8,12 @@ const { generateReply, checkOpenAI } = require("./openai");
 const { sendBusinessMessage } = require("./business-bot");
 const { saveLead, claimEvent, updateLead, listLeads, stats } = require("./store");
 const { createRateLimiter } = require("./rate-limit");
+const { createRecoveryRouter } = require("./recovery-router");
 
 const app = express();
 const PORT = Number(process.env.PORT || 8787);
 const API_KEY = String(process.env.CORE_API_KEY || "").trim();
+const RECOVERY_API_KEY = String(process.env.X10THINK_RECOVERY_API_KEY || "").trim();
 const WEBHOOK_SECRET = String(process.env.TELEGRAM_WEBHOOK_SECRET || "").trim();
 const MAX_MESSAGE_CHARS = Math.max(100, Math.min(Number(process.env.MAX_MESSAGE_CHARS || 4000), 10000));
 const CORS_ORIGIN = String(process.env.CORS_ORIGIN || "").trim();
@@ -23,6 +25,7 @@ if (process.env.NODE_ENV === "production") {
   const missing = [];
   if (!API_KEY) missing.push("CORE_API_KEY");
   if (!WEBHOOK_SECRET) missing.push("TELEGRAM_WEBHOOK_SECRET");
+  if (!RECOVERY_API_KEY) missing.push("X10THINK_RECOVERY_API_KEY");
   if (missing.length) throw new Error(`Production startup blocked: missing ${missing.join(", ")}`);
 }
 
@@ -39,6 +42,11 @@ function safeEqual(expected, actual) {
   const a = Buffer.from(String(expected || ""));
   const b = Buffer.from(String(actual || ""));
   return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+function requireRecoveryAuth(req, res, next) {
+  if (!RECOVERY_API_KEY) return res.status(503).json(errorBody("RECOVERY_AUTH_NOT_CONFIGURED", "Recovery authentication is not configured", req.requestId));
+  if (safeEqual(RECOVERY_API_KEY, req.get("X-API-Key"))) return next();
+  return res.status(401).json(errorBody("UNAUTHORIZED_RECOVERY", "Unauthorized recovery request", req.requestId));
 }
 function requireApiKey(req, res, next) {
   if (!API_KEY) return res.status(503).json(errorBody("AUTH_NOT_CONFIGURED", "API authentication is not configured", req.requestId));
@@ -72,7 +80,7 @@ app.get("/health", (_req, res) => res.json({ ok: true, service: "SamuraiOS Core"
 app.get("/ready", (req, res) => {
   try {
     const current = stats();
-    const ready = Boolean(API_KEY && WEBHOOK_SECRET && current && Number.isFinite(current.total));
+    const ready = Boolean(API_KEY && WEBHOOK_SECRET && RECOVERY_API_KEY && current && Number.isFinite(current.total));
     return res.status(ready ? 200 : 503).json({ ok: ready, service: "SamuraiOS Core", ready, requestId: req.requestId });
   } catch (_error) {
     return res.status(503).json(errorBody("NOT_READY", "Service is not ready", req.requestId));
@@ -90,6 +98,7 @@ app.get("/health/openai", requireApiKey, async (req, res) => {
 });
 app.get("/api/leads", requireApiKey, (req, res) => res.json({ ok: true, leads: listLeads(req.query.limit), requestId: req.requestId }));
 app.get("/api/stats", requireApiKey, (req, res) => res.json({ ok: true, stats: stats(), requestId: req.requestId }));
+app.use("/api/recovery", createRecoveryRouter({ requireRecoveryAuth }));
 
 async function analyze(message, business) {
   const text = String(message || "").trim();
