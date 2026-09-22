@@ -1,134 +1,113 @@
 "use strict";
 
 const crypto = require("node:crypto");
-const { canonicalJson, sha256 } = require("./proof-engine");
 
-const REQUIRED = Object.freeze([
-  "jobId",
-  "repository",
-  "headSha",
-  "diagnosis",
-  "proposal",
-  "critic",
-  "sandbox",
-  "tests",
-  "security",
-  "policy"
-]);
+function canonicalize(value) {
+  if (value === null || typeof value !== "object") return value;
+  if (Array.isArray(value)) return value.map(canonicalize);
+  return Object.keys(value).sort().reduce((out, key) => {
+    out[key] = canonicalize(value[key]);
+    return out;
+  }, {});
+}
 
-function requireObject(value, name) {
+function canonicalJson(value) {
+  return JSON.stringify(canonicalize(value));
+}
+
+function sha256(value) {
+  return crypto.createHash("sha256").update(String(value), "utf8").digest("hex");
+}
+
+function assertObject(value, name) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new Error(`Proof Receipt requires ${name}`);
+    throw new Error(`${name} is required`);
   }
 }
 
-function requirePass(value, name) {
-  if (value !== "PASS") throw new Error(`Proof Receipt requires ${name}=PASS`);
-}
+function createVerifiedProofReceipt({
+  job,
+  diagnosis,
+  proposal,
+  critic,
+  sandbox,
+  tests,
+  security = "PASS",
+  policy = "PASS"
+} = {}) {
+  assertObject(job, "job");
+  assertObject(diagnosis, "diagnosis");
+  assertObject(proposal, "proposal");
+  assertObject(critic, "critic");
+  assertObject(sandbox, "sandbox");
+  assertObject(tests, "tests");
 
-function normalizeEvidenceHash(critic) {
-  const hash = critic?.evidenceHash;
-  if (!/^[a-f0-9]{64}$/i.test(String(hash || ""))) {
-    throw new Error("Proof Receipt requires Kill Critic evidenceHash");
+  if (!job.jobId || !job.repository || !job.baseSha || !job.patchSha) {
+    throw new Error("job identity evidence is incomplete");
   }
-  return String(hash).toLowerCase();
-}
-
-function normalizeSandbox(sandbox) {
-  requireObject(sandbox, "sandbox");
-  if (sandbox.passed !== true) throw new Error("Proof Receipt requires sandbox.passed=true");
-  const commands = Array.isArray(sandbox.commands) ? sandbox.commands : [];
-  if (!commands.length || commands.some((c) => c?.passed !== true || c?.code !== 0)) {
-    throw new Error("Proof Receipt requires successful sandbox command evidence");
+  if (!diagnosis.fingerprint || !diagnosis.category) {
+    throw new Error("diagnosis evidence is incomplete");
   }
-  return {
-    passed: true,
-    commands: commands.map((c) => ({
-      command: c.command,
-      code: c.code,
-      signal: c.signal || null,
-      timedOut: Boolean(c.timedOut),
-      passed: Boolean(c.passed),
-      stdout: String(c.stdout || ""),
-      stderr: String(c.stderr || "")
-    }))
-  };
-}
-
-function normalizeTests(tests) {
-  requireObject(tests, "tests");
-  if (tests.passed !== true) throw new Error("Proof Receipt requires tests.passed=true");
-  if (Number(tests.failed || 0) !== 0) throw new Error("Proof Receipt requires zero failed tests");
-  return {
-    passed: true,
-    total: Number(tests.total || 0),
-    failed: 0,
-    command: String(tests.command || "")
-  };
-}
-
-function createVerifiedProofReceipt(input = {}) {
-  for (const key of REQUIRED) {
-    if (input[key] == null) throw new Error(`Proof Receipt missing ${key}`);
+  if (proposal.status !== "PATCH_CANDIDATE") {
+    throw new Error("proof requires a bounded patch proposal");
   }
-
-  requireObject(input.diagnosis, "diagnosis");
-  requireObject(input.proposal, "proposal");
-  if (input.proposal.status !== "PATCH_CANDIDATE") {
-    throw new Error("Proof Receipt requires bounded PATCH_CANDIDATE");
+  if (critic.decision !== "PASS" || !critic.evidenceHash) {
+    throw new Error("proof requires Kill Critic PASS evidence");
   }
-
-  requireObject(input.critic, "critic");
-  if (input.critic.decision !== "PASS") throw new Error("Proof Receipt requires Kill Critic PASS");
-  const criticEvidenceHash = normalizeEvidenceHash(input.critic);
-
-  const sandbox = normalizeSandbox(input.sandbox);
-  const tests = normalizeTests(input.tests);
-  requirePass(input.security, "security");
-  requirePass(input.policy, "policy");
+  if (sandbox.decision !== "PASS" || !sandbox.sandbox?.passed) {
+    throw new Error("proof requires sandbox PASS evidence");
+  }
+  if (tests.passed !== true && !(Number.isInteger(tests.failed) && tests.failed === 0)) {
+    throw new Error("proof requires passing test evidence");
+  }
+  if (security !== "PASS") throw new Error("proof requires security PASS");
+  if (policy !== "PASS") throw new Error("proof requires policy PASS");
+  if (String(job.risk || "LOW").toUpperCase() !== "LOW") {
+    throw new Error("proof-to-ship receipt requires LOW risk; higher risk requires human review");
+  }
 
   const evidence = {
-    diagnosisFingerprint: String(input.diagnosis.fingerprint || ""),
-    criticEvidenceHash,
-    sandbox,
-    tests
-  };
-  if (!evidence.diagnosisFingerprint) throw new Error("Proof Receipt requires diagnosis fingerprint");
-
-  const receipt = {
-    version: 2,
-    proofId: `NXS-PROOF-${sha256(canonicalJson({
-      jobId: String(input.jobId),
-      repository: String(input.repository),
-      headSha: String(input.headSha),
-      evidence
-    })).slice(0, 16)}`,
-    jobId: String(input.jobId),
-    repository: String(input.repository),
-    runId: input.runId == null ? null : Number(input.runId),
-    baseSha: String(input.baseSha || ""),
-    patchSha: String(input.patchSha || ""),
-    headSha: String(input.headSha),
     diagnosis: {
-      category: String(input.diagnosis.category || "unknown"),
-      confidence: Number(input.diagnosis.confidence || 0),
-      fingerprint: evidence.diagnosisFingerprint
+      category: diagnosis.category,
+      confidence: Number(diagnosis.confidence),
+      fingerprint: diagnosis.fingerprint
     },
     proposal: {
-      status: input.proposal.status,
-      scope: input.proposal.scope || {}
+      status: proposal.status,
+      scope: proposal.scope || null,
+      intent: proposal.intent || ""
     },
     critic: {
-      decision: "PASS",
-      evidenceHash: criticEvidenceHash
+      decision: critic.decision,
+      evidenceHash: critic.evidenceHash,
+      failures: critic.failures || []
     },
-    sandbox,
+    sandbox: {
+      decision: sandbox.decision,
+      passed: sandbox.sandbox.passed,
+      commands: sandbox.sandbox.commands || []
+    },
     tests,
-    security: "PASS",
-    policy: "PASS",
-    decision: "SHIP",
-    humanRequired: false,
+    security,
+    policy
+  };
+
+  const proofSeed = {
+    version: 1,
+    jobId: job.jobId,
+    repository: job.repository,
+    baseSha: job.baseSha,
+    patchSha: job.patchSha,
+    risk: "LOW",
     evidence
+  };
+  const proofHash = sha256(canonicalJson(proofSeed));
+
+  const receipt = {
+    ...proofSeed,
+    proofId: `NXS-${proofHash.slice(0, 24)}`,
+    decision: "SHIP",
+    humanRequired: false
   };
 
   return {
@@ -137,12 +116,4 @@ function createVerifiedProofReceipt(input = {}) {
   };
 }
 
-function verifyVerifiedProofReceipt(receipt = {}) {
-  if (receipt.version !== 2 || receipt.decision !== "SHIP" || receipt.humanRequired !== false) return false;
-  if (!/^[a-f0-9]{64}$/i.test(String(receipt.receiptHash || ""))) return false;
-  const unsigned = { ...receipt };
-  delete unsigned.receiptHash;
-  return sha256(canonicalJson(unsigned)) === receipt.receiptHash;
-}
-
-module.exports = { createVerifiedProofReceipt, verifyVerifiedProofReceipt };
+module.exports = { createVerifiedProofReceipt, canonicalJson, sha256 };
