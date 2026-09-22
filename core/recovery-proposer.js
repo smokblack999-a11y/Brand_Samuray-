@@ -23,7 +23,7 @@ function redactSensitive(text = "") {
 }
 
 function extractCandidatePaths(text = "") {
-  const matches = String(text).match(/[A-Za-z0-9_.@-]+(?:\/[A-Za-z0-9_.@-]+)*\.(?:js|cjs|mjs|ts|tsx|json|yml|yaml|sh|kt|java|xml|gradle|properties)/g) || [];
+  const matches = String(text).match(/[A-Za-z0-9_.@-]+(?:\/[A-Za-z0-9_.@-]+)*\.(?:json|yaml|yml|gradle|properties|cjs|mjs|tsx|ts|js|sh|kt|java|xml)(?![A-Za-z0-9_-])/g) || [];
   return [...new Set(matches)].slice(0, MAX_FILES);
 }
 
