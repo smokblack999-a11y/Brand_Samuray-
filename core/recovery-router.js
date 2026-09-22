@@ -77,6 +77,7 @@ function createRecoveryRouter({ requireRecoveryAuth }) {
         const incident = existingJobs.find(x =>
           x.repository === job.repository &&
           x.branch === job.branch &&
+          x.repairSha === job.sha &&
           ["pr_created","pr_ready","sandbox_pending","human_review"].includes(x.status)
         );
         if (!incident) return res.status(202).json({ ok:true, accepted:false, reason:"recovery_job_not_found", job });
