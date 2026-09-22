@@ -67,7 +67,7 @@ function createRecoveryRouter({ requireRecoveryAuth }) {
       if (!job.runId && !job.runNumber) return res.status(400).json({ ok:false, error:{ code:"INVALID_WORKFLOW_RUN", message:"workflow_run.id is required" } });
       const failures=["failure","timed_out","cancelled","startup_failure","action_required"];
       if(job.conclusion==="success"){
-        const candidate=list(1000).find(x=>["pr_created","pr_ready"].includes(x.status)&&x.repository===job.repository&&x.branch===job.branch&&x.sha===job.sha);
+        const candidate=list(1000).find(x=>["pr_created","pr_ready"].includes(x.status)&&x.repository===job.repository&&x.branch===job.branch&&((x.repairHeadSha&&x.repairHeadSha===job.sha)||(!x.repairHeadSha&&x.sha===job.sha)));
         if(!candidate) return res.status(202).json({ok:true,accepted:false,reason:"no_matching_recovery_job",job});
         const updated=update(candidate.id,{status:"verified",verification:{verifiedAt:new Date().toISOString(),workflowRunId:job.runId,workflow:job.workflow,sha:job.sha,htmlUrl:job.htmlUrl}});
         return res.status(200).json({ok:true,accepted:true,verified:true,job:updated});
@@ -76,7 +76,7 @@ function createRecoveryRouter({ requireRecoveryAuth }) {
       const logs=String(req.body?.failure_logs||"");
       const diagnosis=diagnose(logs);
       const fp=fingerprint({workflow:job.workflow,job:job.runId,step:job.branch,exitCode:1,errorType:diagnosis.errorType,errorMessage:logs.slice(-12000),command:job.sha});
-      const existing=list(1000).find(x=>x.repository===job.repository&&x.branch===job.branch&&["queued","ready_for_patch","sandbox_pending","pr_ready","pr_created","human_review"].includes(x.status)&&x.fingerprint===fp);
+      const existing=list(1000).find(x=>x.repository===job.repository&&x.branch===job.branch&&["queued","ready_for_patch","sandbox_pending","pr_ready","pr_created","human_review"].includes(x.status)&&(x.fingerprint===fp||x.repairBranch===job.branch));
       if(existing){
         const attempts=Number(existing.attempts||0)+1;
         const updated=update(existing.id,{attempts,lastFailureRunId:job.runId,lastFailureSha:job.sha,lastFailureAt:new Date().toISOString(),status:attempts>=3?"stopped":"queued",diagnosis,failureLogs:logs.slice(-12000)});
