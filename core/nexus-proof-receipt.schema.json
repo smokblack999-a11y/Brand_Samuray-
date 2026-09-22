@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nexus.invalid/schemas/proof-receipt-v1.json",
+  "title": "NEXUS Verified Proof Receipt v1",
+  "type": "object",
+  "required": [
+    "version", "proofId", "jobId", "repository", "baseSha", "patchSha",
+    "risk", "evidence", "decision", "humanRequired", "receiptHash"
+  ],
+  "properties": {
+    "version": { "const": 1 },
+    "proofId": { "type": "string", "pattern": "^NXS-[a-f0-9]{24}$" },
+    "jobId": { "type": "string", "minLength": 1 },
+    "repository": { "type": "string", "minLength": 1 },
+    "baseSha": { "type": "string", "minLength": 1 },
+    "patchSha": { "type": "string", "minLength": 1 },
+    "risk": { "const": "LOW" },
+    "evidence": { "type": "object" },
+    "decision": { "const": "SHIP" },
+    "humanRequired": { "const": false },
+    "receiptHash": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+  },
+  "additionalProperties": false
+}
