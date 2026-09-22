@@ -6,7 +6,7 @@ const path = require("node:path");
 const { execFile } = require("node:child_process");
 const { promisify } = require("node:util");
 const { list, update } = require("./recovery-store");
-const { decide } = require("./kill-critic");
+
 const { solveRecovery } = require("./x10thinc-solver");
 const { validateUnifiedDiff } = require("./interop/patch-candidate");
 const { generatePatchCandidate } = require("./recovery-proposer");
@@ -176,9 +176,9 @@ async function processJob(job) {
       await git(["apply", "--whitespace=error", patchFile], worktree);
       await git(["diff", "--check"], worktree);
     } catch (error) {
-      const critic = decide({
+      const critic = solveRecovery({
         attempts: job.attempts,
-        evidence: { ...(job.diagnosis?.evidence || {}), scopeMatch: 1, changedFileMatch: 1, sandboxPass: false, regressionPass: false },
+        diagnosis: { ...(job.diagnosis || {}), evidence: { ...(job.diagnosis?.evidence || {}), scopeMatch: 1, changedFileMatch: 1, sandboxPass: false, regressionPass: false } },
         patch: job.patch
       });
       update(job.id, { status: "stopped", sandbox: { pass:false, stage:"apply", error:error.message }, critic });
