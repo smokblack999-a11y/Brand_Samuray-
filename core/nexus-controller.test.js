@@ -2,7 +2,7 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { runVerification, buildEvidence } = require("./nexus-controller");
+const { runVerification, buildEvidence, buildVerifiedReceipt } = require("./nexus-controller");
 
 const critic = { correctness: "PASS", regression: "PASS", security: "PASS", scope: "PASS" };
 
@@ -35,4 +35,21 @@ test("controller cannot ship a privileged workflow change", () => {
   });
   assert.equal(result.policy.risk, "CRITICAL");
   assert.equal(result.policy.decision, "HUMAN_REVIEW");
+});
+
+
+test("controller binds diagnosis, proposal, critic, sandbox and tests into verified proof", () => {
+  const receipt = buildVerifiedReceipt({
+    job: { jobId: "job-verified", repository: "acme/app", baseSha: "base", patchSha: "patch", risk: "LOW" },
+    diagnosis: { category: "test_failure", confidence: 0.98, fingerprint: "failure-1" },
+    proposal: { status: "PATCH_CANDIDATE", scope: { paths: ["src/math.js"], maxFiles: 3 }, intent: "minimal patch" },
+    critic: { decision: "PASS", evidenceHash: "a".repeat(64), failures: [] },
+    sandbox: { decision: "PASS", sandbox: { passed: true, commands: [{ command: "npm test", code: 0, passed: true }] } },
+    tests: { passed: true, failed: 0 },
+    security: "PASS",
+    policy: "PASS"
+  });
+  assert.equal(receipt.decision, "SHIP");
+  assert.match(receipt.proofId, /^NXS-[a-f0-9]{24}$/);
+  assert.match(receipt.receiptHash, /^[a-f0-9]{64}$/);
 });
