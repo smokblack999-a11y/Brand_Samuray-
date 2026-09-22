@@ -49,6 +49,7 @@ test("creates a draft PR and never requests merge", async () => {
     githubClient,
     repository: "acme/app",
     head: "nexus/repair-42",
+    headSha: "patch-123",
     base: "main",
     receipt: receipt(),
     summary: "Verified repair"
@@ -58,4 +59,20 @@ test("creates a draft PR and never requests merge", async () => {
   assert.equal(calls[0].draft, true);
   assert.equal(calls[0].maintainer_can_modify, false);
   assert.equal("merge" in calls[0], false);
+});
+
+test("adapter rejects a real head SHA mismatch before GitHub write", async () => {
+  let called = false;
+  const githubClient = { createPullRequest: async () => { called = true; } };
+  await assert.rejects(
+    () => createVerifiedDraftPr({
+      githubClient,
+      repository: "acme/app",
+      head: "nexus/repair-42",
+      headSha: "different",
+      receipt: receipt()
+    }),
+    /patch SHA does not match/
+  );
+  assert.equal(called, false);
 });
