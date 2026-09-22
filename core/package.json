@@ -11,7 +11,7 @@
     "set-webhook": "node scripts/set-webhook.js",
     "test:kill-critic": "node --test test/kill-critic.test.js",
     "recovery:worker": "node recovery-worker.js",
-    "test:recovery": "node --test test/recovery-router.test.js test/kill-critic.test.js test/recovery-proposer.test.js",
+    "test:recovery": "node --test test/recovery-router.test.js test/kill-critic.test.js test/recovery-proposer.test.js test/recovery-lifecycle.test.js",
     "start:recovery": "node recovery-worker.js",
     "start:all": "node server.js & node recovery-worker.js"
   },
