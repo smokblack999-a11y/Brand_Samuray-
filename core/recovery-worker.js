@@ -234,6 +234,7 @@ async function processJob(job) {
     await git(["switch", "-c", branchName], worktree);
     await git(["add", "--all"], worktree);
     await git(["commit", "-m", `fix: recover CI ${job.fingerprint || job.id}`], worktree);
+    const repairHeadSha = String((await git(["rev-parse", "HEAD"], worktree)).stdout || "").trim();
     await git(["push", "-u", "origin", branchName], worktree);
 
     const title = `fix: automated CI recovery ${job.fingerprint || job.id}`;
@@ -248,7 +249,7 @@ async function processJob(job) {
       "Merge is intentionally not performed by the recovery worker."
     ].join("\n");
     const pr = await createPullRequest({ cwd: worktree, head: branchName, base: BASE_BRANCH, title, body });
-    update(job.id, { status:"pr_created", prUrl:String(pr.html_url || "").trim(), sandbox:{ pass:true, regression, files:validation.files }, critic, diagnosis:{ ...(job.diagnosis || {}), evidence } });
+    update(job.id, { status:"pr_created", branch:branchName, repairBranch:branchName, repairBaseSha:job.sha, repairHeadSha, prUrl:String(pr.html_url || "").trim(), sandbox:{ pass:true, regression, files:validation.files }, critic, diagnosis:{ ...(job.diagnosis || {}), evidence } });
   } finally {
     await cleanup(worktree);
   }
