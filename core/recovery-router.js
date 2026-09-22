@@ -74,7 +74,7 @@ function buildProofReceipt(completed, verificationJob, now = new Date()) {
 function createRecoveryRouter({ requireRecoveryAuth }) {
   const router = Router();
 
-  router.post("/github", requireRecoveryAuth, (req, res) => {
+  router.post("/github", requireRecoveryAuth, async (req, res) => {
     try {
       const job = normalizeWorkflowRun(req.body || {});
       if (!job.runId && !job.runNumber) return res.status(400).json({ ok:false, error:{ code:"INVALID_WORKFLOW_RUN", message:"workflow_run.id is required" } });
