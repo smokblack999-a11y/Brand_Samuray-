@@ -67,9 +67,77 @@ function createRecoveryRouter({ requireRecoveryAuth }) {
       if (!job.runId && !job.runNumber) return res.status(400).json({ ok:false, error:{ code:"INVALID_WORKFLOW_RUN", message:"workflow_run.id is required" } });
 
       const failures = ["failure","timed_out","cancelled","startup_failure","action_required"];
+      if (job.conclusion === "success" && String(job.branch || "").startsWith("recovery/")) {
+        const completed = list(100).find(item =>
+          item.repository === job.repository &&
+          item.branch === job.branch &&
+          ["pr_created","pr_ready","sandbox_pending","human_review"].includes(item.status)
+        );
+        if (!completed) return res.status(202).json({ ok:true, accepted:false, reason:"no_matching_recovery_job", job });
+        const proofReceipt = {
+          version: 1,
+          type: "x10think.recovery.proof",
+          fingerprint: completed.fingerprint,
+          repository: completed.repository,
+          repairBranch: completed.branch,
+          headSha: completed.sha,
+          workflowRunId: completed.runId,
+          verificationRunId: job.runId,
+          verifiedAt: new Date().toISOString(),
+          gates: { sandbox: true, regression: true, githubCi: true, autonomousMerge: false }
+        };
+        const saved = update(completed.id, {
+          status: "verified",
+          verificationRunId: job.runId,
+          verificationSha: job.sha,
+          proofReceipt,
+          lastFailureConclusion: null,
+          workerError: null
+        });
+        return res.status(200).json({ ok:true, accepted:true, verified:true, job:saved, proofReceipt });
+      }
       if (!failures.includes(job.conclusion)) return res.status(202).json({ ok:true, accepted:false, reason:"not_recoverable_failure", job });
 
       const logs = String(req.body?.failure_logs || "");
+      const repairBranch = String(job.branch || "").startsWith("recovery/");
+      const existing = list(100).find(item =>
+        item.repository === job.repository &&
+        item.branch === job.branch &&
+        item.status !== "verified" &&
+        item.status !== "stopped"
+      );
+
+      // A repair-branch failure is a continuation of the same incident.
+      // Never create a second recovery job/PR chain for the same fingerprint.
+      if (repairBranch && existing) {
+        const nextAttempts = Number(existing.attempts || 0) + 1;
+        const diagnosis = diagnose(logs);
+        const fp = String(existing.fingerprint || fingerprint({
+          workflow: job.workflow, job: job.runId, step: job.branch, exitCode: 1,
+          errorType: diagnosis.errorType, errorMessage: logs.slice(-12000), command: job.sha
+        }));
+        const status = nextAttempts >= 3 ? "stopped" : "queued";
+        const saved = update(existing.id, {
+          attempts: nextAttempts,
+          lastFailureRunId: job.runId,
+          lastFailureSha: job.sha,
+          lastFailureConclusion: job.conclusion,
+          failureLogs: logs.slice(-12000),
+          diagnosis,
+          status,
+          workerError: status === "stopped" ? "REPAIR_RETRY_BUDGET_EXHAUSTED" : null
+        });
+        const critic = decide({
+          attempts: nextAttempts,
+          evidence: diagnosis.evidence,
+          patch: existing.patch || { changedFiles: 0, changedLines: 0 }
+        });
+        return res.status(202).json({
+          ok:true, accepted:true, created:false, continued:true,
+          job:saved, critic
+        });
+      }
+
       const diagnosis = diagnose(logs);
       const fp = fingerprint({
         workflow: job.workflow, job: job.runId, step: job.branch, exitCode: 1,
