@@ -221,7 +221,7 @@ function createRecoveryRouter({ requireRecoveryAuth }) {
       const changedLines = String(candidate.candidate.diff).split(/\r?\n/).filter(line => /^\+[^+]|^-[^-]/.test(line)).length;
       const deletions = String(candidate.candidate.diff).split(/\r?\n/).filter(line => /^-[^-]/.test(line)).length;
       const sensitivePaths = changedFiles.filter(p => /(^|\/)(\.github|\.env|package-lock\.json|yarn\.lock|pnpm-lock\.yaml|android\/app\/src\/main\/AndroidManifest\.xml)(\/|$)/i.test(p));
-      const patch = { changedFiles: changedFiles.length, changedLines, deletions, sensitivePaths };
+      const patch = { files: changedFiles, changedFiles: changedFiles.length, changedLines, deletions, sensitivePaths };
       const evidence = { ...(current.diagnosis?.evidence || {}), scopeMatch: 1, changedFileMatch: 1, sandboxPass: false, regressionPass: false };
       const critic = solveRecovery({ attempts: current.attempts, diagnosis: { ...(current.diagnosis || {}), evidence }, patch });
 
