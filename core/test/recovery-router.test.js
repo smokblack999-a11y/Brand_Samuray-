@@ -26,7 +26,7 @@ test("supports cancelled runs", () => {
   assert.equal(job.conclusion, "cancelled");
 });
 
-const { diagnose } = require("../recovery-router");
+const { diagnose, findRecoveryIncident } = require("../recovery-router");
 
 test("diagnoses dependency failures from CI logs", () => {
   const result = diagnose("Execution failed for task :app:mergeDebugResources\nAAPT2 error: could not resolve dependency");
@@ -65,4 +65,35 @@ test("success workflow on a recovery branch promotes the matching job to proven"
   const { find } = require("../recovery-store");
   const current = find(x => x.id === queued.job.id);
   assert.equal(current.status, "pr_created");
+});
+
+
+test("accepts success proof only for the exact repair commit", () => {
+  const jobs = [{
+    id: "recovery-1",
+    repository: "acme/app",
+    branch: "recovery/abc",
+    repairSha: "repair-sha",
+    status: "pr_created"
+  }];
+  const matched = findRecoveryIncident(jobs, {
+    repository: { full_name: "acme/app" },
+    workflow_run: { id: 99, conclusion: "success", head_branch: "recovery/abc", head_sha: "repair-sha" }
+  });
+  assert.equal(matched.id, "recovery-1");
+});
+
+test("rejects success proof when the repair SHA does not match", () => {
+  const jobs = [{
+    id: "recovery-1",
+    repository: "acme/app",
+    branch: "recovery/abc",
+    repairSha: "repair-sha",
+    status: "pr_created"
+  }];
+  const matched = findRecoveryIncident(jobs, {
+    repository: { full_name: "acme/app" },
+    workflow_run: { id: 100, conclusion: "success", head_branch: "recovery/abc", head_sha: "other-sha" }
+  });
+  assert.equal(matched, null);
 });
