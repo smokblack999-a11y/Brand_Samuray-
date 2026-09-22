@@ -49,7 +49,7 @@ async function remoteRepository(cwd) {
 async function createPullRequest({ cwd, head, base, title, body }) {
   if (!GITHUB_TOKEN) throw new Error("GITHUB_TOKEN_REQUIRED_FOR_AUTO_PR");
   const { owner, repo } = await remoteRepository(cwd);
-  const payload = JSON.stringify({ title, head, base, body });
+  const payload = JSON.stringify({ title, head, base, body, draft: true });
   const result = await exec("curl", [
     "-fsS", "--connect-timeout", "5", "--max-time", "30",
     "-X", "POST", "https://api.github.com/repos/" + owner + "/" + repo + "/pulls",
