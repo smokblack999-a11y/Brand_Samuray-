@@ -248,7 +248,16 @@ async function processJob(job) {
       "Merge is intentionally not performed by the recovery worker."
     ].join("\n");
     const pr = await createPullRequest({ cwd: worktree, head: branchName, base: BASE_BRANCH, title, body });
-    update(job.id, { status:"pr_created", prUrl:String(pr.html_url || "").trim(), sandbox:{ pass:true, regression, files:validation.files }, critic, diagnosis:{ ...(job.diagnosis || {}), evidence } });
+    update(job.id, {
+      status:"pr_created",
+      branch: branchName,
+      prUrl:String(pr.html_url || "").trim(),
+      prNumber: Number.isInteger(pr.number) ? pr.number : null,
+      repairHeadSha: String(pr.head?.sha || "").trim() || null,
+      sandbox:{ pass:true, regression, files:validation.files },
+      critic,
+      diagnosis:{ ...(job.diagnosis || {}), evidence }
+    });
   } finally {
     await cleanup(worktree);
   }
@@ -256,11 +265,23 @@ async function processJob(job) {
 
 async function tick() {
   for (const job of list(100)) {
-    if (job.status !== "sandbox_pending") continue;
+    // A failed repair run requeues the same incident. If its last accepted
+    // candidate still exists, resume directly at the sandbox instead of
+    // creating a second diagnosis/PR chain.
+    if (job.status === "queued" && Number(job.attempts || 0) > 0 && (job.patchProposal?.diff || job.patchCandidate?.diff)) {
+      try {
+        update(job.id, { status:"sandbox_pending", workerError:null });
+      } catch (error) {
+        update(job.id, { status:"stopped", workerError:String(error?.message || error) });
+        continue;
+      }
+    }
+    const current = list(100).find(item => item.id === job.id);
+    if (!current || current.status !== "sandbox_pending") continue;
     try {
-      await processJob(job);
+      await processJob(current);
     } catch (error) {
-      update(job.id, { status:"stopped", workerError:String(error?.message || error) });
+      update(current.id, { status:"stopped", workerError:String(error?.message || error) });
     }
   }
 }

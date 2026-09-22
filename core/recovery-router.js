@@ -5,57 +5,47 @@ const { enqueue, list, update } = require("./recovery-store");
 const { fingerprint, decide } = require("./kill-critic");
 const { buildPatchProposal } = require("./interop/patch-proposal");
 const { buildPatchCandidate } = require("./interop/patch-candidate");
+const { analyzeIncident, toRecoveryDiagnosis } = require("./x10think-recovery");
 
-const PATTERNS = [
-  { type: "dependency_error", re: /(npm ERR!|module not found|could not resolve|dependency|gradle.*failed|aapt2)/i, weight: 0.30 },
-  { type: "test_failure", re: /(test failed|assertionerror|failing tests|failed tests|tests? failed)/i, weight: 0.25 },
-  { type: "syntax_error", re: /(syntaxerror|parse error|unexpected token)/i, weight: 0.30 },
-  { type: "timeout", re: /(timed out|timeout|deadline exceeded)/i, weight: 0.25 },
-  { type: "auth_error", re: /(401 unauthorized|403 forbidden|authentication failed|permission denied)/i, weight: 0.25 },
-  { type: "oom", re: /(out of memory|heap out of memory|oomkilled|exit code 137)/i, weight: 0.30 },
-  { type: "network_error", re: /(econnreset|enotfound|network error|connection refused|could not resolve host)/i, weight: 0.20 }
-];
-
-function normalizeWorkflowRun(payload = {}) {
-  const run = payload.workflow_run || payload;
-  const repo = payload.repository || {};
-  const conclusion = String(run.conclusion || "unknown");
-  const eventKey = `github:workflow_run:${repo.full_name || repo.id || "unknown"}:${run.id || run.run_number || "unknown"}`;
-  return {
-    eventKey, source: "github_workflow_run",
-    repository: repo.full_name || null, workflow: run.name || null,
-    runId: run.id || null, runNumber: run.run_number || null,
-    conclusion, status: run.status || null, branch: run.head_branch || null,
-    sha: run.head_sha || null, htmlUrl: run.html_url || null,
-    sender: payload.sender?.login || null
-  };
-}
-
-function diagnose(logs = "") {
-  const text = String(logs || "");
-  const matches = PATTERNS.filter(x => x.re.test(text));
-  const primary = matches.sort((a,b) => b.weight-a.weight)[0];
-  return {
-    errorType: primary?.type || "generic",
-    confidence: primary ? Math.min(0.9, 0.45 + primary.weight) : 0.15,
-    matches: matches.map(x => x.type),
-    evidence: {
-      exactErrorMatch: primary ? 0.8 : 0,
-      stackTraceMatch: /(at\s+\S+|Exception|Traceback)/i.test(text) ? 0.7 : 0,
-      changedFileMatch: 0,
-      dependencyMatch: matches.some(x => x.type === "dependency_error") ? 0.9 : 0,
-      historicalMatch: 0,
-      scopeMatch: 1,
-      sandboxPass: false,
-      regressionPass: false
-    }
-  };
+function diagnose(logs = "", context = {}) {
+  const state = analyzeIncident({
+    repository: context.repository,
+    workflow: context.workflow,
+    runId: context.runId,
+    branch: context.branch,
+    sha: context.sha,
+    logs
+  });
+  return toRecoveryDiagnosis(state);
 }
 
 function isBoundToJob(current, proposalInput = {}) {
   const expected = String(current?.fingerprint || "").trim().toLowerCase();
   const supplied = String(proposalInput?.evidenceFingerprint || "").trim().toLowerCase();
   return Boolean(expected && /^[a-f0-9]{24}$/.test(expected) && supplied === expected);
+}
+
+function isRepairBranch(branch = "") {
+  return String(branch || "").startsWith("recovery/");
+}
+
+function shouldRetry(attempts, maxAttempts = 3) {
+  return Number(attempts || 0) < Number(maxAttempts || 3);
+}
+
+function buildProofReceipt(completed, verificationJob, now = new Date()) {
+  return {
+    version: 1,
+    type: "x10think.recovery.proof",
+    fingerprint: completed.fingerprint,
+    repository: completed.repository,
+    repairBranch: completed.branch,
+    headSha: completed.repairHeadSha || completed.verificationSha || completed.sha,
+    workflowRunId: completed.runId,
+    verificationRunId: verificationJob.runId,
+    verifiedAt: now.toISOString(),
+    gates: { sandbox: true, regression: true, githubCi: true, autonomousMerge: false }
+  };
 }
 
 function createRecoveryRouter({ requireRecoveryAuth }) {
@@ -67,9 +57,66 @@ function createRecoveryRouter({ requireRecoveryAuth }) {
       if (!job.runId && !job.runNumber) return res.status(400).json({ ok:false, error:{ code:"INVALID_WORKFLOW_RUN", message:"workflow_run.id is required" } });
 
       const failures = ["failure","timed_out","cancelled","startup_failure","action_required"];
+      if (job.conclusion === "success" && isRepairBranch(job.branch)) {
+        const completed = list(100).find(item =>
+          item.repository === job.repository &&
+          item.branch === job.branch &&
+          ["pr_created","pr_ready","sandbox_pending","human_review"].includes(item.status)
+        );
+        if (!completed) return res.status(202).json({ ok:true, accepted:false, reason:"no_matching_recovery_job", job });
+        const proofReceipt = buildProofReceipt(completed, job);
+        const saved = update(completed.id, {
+          status: "verified",
+          verificationRunId: job.runId,
+          verificationSha: job.sha,
+          proofReceipt,
+          lastFailureConclusion: null,
+          workerError: null
+        });
+        return res.status(200).json({ ok:true, accepted:true, verified:true, job:saved, proofReceipt });
+      }
       if (!failures.includes(job.conclusion)) return res.status(202).json({ ok:true, accepted:false, reason:"not_recoverable_failure", job });
 
       const logs = String(req.body?.failure_logs || "");
+      const repairBranch = isRepairBranch(job.branch);
+      const existing = list(100).find(item =>
+        item.repository === job.repository &&
+        item.branch === job.branch &&
+        item.status !== "verified" &&
+        item.status !== "stopped"
+      );
+
+      // A repair-branch failure is a continuation of the same incident.
+      // Never create a second recovery job/PR chain for the same fingerprint.
+      if (repairBranch && existing) {
+        const nextAttempts = Number(existing.attempts || 0) + 1;
+        const diagnosis = diagnose(logs, job);
+        const fp = String(existing.fingerprint || fingerprint({
+          workflow: job.workflow, job: job.runId, step: job.branch, exitCode: 1,
+          errorType: diagnosis.errorType, errorMessage: logs.slice(-12000), command: job.sha
+        }));
+        const status = shouldRetry(nextAttempts) ? "queued" : "stopped";
+        const saved = update(existing.id, {
+          attempts: nextAttempts,
+          lastFailureRunId: job.runId,
+          lastFailureSha: job.sha,
+          lastFailureConclusion: job.conclusion,
+          failureLogs: logs.slice(-12000),
+          diagnosis,
+          status,
+          workerError: status === "stopped" ? "REPAIR_RETRY_BUDGET_EXHAUSTED" : null
+        });
+        const critic = decide({
+          attempts: nextAttempts,
+          evidence: diagnosis.evidence,
+          patch: existing.patch || { changedFiles: 0, changedLines: 0 }
+        });
+        return res.status(202).json({
+          ok:true, accepted:true, created:false, continued:true,
+          job:saved, critic
+        });
+      }
+
       const diagnosis = diagnose(logs);
       const fp = fingerprint({
         workflow: job.workflow, job: job.runId, step: job.branch, exitCode: 1,
@@ -183,4 +230,4 @@ function createRecoveryRouter({ requireRecoveryAuth }) {
   return router;
 }
 
-module.exports = { createRecoveryRouter, normalizeWorkflowRun, diagnose, isBoundToJob };
+module.exports = { createRecoveryRouter, normalizeWorkflowRun, diagnose, isBoundToJob, isRepairBranch, shouldRetry, buildProofReceipt };
