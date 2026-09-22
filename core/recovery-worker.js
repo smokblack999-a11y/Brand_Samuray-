@@ -10,6 +10,9 @@ const { list, update } = require("./recovery-store");
 const { solveRecovery } = require("./x10thinc-solver");
 const { validateUnifiedDiff } = require("./interop/patch-candidate");
 const { generatePatchCandidate } = require("./recovery-proposer");
+const { autonomousMerge } = require("./nexus-automerge");
+const { registerShipReceipt, notifyRecoveryShip } = require("./nexus-proof-ledger");
+const crypto = require("node:crypto");
 
 const exec = promisify(execFile);
 const POLL_MS = Math.max(1000, Number(process.env.RECOVERY_POLL_MS || 5000));
@@ -18,6 +21,7 @@ const TEST_COMMAND = parseCommand(process.env.RECOVERY_TEST_COMMAND, ["npm", "te
 const AUTO_CREATE_PR = String(process.env.RECOVERY_AUTO_CREATE_PR || "").toLowerCase() === "true";
 const BASE_BRANCH = String(process.env.RECOVERY_BASE_BRANCH || "main");
 const AI_PROPOSALS = String(process.env.RECOVERY_AI_PROPOSALS || "").toLowerCase() === "true";
+const AUTONOMOUS_MERGE = String(process.env.RECOVERY_AUTONOMOUS_MERGE || "").toLowerCase() === "true";
 const GITHUB_TOKEN = String(process.env.GITHUB_TOKEN || process.env.GH_TOKEN || "");
 
 function parseCommand(value, fallback) {
@@ -264,6 +268,67 @@ async function processJob(job) {
   }
 }
 
+async function shipVerifiedJob(job) {
+  if (!AUTONOMOUS_MERGE || job.status !== "verified" || !job.proofReceipt || !Number.isInteger(job.prNumber)) return;
+
+  try {
+    const result = await autonomousMerge({
+      repository: job.repository,
+      prNumber: job.prNumber,
+      expectedHeadSha: job.proofReceipt.headSha,
+      proof: job.proofReceipt
+    });
+
+    if (!result.merged) {
+      update(job.id, { autonomousMerge: false, mergeBlocked: result });
+      return;
+    }
+
+    const shipId = "NXS-SHIP-" + crypto
+      .createHash("sha256")
+      .update(JSON.stringify({ proofId: job.proofReceipt.proofId, mergeCommitSha: result.sha }))
+      .digest("hex")
+      .slice(0, 24);
+
+    const shipReceipt = {
+      version: 1,
+      type: "x10think.recovery.ship",
+      shipId,
+      proofId: job.proofReceipt.proofId,
+      fingerprint: job.proofReceipt.fingerprint,
+      repository: job.proofReceipt.repository,
+      repairBranch: job.proofReceipt.repairBranch,
+      headSha: job.proofReceipt.headSha,
+      mergeCommitSha: result.sha,
+      shippedAt: new Date().toISOString()
+    };
+
+    let shipLedger = null;
+    try {
+      shipLedger = registerShipReceipt(shipReceipt);
+    } catch (error) {
+      if (!/^DUPLICATE_SHIP:/.test(error.message)) throw error;
+    }
+    const shipNotification = await notifyRecoveryShip(shipReceipt);
+
+    update(job.id, {
+      status: "merged",
+      mergeCommitSha: result.sha,
+      autonomousMerge: true,
+      shipReceipt,
+      ...(shipLedger ? { shipLedger } : {}),
+      shipNotification,
+      workerError: null
+    });
+  } catch (error) {
+    update(job.id, {
+      autonomousMerge: false,
+      mergeBlocked: { error: String(error?.message || error) },
+      workerError: String(error?.message || error)
+    });
+  }
+}
+
 async function tick() {
   for (const job of list(100)) {
     // A failed repair run requeues the same incident. If its last accepted
@@ -278,7 +343,12 @@ async function tick() {
       }
     }
     const current = list(100).find(item => item.id === job.id);
-    if (!current || current.status !== "sandbox_pending") continue;
+    if (!current) continue;
+    if (current.status === "verified") {
+      await shipVerifiedJob(current);
+      continue;
+    }
+    if (current.status !== "sandbox_pending") continue;
     try {
       await processJob(current);
     } catch (error) {
@@ -299,4 +369,4 @@ if (require.main === module) {
   setInterval(loop, POLL_MS);
 }
 
-module.exports = { processJob, tick };
+module.exports = { processJob, shipVerifiedJob, tick };
