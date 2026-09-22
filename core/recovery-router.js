@@ -6,6 +6,8 @@ const { fingerprint, decide } = require("./kill-critic");
 const { buildPatchProposal } = require("./interop/patch-proposal");
 const { buildPatchCandidate } = require("./interop/patch-candidate");
 const { analyzeIncident, toRecoveryDiagnosis } = require("./x10think-recovery");
+const { registerProofReceipt, notifyRecoveryProof } = require("./nexus-proof-ledger");
+const crypto = require("node:crypto");
 
 function diagnose(logs = "", context = {}) {
   const state = analyzeIncident({
@@ -34,13 +36,34 @@ function shouldRetry(attempts, maxAttempts = 3) {
 }
 
 function buildProofReceipt(completed, verificationJob, now = new Date()) {
+  const headSha =
+    completed.repairHeadSha ||
+    completed.verificationSha ||
+    completed.sha ||
+    verificationJob.sha;
+
+  const proofId = "NXS-PROOF-" + crypto
+    .createHash("sha256")
+    .update(
+      JSON.stringify({
+        fingerprint: completed.fingerprint,
+        repository: completed.repository,
+        repairBranch: completed.branch,
+        headSha,
+        verificationRunId: verificationJob.runId
+      })
+    )
+    .digest("hex")
+    .slice(0, 24);
+
   return {
     version: 1,
     type: "x10think.recovery.proof",
+    proofId,
     fingerprint: completed.fingerprint,
     repository: completed.repository,
     repairBranch: completed.branch,
-    headSha: completed.repairHeadSha || completed.verificationSha || completed.sha,
+    headSha,
     workflowRunId: completed.runId,
     verificationRunId: verificationJob.runId,
     verifiedAt: now.toISOString(),
@@ -65,15 +88,54 @@ function createRecoveryRouter({ requireRecoveryAuth }) {
         );
         if (!completed) return res.status(202).json({ ok:true, accepted:false, reason:"no_matching_recovery_job", job });
         const proofReceipt = buildProofReceipt(completed, job);
+
+        let ledgerEntry;
+        try {
+          ledgerEntry = registerProofReceipt(proofReceipt);
+        } catch (error) {
+          if (/^DUPLICATE_PROOF:/.test(error.message)) {
+            const saved = update(completed.id, {
+              status: "verified",
+              verificationRunId: job.runId,
+              verificationSha: job.sha,
+              proofReceipt,
+              lastFailureConclusion: null,
+              workerError: null
+            });
+            return res.status(200).json({
+              ok: true,
+              accepted: true,
+              verified: true,
+              idempotent: true,
+              job: saved,
+              proofReceipt,
+              ledger: { registered: false, duplicate: true }
+            });
+          }
+          throw error;
+        }
+
+        const notification = await notifyRecoveryProof(proofReceipt);
         const saved = update(completed.id, {
           status: "verified",
           verificationRunId: job.runId,
           verificationSha: job.sha,
           proofReceipt,
+          proofLedger: ledgerEntry,
+          notification,
           lastFailureConclusion: null,
           workerError: null
         });
-        return res.status(200).json({ ok:true, accepted:true, verified:true, job:saved, proofReceipt });
+
+        return res.status(200).json({
+          ok:true,
+          accepted:true,
+          verified:true,
+          job:saved,
+          proofReceipt,
+          ledger: { registered: true, entryHash: ledgerEntry.entryHash },
+          notification
+        });
       }
       if (!failures.includes(job.conclusion)) return res.status(202).json({ ok:true, accepted:false, reason:"not_recoverable_failure", job });
 
