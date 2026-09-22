@@ -248,7 +248,16 @@ async function processJob(job) {
       "Merge is intentionally not performed by the recovery worker."
     ].join("\n");
     const pr = await createPullRequest({ cwd: worktree, head: branchName, base: BASE_BRANCH, title, body });
-    update(job.id, { status:"pr_created", prUrl:String(pr.html_url || "").trim(), sandbox:{ pass:true, regression, files:validation.files }, critic, diagnosis:{ ...(job.diagnosis || {}), evidence } });
+    update(job.id, {
+      status:"pr_created",
+      branch: branchName,
+      prUrl:String(pr.html_url || "").trim(),
+      prNumber: Number.isInteger(pr.number) ? pr.number : null,
+      repairHeadSha: String(pr.head?.sha || "").trim() || null,
+      sandbox:{ pass:true, regression, files:validation.files },
+      critic,
+      diagnosis:{ ...(job.diagnosis || {}), evidence }
+    });
   } finally {
     await cleanup(worktree);
   }
