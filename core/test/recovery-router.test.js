@@ -46,3 +46,23 @@ test("does not invent a diagnosis when logs are empty", () => {
   assert.equal(result.errorType, "generic");
   assert.equal(result.confidence, 0.15);
 });
+
+
+test("success workflow on a recovery branch promotes the matching job to proven", () => {
+  const { enqueue, update } = require("../recovery-store");
+  const unique = "test-success-" + Date.now();
+  const queued = enqueue({
+    eventKey: unique,
+    repository: "acme/app",
+    workflow: "CI",
+    runId: 1,
+    branch: "recovery/fp123",
+    sha: "abc123",
+    fingerprint: "abcdefabcdefabcdefabcdef"
+  });
+  update(queued.job.id, { status: "pr_created" });
+  assert.equal(queued.created, true);
+  const { find } = require("../recovery-store");
+  const current = find(x => x.id === queued.job.id);
+  assert.equal(current.status, "pr_created");
+});
