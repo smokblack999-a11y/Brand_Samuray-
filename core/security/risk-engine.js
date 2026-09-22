@@ -67,8 +67,13 @@ function addedLines(diff) {
     .map(line => line.slice(1));
 }
 
+function safeTest(pattern, value) {
+  pattern.lastIndex = 0;
+  return pattern.test(value);
+}
+
 function isCriticalPath(file) {
-  return CRITICAL_PATHS.some(pattern => pattern.test(file));
+  return CRITICAL_PATHS.some(pattern => safeTest(pattern, file));
 }
 
 function analyzeDiff(input = {}) {
@@ -92,18 +97,18 @@ function analyzeDiff(input = {}) {
 
   for (const line of lines) {
     for (const item of DANGEROUS_PATTERNS) {
-      if (item.re.test(line)) {
+      if (safeTest(item.re, line)) {
         risk += 45;
         findings.push({ type: item.reason, severity: "critical", line: redactSecrets(line) });
       }
     }
     for (const item of SECURITY_BYPASS_PATTERNS) {
-      if (item.re.test(line)) {
+      if (safeTest(item.re, line)) {
         risk += 50;
         findings.push({ type: item.reason, severity: "critical", line: redactSecrets(line) });
       }
     }
-    if (SECRET_PATTERNS.some(pattern => pattern.test(line))) {
+    if (SECRET_PATTERNS.some(pattern => safeTest(pattern, line))) {
       risk += 60;
       findings.push({ type: "secret-exposure", severity: "critical", line: redactSecrets(line) });
     }
