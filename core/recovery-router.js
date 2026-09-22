@@ -5,51 +5,18 @@ const { enqueue, list, update } = require("./recovery-store");
 const { fingerprint, decide } = require("./kill-critic");
 const { buildPatchProposal } = require("./interop/patch-proposal");
 const { buildPatchCandidate } = require("./interop/patch-candidate");
+const { analyzeIncident, toRecoveryDiagnosis } = require("./x10think-recovery");
 
-const PATTERNS = [
-  { type: "dependency_error", re: /(npm ERR!|module not found|could not resolve|dependency|gradle.*failed|aapt2)/i, weight: 0.30 },
-  { type: "test_failure", re: /(test failed|assertionerror|failing tests|failed tests|tests? failed)/i, weight: 0.25 },
-  { type: "syntax_error", re: /(syntaxerror|parse error|unexpected token)/i, weight: 0.30 },
-  { type: "timeout", re: /(timed out|timeout|deadline exceeded)/i, weight: 0.25 },
-  { type: "auth_error", re: /(401 unauthorized|403 forbidden|authentication failed|permission denied)/i, weight: 0.25 },
-  { type: "oom", re: /(out of memory|heap out of memory|oomkilled|exit code 137)/i, weight: 0.30 },
-  { type: "network_error", re: /(econnreset|enotfound|network error|connection refused|could not resolve host)/i, weight: 0.20 }
-];
-
-function normalizeWorkflowRun(payload = {}) {
-  const run = payload.workflow_run || payload;
-  const repo = payload.repository || {};
-  const conclusion = String(run.conclusion || "unknown");
-  const eventKey = `github:workflow_run:${repo.full_name || repo.id || "unknown"}:${run.id || run.run_number || "unknown"}`;
-  return {
-    eventKey, source: "github_workflow_run",
-    repository: repo.full_name || null, workflow: run.name || null,
-    runId: run.id || null, runNumber: run.run_number || null,
-    conclusion, status: run.status || null, branch: run.head_branch || null,
-    sha: run.head_sha || null, htmlUrl: run.html_url || null,
-    sender: payload.sender?.login || null
-  };
-}
-
-function diagnose(logs = "") {
-  const text = String(logs || "");
-  const matches = PATTERNS.filter(x => x.re.test(text));
-  const primary = matches.sort((a,b) => b.weight-a.weight)[0];
-  return {
-    errorType: primary?.type || "generic",
-    confidence: primary ? Math.min(0.9, 0.45 + primary.weight) : 0.15,
-    matches: matches.map(x => x.type),
-    evidence: {
-      exactErrorMatch: primary ? 0.8 : 0,
-      stackTraceMatch: /(at\s+\S+|Exception|Traceback)/i.test(text) ? 0.7 : 0,
-      changedFileMatch: 0,
-      dependencyMatch: matches.some(x => x.type === "dependency_error") ? 0.9 : 0,
-      historicalMatch: 0,
-      scopeMatch: 1,
-      sandboxPass: false,
-      regressionPass: false
-    }
-  };
+function diagnose(logs = "", context = {}) {
+  const state = analyzeIncident({
+    repository: context.repository,
+    workflow: context.workflow,
+    runId: context.runId,
+    branch: context.branch,
+    sha: context.sha,
+    logs
+  });
+  return toRecoveryDiagnosis(state);
 }
 
 function isBoundToJob(current, proposalInput = {}) {
