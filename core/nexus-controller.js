@@ -2,6 +2,7 @@
 
 const { createJob, transition, createProofReceipt, sha256 } = require("./proof-engine");
 const { enforcePolicy } = require("./nexus-policy");
+const { createVerifiedProofReceipt } = require("./nexus-proof-receipt");
 
 function runVerification(input = {}) {
   let job = createJob({
@@ -39,6 +40,19 @@ function runVerification(input = {}) {
   return { job, policy, receipt };
 }
 
+function buildVerifiedReceipt({ job, diagnosis, proposal, critic, sandbox, tests, security, policy } = {}) {
+  return createVerifiedProofReceipt({
+    job,
+    diagnosis,
+    proposal,
+    critic,
+    sandbox,
+    tests,
+    security,
+    policy
+  });
+}
+
 function buildEvidence({ command, exitCode, log, commitSha }) {
   return {
     command: String(command || ""),
@@ -48,4 +62,4 @@ function buildEvidence({ command, exitCode, log, commitSha }) {
   };
 }
 
-module.exports = { runVerification, buildEvidence };
+module.exports = { runVerification, buildEvidence, buildVerifiedReceipt };
