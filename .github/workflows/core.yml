@@ -59,6 +59,11 @@ jobs:
           node --check lead-engine.js
           node --check scripts/set-webhook.js
           node --check scripts/verify-config.js
+          node --check security/risk-engine.js
+          node --check security/data-guard.js
+          node --check security/security-gate.js
+          node --check interop/patch-candidate.js
+          node --check interop/patch-proposal.js
 
       - name: Unit tests
         run: npm test
