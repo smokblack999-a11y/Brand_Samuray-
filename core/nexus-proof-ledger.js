@@ -129,42 +129,67 @@ function validateReceipt(receipt) {
   }
 }
 
-function registerProofReceipt(receipt, { filePath = LEDGER_FILE } = {}) {
-  validateReceipt(receipt);
-
+function appendLedgerEntry(entry, { filePath = LEDGER_FILE } = {}) {
   return withLedgerLock(filePath, () => {
     const ledger = readLedger(filePath);
-
-    if (ledger.records.some(record => record.proofId === receipt.proofId)) {
-      throw new Error(
-        `DUPLICATE_PROOF: proofId ${receipt.proofId} has already been processed`
-      );
-    }
-
     const previousHash =
       ledger.records.length > 0
         ? ledger.records[ledger.records.length - 1].entryHash
         : "GENESIS";
-
-    const entry = {
-      proofId: String(receipt.proofId),
-      fingerprint: String(receipt.fingerprint),
-      headSha: String(receipt.headSha),
-      repository: String(receipt.repository),
-      repairBranch: receipt.repairBranch || null,
-      verificationRunId: receipt.verificationRunId || null,
-      verifiedAt: receipt.verifiedAt || new Date().toISOString(),
-      recordedAt: new Date().toISOString(),
-      previousHash
-    };
-
-    const entryHash = hashEntry(entry);
-    const stored = { ...entry, entryHash };
-
+    const storedEntry = { ...entry, previousHash };
+    const entryHash = hashEntry(storedEntry);
+    const stored = { ...storedEntry, entryHash };
     ledger.records.push(stored);
     writeLedger(filePath, ledger);
     return stored;
   });
+}
+
+function registerProofReceipt(receipt, { filePath = LEDGER_FILE } = {}) {
+  validateReceipt(receipt);
+
+  const existing = readLedger(filePath).records.find(record => record.proofId === receipt.proofId);
+  if (existing) {
+    throw new Error(
+      `DUPLICATE_PROOF: proofId ${receipt.proofId} has already been processed`
+    );
+  }
+
+  return appendLedgerEntry({
+    eventType: "proof.verified",
+    proofId: String(receipt.proofId),
+    fingerprint: String(receipt.fingerprint),
+    headSha: String(receipt.headSha),
+    repository: String(receipt.repository),
+    repairBranch: receipt.repairBranch || null,
+    verificationRunId: receipt.verificationRunId || null,
+    verifiedAt: receipt.verifiedAt || new Date().toISOString(),
+    recordedAt: new Date().toISOString()
+  }, { filePath });
+}
+
+function registerShipReceipt(receipt, { filePath = LEDGER_FILE } = {}) {
+  if (!receipt || !receipt.shipId || !receipt.proofId || !receipt.repository || !receipt.headSha || !receipt.mergeCommitSha) {
+    throw new Error("INVALID_SHIP_RECEIPT: shipId, proofId, repository, headSha and mergeCommitSha are required");
+  }
+
+  const existing = readLedger(filePath).records.find(record => record.shipId === receipt.shipId);
+  if (existing) {
+    throw new Error(`DUPLICATE_SHIP: shipId ${receipt.shipId} has already been processed`);
+  }
+
+  return appendLedgerEntry({
+    eventType: "recovery.shipped",
+    shipId: String(receipt.shipId),
+    proofId: String(receipt.proofId),
+    fingerprint: String(receipt.fingerprint || ""),
+    headSha: String(receipt.headSha),
+    mergeCommitSha: String(receipt.mergeCommitSha),
+    repository: String(receipt.repository),
+    repairBranch: receipt.repairBranch || null,
+    shippedAt: receipt.shippedAt || new Date().toISOString(),
+    recordedAt: new Date().toISOString()
+  }, { filePath });
 }
 
 async function notifyRecoveryProof(
