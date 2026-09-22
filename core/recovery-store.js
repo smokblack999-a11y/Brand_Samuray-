@@ -82,8 +82,8 @@ function update(id, patch) {
   });
 }
 
-function list(limit = 100) {
+function find(predicate) {\n  if (typeof predicate !== "function") throw new TypeError("predicate must be a function");\n  return read().find(predicate) || null;\n}\n\nfunction list(limit = 100) {
   return read().slice(-Math.max(1, Math.min(Number(limit) || 100, 1000))).reverse();
 }
 
-module.exports = { enqueue, update, list };
+module.exports = { enqueue, update, find, list };
