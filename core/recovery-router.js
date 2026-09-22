@@ -52,6 +52,17 @@ function diagnose(logs = "") {
   };
 }
 
+function findRecoveryIncident(jobs, workflowRun) {
+  const run = normalizeWorkflowRun(workflowRun || {});
+  if (run.conclusion !== "success" || !/^recovery\\//.test(String(run.branch || ""))) return null;
+  return (Array.isArray(jobs) ? jobs : []).find(x =>
+    x.repository === run.repository &&
+    x.branch === run.branch &&
+    x.repairSha === run.sha &&
+    ["pr_created","pr_ready","sandbox_pending","human_review"].includes(x.status)
+  ) || null;
+}
+
 function isBoundToJob(current, proposalInput = {}) {
   const expected = String(current?.fingerprint || "").trim().toLowerCase();
   const supplied = String(proposalInput?.evidenceFingerprint || "").trim().toLowerCase();
@@ -74,12 +85,7 @@ function createRecoveryRouter({ requireRecoveryAuth }) {
       // Never promote a normal main-branch success into a recovery proof.
       if (job.conclusion === "success") {
         if (!repairBranch) return res.status(202).json({ ok:true, accepted:false, reason:"success_not_recovery_branch", job });
-        const incident = existingJobs.find(x =>
-          x.repository === job.repository &&
-          x.branch === job.branch &&
-          x.repairSha === job.sha &&
-          ["pr_created","pr_ready","sandbox_pending","human_review"].includes(x.status)
-        );
+        const incident = findRecoveryIncident(existingJobs, req.body || {});
         if (!incident) return res.status(202).json({ ok:true, accepted:false, reason:"recovery_job_not_found", job });
         const proof = {
           type: "github_workflow_run",
@@ -213,4 +219,4 @@ function createRecoveryRouter({ requireRecoveryAuth }) {
   return router;
 }
 
-module.exports = { createRecoveryRouter, normalizeWorkflowRun, diagnose, isBoundToJob };
+module.exports = { createRecoveryRouter, normalizeWorkflowRun, diagnose, isBoundToJob, findRecoveryIncident };
