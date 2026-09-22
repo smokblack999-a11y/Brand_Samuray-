@@ -6,7 +6,8 @@ const { fingerprint } = require("./kill-critic");
 const { buildPatchProposal } = require("./interop/patch-proposal");
 const { buildPatchCandidate } = require("./interop/patch-candidate");
 const { analyzeIncident, toRecoveryDiagnosis } = require("./x10think-recovery");
-const { registerProofReceipt, notifyRecoveryProof } = require("./nexus-proof-ledger");
+const { registerProofReceipt, registerShipReceipt, notifyRecoveryProof, notifyRecoveryShip } = require("./nexus-proof-ledger");
+const { autonomousMerge } = require("./nexus-automerge");
 const { solveRecovery } = require("./x10thinc-solver");
 const crypto = require("node:crypto");
 
@@ -74,6 +75,8 @@ function buildProofReceipt(completed, verificationJob, now = new Date()) {
 
 function createRecoveryRouter({ requireRecoveryAuth }) {
   const router = Router();
+  const autonomousMergeEnabled =
+    String(process.env.RECOVERY_AUTONOMOUS_MERGE || "").toLowerCase() === "true";
 
   router.post("/github", requireRecoveryAuth, async (req, res) => {
     try {
@@ -85,57 +88,117 @@ function createRecoveryRouter({ requireRecoveryAuth }) {
         const completed = list(100).find(item =>
           item.repository === job.repository &&
           item.branch === job.branch &&
-          ["pr_created","pr_ready","sandbox_pending","human_review"].includes(item.status)
+          ["pr_created","pr_ready","sandbox_pending","human_review","verified"].includes(item.status)
         );
         if (!completed) return res.status(202).json({ ok:true, accepted:false, reason:"no_matching_recovery_job", job });
-        const proofReceipt = buildProofReceipt(completed, job);
 
-        let ledgerEntry;
+        const proofReceipt = buildProofReceipt(completed, job);
+        let ledgerEntry = null;
+        let duplicateProof = false;
+
         try {
           ledgerEntry = registerProofReceipt(proofReceipt);
         } catch (error) {
           if (/^DUPLICATE_PROOF:/.test(error.message)) {
-            const saved = update(completed.id, {
-              status: "verified",
-              verificationRunId: job.runId,
-              verificationSha: job.sha,
-              proofReceipt,
-              lastFailureConclusion: null,
-              workerError: null
-            });
-            return res.status(200).json({
-              ok: true,
-              accepted: true,
-              verified: true,
-              idempotent: true,
-              job: saved,
-              proofReceipt,
-              ledger: { registered: false, duplicate: true }
-            });
+            duplicateProof = true;
+          } else {
+            throw error;
           }
-          throw error;
         }
 
-        const notification = await notifyRecoveryProof(proofReceipt);
-        const saved = update(completed.id, {
+        let saved = update(completed.id, {
           status: "verified",
           verificationRunId: job.runId,
           verificationSha: job.sha,
           proofReceipt,
-          proofLedger: ledgerEntry,
-          notification,
+          ...(ledgerEntry ? { proofLedger: ledgerEntry } : {}),
           lastFailureConclusion: null,
           workerError: null
         });
 
+        const notification = await notifyRecoveryProof(proofReceipt);
+        saved = update(completed.id, { notification });
+
+        let ship = null;
+        if (autonomousMergeEnabled && Number.isInteger(saved.prNumber) && saved.prNumber > 0) {
+          try {
+            ship = await autonomousMerge({
+              repository: saved.repository,
+              prNumber: saved.prNumber,
+              expectedHeadSha: proofReceipt.headSha,
+              proof: proofReceipt
+            });
+
+            if (ship.merged) {
+              const shipId = "NXS-SHIP-" + crypto
+                .createHash("sha256")
+                .update(JSON.stringify({
+                  proofId: proofReceipt.proofId,
+                  mergeCommitSha: ship.sha
+                }))
+                .digest("hex")
+                .slice(0, 24);
+
+              const shipReceipt = {
+                version: 1,
+                type: "x10think.recovery.ship",
+                shipId,
+                proofId: proofReceipt.proofId,
+                fingerprint: proofReceipt.fingerprint,
+                repository: proofReceipt.repository,
+                repairBranch: proofReceipt.repairBranch,
+                headSha: proofReceipt.headSha,
+                mergeCommitSha: ship.sha,
+                shippedAt: new Date().toISOString()
+              };
+
+              let shipLedger = null;
+              try {
+                shipLedger = registerShipReceipt(shipReceipt);
+              } catch (error) {
+                if (!/^DUPLICATE_SHIP:/.test(error.message)) throw error;
+              }
+
+              const shipNotification = await notifyRecoveryShip(shipReceipt);
+              saved = update(saved.id, {
+                status: "merged",
+                mergeCommitSha: ship.sha,
+                autonomousMerge: true,
+                shipReceipt,
+                ...(shipLedger ? { shipLedger } : {}),
+                shipNotification,
+                workerError: null
+              });
+            } else {
+              saved = update(saved.id, {
+                status: "verified",
+                autonomousMerge: false,
+                mergeBlocked: ship
+              });
+            }
+          } catch (error) {
+            saved = update(saved.id, {
+              status: "verified",
+              autonomousMerge: false,
+              mergeBlocked: { error: String(error?.message || error) },
+              workerError: String(error?.message || error)
+            });
+          }
+        }
+
         return res.status(200).json({
-          ok:true,
-          accepted:true,
-          verified:true,
-          job:saved,
+          ok: true,
+          accepted: true,
+          verified: true,
+          idempotent: duplicateProof,
+          autonomousMerge: autonomousMergeEnabled,
+          job: saved,
           proofReceipt,
-          ledger: { registered: true, entryHash: ledgerEntry.entryHash },
-          notification
+          ledger: ledgerEntry
+            ? { registered: true, entryHash: ledgerEntry.entryHash }
+            : { registered: false, duplicate: true },
+          notification,
+          ship
         });
       }
       if (!failures.includes(job.conclusion)) return res.status(202).json({ ok:true, accepted:false, reason:"not_recoverable_failure", job });
