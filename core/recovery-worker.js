@@ -104,7 +104,7 @@ async function processJob(job) {
         const changedLines = String(diff).split(/\\r?\\n/).filter(line => /^\\+[^+]|^-[^-]/.test(line)).length;
         const deletions = String(diff).split(/\\r?\\n/).filter(line => /^-[^-]/.test(line)).length;
         const sensitivePaths = files.filter(p => /(^|\/)(\.github|\.env|package-lock\.json|yarn\.lock|pnpm-lock\.yaml|android\/app\/src\/main\/AndroidManifest\.xml)(\/|$)/i.test(p));
-        const patch = { changedFiles: files.length, changedLines, deletions, sensitivePaths };
+        const patch = { files, changedFiles: files.length, changedLines, deletions, sensitivePaths };
         const evidence = { ...(job.diagnosis?.evidence || {}), scopeMatch: 1, changedFileMatch: 1, sandboxPass: false, regressionPass: false };
         const critic = solveRecovery({ attempts: job.attempts, diagnosis: { ...(job.diagnosis || {}), evidence }, patch });
         if (critic.action !== "SANDBOX") {
