@@ -67,6 +67,35 @@ function createRecoveryRouter({ requireRecoveryAuth }) {
       if (!job.runId && !job.runNumber) return res.status(400).json({ ok:false, error:{ code:"INVALID_WORKFLOW_RUN", message:"workflow_run.id is required" } });
 
       const failures = ["failure","timed_out","cancelled","startup_failure","action_required"];
+      const repairBranch = /^recovery\\//.test(String(job.branch || ""));
+      const existingJobs = list(100);
+
+      // A successful run on a recovery branch is the final external proof event.
+      // Never promote a normal main-branch success into a recovery proof.
+      if (job.conclusion === "success") {
+        if (!repairBranch) return res.status(202).json({ ok:true, accepted:false, reason:"success_not_recovery_branch", job });
+        const incident = existingJobs.find(x =>
+          x.repository === job.repository &&
+          x.branch === job.branch &&
+          ["pr_created","pr_ready","sandbox_pending","human_review"].includes(x.status)
+        );
+        if (!incident) return res.status(202).json({ ok:true, accepted:false, reason:"recovery_job_not_found", job });
+        const proof = {
+          type: "github_workflow_run",
+          eventKey: job.eventKey,
+          runId: job.runId,
+          conclusion: "success",
+          sha: job.sha,
+          verifiedAt: new Date().toISOString()
+        };
+        const saved = update(incident.id, {
+          status: "proven",
+          proof,
+          ciVerified: true
+        });
+        return res.status(200).json({ ok:true, accepted:true, recoveryProof:true, job:saved });
+      }
+
       if (!failures.includes(job.conclusion)) return res.status(202).json({ ok:true, accepted:false, reason:"not_recoverable_failure", job });
 
       const logs = String(req.body?.failure_logs || "");
