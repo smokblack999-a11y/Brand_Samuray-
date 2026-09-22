@@ -9,6 +9,7 @@ const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'samurai-core-'));
 const port = 18000 + Math.floor(Math.random() * 1000);
 const API_KEY = 'test-core-api-key-123456';
 const WEBHOOK_SECRET = 'test-webhook-secret-123456';
+const RECOVERY_API_KEY = 'test-recovery-api-key-123456';
 
 let child;
 
@@ -30,6 +31,7 @@ test.before(async () => {
       OPENAI_API_KEY: '',
       CORE_API_KEY: API_KEY,
       TELEGRAM_WEBHOOK_SECRET: WEBHOOK_SECRET,
+      X10THINK_RECOVERY_API_KEY: RECOVERY_API_KEY,
       MAX_MESSAGE_CHARS: '4000'
     },
     stdio: ['ignore', 'pipe', 'pipe']
@@ -56,7 +58,7 @@ test('health endpoint', async () => {
   const body = await r.json();
   assert.equal(body.ok, true);
   assert.equal(body.service, 'SamuraiOS Core');
-  assert.equal(body.version, '2.6.0');
+  assert.equal(body.version, '2.7.0');
 });
 
 test('readiness endpoint verifies critical configuration', async () => {
