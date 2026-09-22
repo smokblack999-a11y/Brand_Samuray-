@@ -90,7 +90,7 @@ function createRecoveryRouter({ requireRecoveryAuth }) {
       // Never create a second recovery job/PR chain for the same fingerprint.
       if (repairBranch && existing) {
         const nextAttempts = Number(existing.attempts || 0) + 1;
-        const diagnosis = diagnose(logs);
+        const diagnosis = diagnose(logs, job);
         const fp = String(existing.fingerprint || fingerprint({
           workflow: job.workflow, job: job.runId, step: job.branch, exitCode: 1,
           errorType: diagnosis.errorType, errorMessage: logs.slice(-12000), command: job.sha
