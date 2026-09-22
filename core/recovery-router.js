@@ -2,7 +2,7 @@
 
 const { Router } = require("express");
 const { enqueue, list, update } = require("./recovery-store");
-const { fingerprint, decide } = require("./kill-critic");
+const { fingerprint } = require("./kill-critic");
 const { buildPatchProposal } = require("./interop/patch-proposal");
 const { buildPatchCandidate } = require("./interop/patch-candidate");
 const { analyzeIncident, toRecoveryDiagnosis } = require("./x10think-recovery");
@@ -169,9 +169,9 @@ function createRecoveryRouter({ requireRecoveryAuth }) {
           status,
           workerError: status === "stopped" ? "REPAIR_RETRY_BUDGET_EXHAUSTED" : null
         });
-        const critic = decide({
+        const critic = solveRecovery({
           attempts: nextAttempts,
-          evidence: diagnosis.evidence,
+          diagnosis,
           patch: existing.patch || { changedFiles: 0, changedLines: 0 }
         });
         return res.status(202).json({
@@ -186,9 +186,9 @@ function createRecoveryRouter({ requireRecoveryAuth }) {
         errorType: diagnosis.errorType, errorMessage: logs.slice(-12000), command: job.sha
       });
       const result = enqueue({ ...job, fingerprint: fp, diagnosis, failureLogs: logs.slice(-12000) });
-      const critic = decide({
+      const critic = solveRecovery({
         attempts: result.job.attempts,
-        evidence: diagnosis.evidence,
+        diagnosis,
         patch: { changedFiles: 0, changedLines: 0 }
       });
       const saved = result.created
