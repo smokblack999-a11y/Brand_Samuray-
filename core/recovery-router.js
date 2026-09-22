@@ -58,6 +58,29 @@ function isBoundToJob(current, proposalInput = {}) {
   return Boolean(expected && /^[a-f0-9]{24}$/.test(expected) && supplied === expected);
 }
 
+function isRepairBranch(branch = "") {
+  return String(branch || "").startsWith("recovery/");
+}
+
+function shouldRetry(attempts, maxAttempts = 3) {
+  return Number(attempts || 0) < Number(maxAttempts || 3);
+}
+
+function buildProofReceipt(completed, verificationJob, now = new Date()) {
+  return {
+    version: 1,
+    type: "x10think.recovery.proof",
+    fingerprint: completed.fingerprint,
+    repository: completed.repository,
+    repairBranch: completed.branch,
+    headSha: completed.repairHeadSha || completed.verificationSha || completed.sha,
+    workflowRunId: completed.runId,
+    verificationRunId: verificationJob.runId,
+    verifiedAt: now.toISOString(),
+    gates: { sandbox: true, regression: true, githubCi: true, autonomousMerge: false }
+  };
+}
+
 function createRecoveryRouter({ requireRecoveryAuth }) {
   const router = Router();
 
@@ -67,25 +90,14 @@ function createRecoveryRouter({ requireRecoveryAuth }) {
       if (!job.runId && !job.runNumber) return res.status(400).json({ ok:false, error:{ code:"INVALID_WORKFLOW_RUN", message:"workflow_run.id is required" } });
 
       const failures = ["failure","timed_out","cancelled","startup_failure","action_required"];
-      if (job.conclusion === "success" && String(job.branch || "").startsWith("recovery/")) {
+      if (job.conclusion === "success" && isRepairBranch(job.branch)) {
         const completed = list(100).find(item =>
           item.repository === job.repository &&
           item.branch === job.branch &&
           ["pr_created","pr_ready","sandbox_pending","human_review"].includes(item.status)
         );
         if (!completed) return res.status(202).json({ ok:true, accepted:false, reason:"no_matching_recovery_job", job });
-        const proofReceipt = {
-          version: 1,
-          type: "x10think.recovery.proof",
-          fingerprint: completed.fingerprint,
-          repository: completed.repository,
-          repairBranch: completed.branch,
-          headSha: completed.sha,
-          workflowRunId: completed.runId,
-          verificationRunId: job.runId,
-          verifiedAt: new Date().toISOString(),
-          gates: { sandbox: true, regression: true, githubCi: true, autonomousMerge: false }
-        };
+        const proofReceipt = buildProofReceipt(completed, job);
         const saved = update(completed.id, {
           status: "verified",
           verificationRunId: job.runId,
@@ -99,7 +111,7 @@ function createRecoveryRouter({ requireRecoveryAuth }) {
       if (!failures.includes(job.conclusion)) return res.status(202).json({ ok:true, accepted:false, reason:"not_recoverable_failure", job });
 
       const logs = String(req.body?.failure_logs || "");
-      const repairBranch = String(job.branch || "").startsWith("recovery/");
+      const repairBranch = isRepairBranch(job.branch);
       const existing = list(100).find(item =>
         item.repository === job.repository &&
         item.branch === job.branch &&
@@ -116,7 +128,7 @@ function createRecoveryRouter({ requireRecoveryAuth }) {
           workflow: job.workflow, job: job.runId, step: job.branch, exitCode: 1,
           errorType: diagnosis.errorType, errorMessage: logs.slice(-12000), command: job.sha
         }));
-        const status = nextAttempts >= 3 ? "stopped" : "queued";
+        const status = shouldRetry(nextAttempts) ? "queued" : "stopped";
         const saved = update(existing.id, {
           attempts: nextAttempts,
           lastFailureRunId: job.runId,
@@ -251,4 +263,4 @@ function createRecoveryRouter({ requireRecoveryAuth }) {
   return router;
 }
 
-module.exports = { createRecoveryRouter, normalizeWorkflowRun, diagnose, isBoundToJob };
+module.exports = { createRecoveryRouter, normalizeWorkflowRun, diagnose, isBoundToJob, isRepairBranch, shouldRetry, buildProofReceipt };
