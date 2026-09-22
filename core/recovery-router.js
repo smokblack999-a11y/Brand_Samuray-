@@ -7,6 +7,7 @@ const { buildPatchProposal } = require("./interop/patch-proposal");
 const { buildPatchCandidate } = require("./interop/patch-candidate");
 const { analyzeIncident, toRecoveryDiagnosis } = require("./x10think-recovery");
 const { registerProofReceipt, notifyRecoveryProof } = require("./nexus-proof-ledger");
+const { solveRecovery } = require("./x10thinc-solver");
 const crypto = require("node:crypto");
 
 function diagnose(logs = "", context = {}) {
@@ -222,7 +223,7 @@ function createRecoveryRouter({ requireRecoveryAuth }) {
       const sensitivePaths = changedFiles.filter(p => /(^|\/)(\.github|\.env|package-lock\.json|yarn\.lock|pnpm-lock\.yaml|android\/app\/src\/main\/AndroidManifest\.xml)(\/|$)/i.test(p));
       const patch = { changedFiles: changedFiles.length, changedLines, deletions, sensitivePaths };
       const evidence = { ...(current.diagnosis?.evidence || {}), scopeMatch: 1, changedFileMatch: 1, sandboxPass: false, regressionPass: false };
-      const critic = decide({ attempts: current.attempts, evidence, patch });
+      const critic = solveRecovery({ attempts: current.attempts, diagnosis: { ...(current.diagnosis || {}), evidence }, patch });
 
       if (critic.action !== "SANDBOX") {
         const status = critic.action === "HUMAN_REVIEW" ? "human_review" : "stopped";
@@ -272,7 +273,7 @@ function createRecoveryRouter({ requireRecoveryAuth }) {
       const sensitivePaths = changedFiles.filter(p => /(^|\/)(\.github|\.env|package-lock\.json|yarn\.lock|pnpm-lock\.yaml|android\/app\/src\/main\/AndroidManifest\.xml)(\/|$)/i.test(p));
       const patch = { changedFiles: changedFiles.length, changedLines, deletions, sensitivePaths };
       const evidence = { ...(current.diagnosis?.evidence || {}), scopeMatch: 1, changedFileMatch: 1 };
-      const critic = decide({ attempts: current.attempts, evidence, patch });
+      const critic = solveRecovery({ attempts: current.attempts, diagnosis: { ...(current.diagnosis || {}), evidence }, patch });
 
       const saved = update(current.id, {
         patchProposal: proposal.proposal,
