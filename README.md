@@ -67,6 +67,22 @@ Telegram Bot API поддерживает `business_connection` и `business_mes
 
 Главное правило: один исходный SHA должен однозначно связываться с проверенным артефактом. Повторная сборка может использовать content-addressed cache.
 
+## X10THINC Data Guard / Kill Critic
+
+Новый deterministic security boundary для repair-кандидатов:
+
+`failure → minimized context → diff risk analysis → secret redaction → policy decision → sandbox → PR → CI`
+
+- анализируется именно diff, а не только наличие опасных слов;
+- критические пути получают дополнительную проверку: auth, crypto, TLS, ACL, policy, GitHub workflows, Docker и tests;
+- обнаружение secret exposure и security-control bypass работает fail-closed;
+- repair context минимизируется и ограничивается по размеру;
+- credentials не возвращаются в evidence;
+- `autonomousWrite=false` и `autonomousMerge=false` остаются обязательными ограничениями;
+- PASS означает только прохождение deterministic gate, а не доказательство корректности патча.
+
+Реализация: `core/security/`.
+
 ## Безопасность
 
 Ключи и секреты не коммитить. Использовать GitHub Secrets или переменные окружения.
