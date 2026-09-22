@@ -19,5 +19,24 @@ async function runOnce(){
  }catch(error){update(job.id,{status:"stopped",controllerError:String(error?.message||error)});return{stage:"x10think",processed:true,jobId:job.id,action:"STOP",reason:String(error?.message||error)};}
 }
 async function runBounded(maxSteps=MAX_STEPS){const limit=Math.max(1,Math.min(Number(maxSteps)||MAX_STEPS,MAX_STEPS));const steps=[];for(let i=0;i<limit;i++){const result=await runOnce();steps.push(result);if(!result.processed)break;}return{ok:true,steps};}
-if(require.main===module)runBounded().then(x=>console.log(JSON.stringify(x,null,2))).catch(e=>{console.error(JSON.stringify({ok:false,error:e.message}));process.exitCode=1;});
-module.exports={runOnce,runBounded};
+async function startDaemon() {
+  const pollMs = Math.max(1000, Number(process.env.RECOVERY_CONTROLLER_POLL_MS || 5000));
+  let busy = false;
+  const loop = async () => {
+    if (busy) return;
+    busy = true;
+    try { await runBounded(); } catch (error) { console.error(JSON.stringify({ok:false,error:error.message})); }
+    finally { busy = false; }
+  };
+  await loop();
+  return setInterval(loop, pollMs);
+}
+
+if(require.main===module){
+  if(String(process.env.RECOVERY_CONTROLLER_DAEMON || "").toLowerCase()==="true"){
+    startDaemon();
+  } else {
+    runBounded().then(x=>console.log(JSON.stringify(x,null,2))).catch(e=>{console.error(JSON.stringify({ok:false,error:e.message}));process.exitCode=1;});
+  }
+}
+module.exports={runOnce,runBounded,startDaemon};
