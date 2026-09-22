@@ -8,7 +8,10 @@
     "start": "node server.js",
     "test": "node --test",
     "verify-config": "node scripts/verify-config.js",
-    "set-webhook": "node scripts/set-webhook.js"
+    "set-webhook": "node scripts/set-webhook.js",
+    "recovery:controller": "node recovery-controller.js",
+    "start:recovery-runtime": "RECOVERY_CONTROLLER_DAEMON=true node recovery-controller.js",
+    "test:recovery-runtime": "node --test test/recovery-router.test.js test/kill-critic.test.js test/recovery-proposer.test.js"
   },
   "dependencies": {
     "cors": "^2.8.6",
