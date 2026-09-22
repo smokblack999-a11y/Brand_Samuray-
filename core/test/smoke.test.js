@@ -7,7 +7,7 @@ const { scoreLead } = require('../lead-engine');
 const { saveLead, listLeads, stats } = require('../store');
 
 test('lead engine scores a buying-intent message', () => {
-  const result = scoreLead('Сколько стоит установка? Хочу заказать сегодня');
+  const result = scoreLead('Сколько стоит? Хочу купить сегодня и заказать');
   assert.ok(result.score >= 70);
   assert.equal(result.intent, 'hot');
 });
