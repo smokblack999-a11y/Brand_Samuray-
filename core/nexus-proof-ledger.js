@@ -227,11 +227,46 @@ async function notifyRecoveryProof(
   }
 }
 
+async function notifyRecoveryShip(
+  receipt,
+  { webhookUrl = process.env.RECOVERY_WEBHOOK_URL, fetchImpl = fetch } = {}
+) {
+  if (!webhookUrl) return { notified: false, reason: "NO_WEBHOOK_URL" };
+
+  const payload = {
+    event: "nexus.recovery.shipped",
+    text: `NEXUS Autonomous Ship | Repo: ${receipt.repository} | Proof: ${receipt.proofId} | Merge: ${receipt.mergeCommitSha}`,
+    ship: {
+      shipId: receipt.shipId,
+      proofId: receipt.proofId,
+      fingerprint: receipt.fingerprint,
+      repository: receipt.repository,
+      repairBranch: receipt.repairBranch || null,
+      headSha: receipt.headSha,
+      mergeCommitSha: receipt.mergeCommitSha,
+      shippedAt: receipt.shippedAt
+    }
+  };
+
+  try {
+    const response = await fetchImpl(webhookUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+    return { notified: response.ok, statusCode: response.status };
+  } catch (error) {
+    return { notified: false, error: error.message };
+  }
+}
+
 module.exports = {
   LEDGER_FILE,
   loadLedger,
   isProofRegistered,
   registerProofReceipt,
+  registerShipReceipt,
   notifyRecoveryProof,
+  notifyRecoveryShip,
   hashEntry
 };
