@@ -7,6 +7,7 @@ const { execFile } = require("node:child_process");
 const { promisify } = require("node:util");
 const { list, update } = require("./recovery-store");
 const { decide } = require("./kill-critic");
+const { solveRecovery } = require("./x10thinc-solver");
 const { validateUnifiedDiff } = require("./interop/patch-candidate");
 const { generatePatchCandidate } = require("./recovery-proposer");
 
@@ -105,7 +106,7 @@ async function processJob(job) {
         const sensitivePaths = files.filter(p => /(^|\/)(\.github|\.env|package-lock\.json|yarn\.lock|pnpm-lock\.yaml|android\/app\/src\/main\/AndroidManifest\.xml)(\/|$)/i.test(p));
         const patch = { changedFiles: files.length, changedLines, deletions, sensitivePaths };
         const evidence = { ...(job.diagnosis?.evidence || {}), scopeMatch: 1, changedFileMatch: 1, sandboxPass: false, regressionPass: false };
-        const critic = decide({ attempts: job.attempts, evidence, patch });
+        const critic = solveRecovery({ attempts: job.attempts, diagnosis: { ...(job.diagnosis || {}), evidence }, patch });
         if (critic.action !== "SANDBOX") {
           update(job.id, { status: critic.action === "HUMAN_REVIEW" ? "human_review" : "stopped", patchCandidate:candidate.candidate, patch, critic, workerError:"AI_CANDIDATE_REJECTED_BY_KILL_CRITIC" });
           return;
@@ -201,7 +202,7 @@ async function processJob(job) {
       sandboxPass: true,
       regressionPass
     };
-    const critic = decide({ attempts: job.attempts, evidence, patch: job.patch });
+    const critic = solveRecovery({ attempts: job.attempts, diagnosis: { ...(job.diagnosis || {}), evidence }, patch: job.patch });
     if (critic.action !== "CREATE_PR") {
       update(job.id, { status: critic.action === "HUMAN_REVIEW" ? "human_review" : "stopped", sandbox: { pass:true, regression, files:validation.files }, critic, diagnosis:{ ...(job.diagnosis || {}), evidence } });
       return;
