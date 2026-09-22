@@ -1,6 +1,7 @@
 "use strict";
 
 const { validateUnifiedDiff, MAX_PATCH_BYTES } = require("./patch-candidate");
+const { evaluateRepair } = require("../security/security-gate");
 
 const MAX_PROPOSAL_BYTES = MAX_PATCH_BYTES;
 
@@ -28,11 +29,30 @@ function buildPatchProposal(input = {}) {
     return { accepted: false, reason: "PATCH_TOUCHES_UNRELATED_FILE" };
   }
 
+  const security = evaluateRepair({
+    diff,
+    jobId: input.jobId,
+    repository: input.repository,
+    commitSha: input.commitSha,
+    failureClass: input.failureClass,
+    evidenceRefs: input.evidenceRefs,
+    ttlDays: input.ttlDays
+  });
+
+  if (security.gate !== "PASS") {
+    return {
+      accepted: false,
+      reason: security.gate === "BLOCK" ? "SECURITY_GATE_BLOCKED" : "SECURITY_REVIEW_REQUIRED",
+      security
+    };
+  }
+
   return {
     accepted: true,
     source: String(input.source || "external-proposal"),
+    security,
     proposal: {
-      version: 1,
+      version: 2,
       diff: validated.diff,
       files: validated.files,
       evidenceOnly: true,
