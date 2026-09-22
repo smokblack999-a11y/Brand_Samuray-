@@ -74,7 +74,7 @@ function scoreEvidence(evidence, options = {}) {
   const w = { ...DEFAULTS, ...options };
   const e = normalizeEvidence(evidence);
 
-  const score =
+  const rawScore =
     e.exactErrorMatch * w.exactErrorWeight +
     e.stackTraceMatch * w.stackTraceWeight +
     e.changedFileMatch * w.changedFileWeight +
@@ -84,6 +84,17 @@ function scoreEvidence(evidence, options = {}) {
     (e.sandboxPass ? w.sandboxPassWeight : 0) +
     (e.regressionPass ? w.regressionPassWeight : 0);
 
+  const totalWeight =
+    w.exactErrorWeight +
+    w.stackTraceWeight +
+    w.changedFileWeight +
+    w.dependencyWeight +
+    w.historicalWeight +
+    w.scopeWeight +
+    w.sandboxPassWeight +
+    w.regressionPassWeight;
+
+  const score = totalWeight > 0 ? rawScore / totalWeight : 0;
   return Number(clamp(score).toFixed(4));
 }
 
