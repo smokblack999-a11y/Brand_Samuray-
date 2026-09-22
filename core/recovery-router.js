@@ -1,7 +1,7 @@
 "use strict";
 
 const { Router } = require("express");
-const { enqueue, list, update } = require("./recovery-store");
+const { enqueue, list, find, update } = require("./recovery-store");
 const { fingerprint, decide } = require("./kill-critic");
 const { buildPatchProposal } = require("./interop/patch-proposal");
 const { buildPatchCandidate } = require("./interop/patch-candidate");
