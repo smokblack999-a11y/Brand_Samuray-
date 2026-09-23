@@ -8,6 +8,8 @@
  * independent evidence before it can be promoted to a PR.
  */
 
+const { analyzeDiff } = require("./x10thinc-diff-critic");
+
 const ACTIONS = Object.freeze({
   STOP: "STOP",
   HUMAN_REVIEW: "HUMAN_REVIEW",
@@ -105,7 +107,8 @@ function decide(input = {}, options = {}) {
   const risk = riskLevel(input.patch, w);
   const attempts = Math.max(0, Number(input.attempts || 0));
   const score = scoreEvidence(evidence, w);
-  const reasons = [];
+  const diffCritic = input.patch?.diff ? analyzeDiff(input.patch.diff) : null;
+  const reasons = [];\n\n  if (diffCritic && !diffCritic.safe) {\n    reasons.push(...diffCritic.reasons);\n    return { action: ACTIONS.HUMAN_REVIEW, score, risk: "high", reasons, diffCritic };\n  }
 
   if (attempts >= w.maxAttempts) {
     reasons.push("retry_budget_exhausted");
@@ -143,7 +146,7 @@ function decide(input = {}, options = {}) {
   }
 
   reasons.push("independent_evidence_passed");
-  return { action: ACTIONS.CREATE_PR, score, risk, reasons };
+  return { action: ACTIONS.CREATE_PR, score, risk, reasons, diffCritic };
 }
 
 module.exports = {
