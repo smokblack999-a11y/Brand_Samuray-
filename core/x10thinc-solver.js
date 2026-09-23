@@ -135,7 +135,7 @@ function solveRecovery(input = {}) {
         errorType: diagnosis.errorType || null,
         affectedFiles: affected
       },
-      patch: { files, changedFiles, changedLines, deletions },
+      patch: { files, changedFiles, changedLines, deletions, diffHash: diffCritic?.diffHash || null },
       evidence,
       action,
       reasoningScore
