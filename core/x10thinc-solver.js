@@ -49,6 +49,7 @@ function solveRecovery(input = {}) {
   const diagnosis = input.diagnosis || {};
   const evidence = normalizeEvidence(diagnosis.evidence || input.evidence || {});
   const patch = input.patch || {};
+  const diffCritic = patch.diff ? require("./x10thinc-diff-critic").analyzeDiff(patch.diff) : null;
   const files = list(patch.files || diagnosis.affectedFiles);
   const affected = list(diagnosis.affectedFiles);
   const protectedTouched = protectedPaths(files);
@@ -126,6 +127,7 @@ function solveRecovery(input = {}) {
     minimality: Number(minimality.toFixed(4)),
     contradictions,
     protectedPaths: protectedTouched,
+    diffCritic,
     reasons: [...new Set(reasons)],
     stateHash: stableHash({
       diagnosis: {
