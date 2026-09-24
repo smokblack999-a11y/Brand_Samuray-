@@ -17,6 +17,11 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-      - name: Run Kill Critic tests
+      - name: Run complete core test suite
         working-directory: core
-        run: npm test -- --test-name-pattern='(parses changed files|recognizes critical security paths|risk engine|invariant engine|decision|full analysis)'
+        run: npm test
+      - name: Assert Kill Critic modules exist
+        working-directory: core
+        run: |
+          test -f x10thinc/kill-critic.js
+          test -f x10thinc/real-life-gates.js
