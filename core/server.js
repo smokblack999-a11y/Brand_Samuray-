@@ -10,6 +10,8 @@ const { saveLead, claimEvent, updateLead, listLeads, stats } = require("./store"
 const { createRateLimiter } = require("./rate-limit");
 const { STATES, transition } = require("./x10thinc/recovery-state");
 const { createRecoveryRouter } = require("./recovery-router");
+const { requiredEnv, assertNoUnverifiedOverride } = require("./x10thinc/runtime-guard");
+const { verifyChain } = require("./recovery-audit");
 
 const app = express();
 const PORT = Number(process.env.PORT || 8787);
@@ -23,6 +25,7 @@ const LEAD_RATE_LIMIT_WINDOW_MS = Math.max(1000, Number(process.env.LEAD_RATE_LI
 const LEAD_RATE_LIMIT_MAX = Math.max(1, Number(process.env.LEAD_RATE_LIMIT_MAX || 20));
 
 if (process.env.NODE_ENV === "production") {
+  assertNoUnverifiedOverride();
   const missing = [];
   if (!API_KEY) missing.push("CORE_API_KEY");
   if (!WEBHOOK_SECRET) missing.push("TELEGRAM_WEBHOOK_SECRET");
@@ -81,8 +84,10 @@ app.get("/health", (_req, res) => res.json({ ok: true, service: "SamuraiOS Core"
 app.get("/ready", (req, res) => {
   try {
     const current = stats();
-    const ready = Boolean(API_KEY && WEBHOOK_SECRET && current && Number.isFinite(current.total));
-    return res.status(ready ? 200 : 503).json({ ok: ready, service: "SamuraiOS Core", ready, requestId: req.requestId });
+    const audit = verifyChain();
+    const required = process.env.NODE_ENV === "production" ? requiredEnv() : [];
+    const ready = Boolean(required.length === 0 && API_KEY && WEBHOOK_SECRET && RECOVERY_API_KEY && audit.passed && current && Number.isFinite(current.total));
+    return res.status(ready ? 200 : 503).json({ ok: ready, service: "SamuraiOS Core", ready, audit: { passed: audit.passed, records: audit.records || 0 }, requestId: req.requestId });
   } catch (_error) {
     return res.status(503).json(errorBody("NOT_READY", "Service is not ready", req.requestId));
   }
