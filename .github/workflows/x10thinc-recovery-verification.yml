@@ -7,7 +7,6 @@ on:
 
 permissions:
   contents: read
-  checks: read
 
 jobs:
   verify-recovery:
@@ -62,47 +61,13 @@ jobs:
         working-directory: core
         run: node --test test/recovery-state.test.js
 
+      - name: Diff integrity
+        run: git diff --check
+
       - name: Recovery proof metadata
-        shell: bash
         run: |
           set -euo pipefail
           test -n "${GITHUB_SHA}"
           test -n "${GITHUB_RUN_ID}"
           echo "verificationRunId=${GITHUB_RUN_ID}"
           echo "headSha=${GITHUB_SHA}"
-
-      - name: Submit verified recovery proof
-        if: success()
-        env:
-          RECOVERY_URL: ${{ secrets.X10THINK_RECOVERY_URL }}
-          RECOVERY_API_KEY: ${{ secrets.X10THINK_RECOVERY_API_KEY }}
-          JOB_ID: ${{ github.head_ref }}
-          VERIFICATION_RUN_ID: ${{ github.run_id }}
-          HEAD_SHA: ${{ github.sha }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          job_id="${JOB_ID#recovery/}"
-          test -n "${RECOVERY_URL:-}"
-          test -n "${RECOVERY_API_KEY:-}"
-          payload="$(python - <<'PY'
-          import json, os
-          print(json.dumps({
-            "proof": {
-              "jobId": os.environ["JOB_ID"].replace("recovery/","",1),
-              "verificationRunId": int(os.environ["VERIFICATION_RUN_ID"]),
-              "headSha": os.environ["HEAD_SHA"],
-              "patchApplied": True,
-              "sandboxPassed": True,
-              "testsPassed": True,
-              "ciPassed": True,
-              "invariantsPassed": True,
-              "evidenceComplete": True,
-              "autonomousMerge": False
-            }
-          }))
-          PY
-          )"
-          code="$(curl -sS -o /tmp/recovery-verify.json -w '%{http_code}'             --connect-timeout 5 --max-time 30             -X POST "${RECOVERY_URL%/}/api/recovery/jobs/${job_id}/verify"             -H "Content-Type: application/json"             -H "X-API-Key: ${RECOVERY_API_KEY}"             --data "${payload}")"
-          cat /tmp/recovery-verify.json
-          test "$code" = "200"
