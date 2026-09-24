@@ -1,0 +1,22 @@
+name: X10THINC Kill Critic
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  kill-critic:
+    name: Deterministic proof gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Run Kill Critic tests
+        working-directory: core
+        run: npm test -- --test-name-pattern='(parses changed files|recognizes critical security paths|risk engine|invariant engine|decision|full analysis)'
