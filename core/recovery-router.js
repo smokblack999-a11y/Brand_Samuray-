@@ -4,6 +4,7 @@ const { Router } = require("express");
 const { enqueue, find, list, update } = require("./recovery-store");
 const { analyzePatch, sha256, DEFAULT_POLICY } = require("./x10thinc/kill-critic");
 const { transition, STATES } = require("./x10thinc/recovery-state");
+const { getVerification } = require("./recovery-verification");
 const { buildPatchProposal } = require("./interop/patch-proposal");
 
 const FAILURE_CONCLUSIONS = new Set(["failure","timed_out","cancelled","startup_failure","action_required"]);
@@ -119,9 +120,18 @@ function createRecoveryRouter({ requireRecoveryAuth }) {
       const current = find(req.params.id);
       if (!current) return res.status(404).json({ok:false,error:{code:"RECOVERY_JOB_NOT_FOUND"}});
       const proof = req.body?.proof || {};
+      const verification = await getVerification({
+        repository: current.repository,
+        headSha: current.repairHeadSha || current.headSha,
+        workflowRunId: proof.verificationRunId
+      });
+      if (!verification.accepted) {
+        update(current.id,{status:STATES.HUMAN_REVIEW,state:STATES.HUMAN_REVIEW,verificationError:verification.reason});
+        return res.status(409).json({ok:false,code:"VERIFICATION_NOT_CONFIRMED",reason:verification.reason});
+      }
       const jobForProof = {
         id: current.id, repository: current.repository,
-        headSha: proof.headSha || current.repairHeadSha || current.headSha,
+        headSha: current.repairHeadSha || current.headSha,
         diffHash: current.diffHash || sha256(current.patch?.diff || "")
       };
       const result = transition(
