@@ -102,11 +102,14 @@ function createRecoveryRouter({ requireRecoveryAuth }) {
         analyzed.decision !== "KILL" &&
         analyzed.risk.score < DEFAULT_POLICY.maxRiskScore;
       if (preSandboxAllowed) {
-        const next = update(current.id, {
-          status:"sandbox_pending", state:STATES.SANDBOXED,
+        const staged = update(current.id, {
+          status:"patch_proposed", state:STATES.PATCH_PROPOSED,
           patch:proposal.proposal, diffHash, critic:analyzed.receipt
         });
-        return res.status(202).json({ok:true,job:next,critic:analyzed});
+        const next = update(current.id, {
+          status:"sandbox_pending", state:STATES.SANDBOXED
+        });
+        return res.status(202).json({ok:true,job:next,critic:analyzed,stagedState:staged.state});
       }
       const next = update(current.id,{status:"human_review",state:STATES.HUMAN_REVIEW,patch:proposal.proposal,diffHash,critic:analyzed.receipt});
       return res.status(202).json({ok:true,job:next,critic:analyzed});
