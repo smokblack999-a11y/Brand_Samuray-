@@ -3,6 +3,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const crypto = require("node:crypto");
+const { transition } = require("./x10thinc/recovery-state");
 
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, "data");
 const FILE = path.join(DATA_DIR, "recovery-jobs.json");
@@ -76,7 +77,13 @@ function update(id, patch) {
     const rows = read();
     const i = rows.findIndex(x => x.id === id);
     if (i < 0) throw new Error("recovery job not found");
-    const next = { ...rows[i], ...patch, updatedAt: new Date().toISOString() };
+    const current = rows[i];
+    if (patch && Object.prototype.hasOwnProperty.call(patch, "state") &&
+        String(patch.state) !== String(current.state)) {
+      const checked = transition(current, patch.state, { proof: patch.proof || {} });
+      if (!checked.ok) throw new Error(checked.code);
+    }
+    const next = { ...current, ...patch, updatedAt: new Date().toISOString() };
     rows[i] = next; write(rows); return next;
   });
 }
