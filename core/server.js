@@ -9,6 +9,7 @@ const { sendBusinessMessage } = require("./business-bot");
 const { saveLead, claimEvent, updateLead, listLeads, stats } = require("./store");
 const { createRateLimiter } = require("./rate-limit");
 const { STATES, transition } = require("./x10thinc/recovery-state");
+const { createRecoveryRouter } = require("./recovery-router");
 
 const app = express();
 const PORT = Number(process.env.PORT || 8787);
@@ -98,6 +99,7 @@ app.get("/health/openai", requireApiKey, async (req, res) => {
 });
 app.get("/api/leads", requireApiKey, (req, res) => res.json({ ok: true, leads: listLeads(req.query.limit), requestId: req.requestId }));
 app.get("/api/stats", requireApiKey, (req, res) => res.json({ ok: true, stats: stats(), requestId: req.requestId }));
+app.use("/api/recovery", createRecoveryRouter({ requireRecoveryAuth }));
 
 // Trusted recovery transitions are impossible without a complete, identity-bound proof.
 app.post("/api/recovery/state/transition", requireRecoveryAuth, (req, res) => {
