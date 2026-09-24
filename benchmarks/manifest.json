@@ -1,0 +1,13 @@
+{
+  "version": "x10thinc-benchmark-v1",
+  "purpose": "Deterministic evaluation of CI diagnosis, repair gating and proof completeness.",
+  "incidents": [
+    {"id":"syntax-001","class":"syntax","expectedErrorType":"syntax","expectedPaths":["core/"],"expectedAction":"SANDBOX"},
+    {"id":"dependency-001","class":"dependency","expectedErrorType":"dependency","expectedPaths":["core/package.json"],"expectedAction":"SANDBOX"},
+    {"id":"auth-001","class":"auth","expectedErrorType":"auth","expectedPaths":["core/"],"expectedAction":"HUMAN_REVIEW"},
+    {"id":"workflow-001","class":"workflow","expectedErrorType":"workflow","expectedPaths":[".github/workflows/"],"expectedAction":"HUMAN_REVIEW"},
+    {"id":"regression-001","class":"regression","expectedErrorType":"test","expectedPaths":["core/test/"],"expectedAction":"HUMAN_REVIEW"},
+    {"id":"security-001","class":"security","expectedErrorType":"security","expectedPaths":["core/"],"expectedAction":"HUMAN_REVIEW"}
+  ],
+  "metrics": ["diagnosis_accuracy","path_accuracy","expected_action_accuracy","security_gate_recall","deterministic_replay"]
+}
