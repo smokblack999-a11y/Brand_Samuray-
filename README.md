@@ -112,3 +112,20 @@ npm run set-webhook
 5. Есть измеримый результат: время ответа, количество лидов и конверсии.
 
 Следующий этап после прохождения gate: persistent storage → lead pipeline → dashboard → onboarding → billing.
+
+
+## X10THINC GitHub Recovery + Revenue RCA
+
+The recovery layer accepts GitHub `workflow_run` events through:
+
+- `POST /api/recovery/github/webhook` — HMAC SHA-256 authenticated GitHub webhook.
+- `POST /api/recovery/ci` — internal/API-key recovery route.
+- `GET /api/recovery/stats` — recovery counters and latest RCA.
+
+The flow is:
+
+`workflow_run → signature verification → delivery dedupe → failure classification → RCA hypothesis → Kill Critic → persisted evidence`
+
+GitHub's `workflow_run` event is designed for completed workflow activity, and GitHub Apps can use the Checks API to publish richer CI results. urlGitHub workflow_run webhookshttps://docs.github.com/en/webhooks/webhook-events-and-payloads
+
+For this branch, the recovery service deliberately stops at an evidence-backed action proposal. It does not auto-merge or execute destructive remediation. A later agent can consume the RCA and create a Draft PR after its patch passes the Kill Critic and sandbox checks.
