@@ -10,9 +10,18 @@ function scoreLead(text) {
   const medium = ["интересует", "хочу", "нужен", "нужна", "нужно", "можно", "есть ли", "условия", "наличие", "завтра"];
   const noise = ["спасибо", "понятно", "ок", "хорошо", "привет"];
 
-  for (const word of strong) if (lower.includes(word)) { score += 15; signals.push(word); }
+  let strongHits = 0;
+  for (const word of strong) if (lower.includes(word)) { score += 15; strongHits++; signals.push(word); }
   for (const word of medium) if (lower.includes(word)) { score += 8; signals.push(word); }
   for (const word of noise) if (lower === word) score -= 5;
+
+  // Multiple explicit buying signals together are materially stronger than
+  // isolated keywords. This keeps hot classification tied to purchase intent.
+  if (strongHits >= 2) {
+    score += 25;
+    signals.push("compound_buying_intent");
+  }
+
   if (/\d/.test(value)) score += 5;
   if (value.length > 80) score += 5;
 
