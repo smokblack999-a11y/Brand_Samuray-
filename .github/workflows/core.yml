@@ -2,16 +2,16 @@ name: SamuraiOS Core CI
 
 on:
   push:
-    branches: [ "main", "master" ]
+    branches: ["main","master"]
     paths:
-      - 'core/**'
-      - 'docker-compose.yml'
-      - '.github/workflows/core.yml'
+      - "core/**"
+      - "docker-compose.yml"
+      - ".github/workflows/core.yml"
   pull_request:
     paths:
-      - 'core/**'
-      - 'docker-compose.yml'
-      - '.github/workflows/core.yml'
+      - "core/**"
+      - "docker-compose.yml"
+      - ".github/workflows/core.yml"
   workflow_dispatch:
 
 permissions:
@@ -44,7 +44,7 @@ jobs:
         run: |
           set -euo pipefail
           if git grep -nE 'sk-(proj|svcacct)-[A-Za-z0-9_-]{20,}' -- ':!core/node_modules' ':!*.log'; then
-            echo "Potential OpenAI API key found in tracked files"
+            echo "Potential API key found in tracked files"
             exit 1
           fi
           echo "Secret scan: PASS"
@@ -61,13 +61,24 @@ jobs:
           node --check scripts/verify-config.js
           node --check recovery-store.js
           node --check recovery-router.js
+          node --check recovery-worker.js
+          node --check recovery-verification.js
+          node --check recovery-audit.js
           node --check interop/patch-candidate.js
           node --check interop/patch-proposal.js
           node --check x10thinc/recovery-state.js
+          node --check x10thinc/runtime-guard.js
           node --check x10thinc/kill-critic.js
+
+      - name: Diff integrity
+        working-directory: .
+        run: git diff --check
 
       - name: Unit tests
         run: npm test
+
+      - name: Recovery proof invariants
+        run: node --test test/recovery-state.test.js
 
   openai-smoke:
     if: github.event_name != 'pull_request'
@@ -90,14 +101,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          code="$(curl -sS -o /tmp/openai.json -w '%{http_code}' --connect-timeout 5 --max-time 20 \
-            -H "Authorization: Bearer ${OPENAI_API_KEY}" \
-            https://api.openai.com/v1/models)"
-          if [ "$code" != "200" ]; then
-            echo "OpenAI smoke test failed (HTTP ${code})"
-            rm -f /tmp/openai.json
-            exit 1
-          fi
+          code="$(curl -sS -o /tmp/openai.json -w '%{http_code}' --connect-timeout 5 --max-time 20             -H "Authorization: Bearer ${OPENAI_API_KEY}"             https://api.openai.com/v1/models)"
+          test "$code" = "200" || { echo "OpenAI smoke test failed (HTTP ${code})"; exit 1; }
           rm -f /tmp/openai.json
           echo "OpenAI authentication: PASS"
 
