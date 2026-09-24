@@ -115,7 +115,7 @@ function createRecoveryRouter({ requireRecoveryAuth }) {
     }
   });
 
-  router.post("/jobs/:id/verify", requireRecoveryAuth, (req,res) => {
+  router.post("/jobs/:id/verify", requireRecoveryAuth, async (req,res) => {
     try {
       const current = find(req.params.id);
       if (!current) return res.status(404).json({ok:false,error:{code:"RECOVERY_JOB_NOT_FOUND"}});
