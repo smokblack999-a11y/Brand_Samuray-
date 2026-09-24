@@ -1,0 +1,29 @@
+name: X10THINC Recovery Router
+
+on:
+  workflow_run:
+    workflows: ["SamuraiOS Core CI", "SamuraiOS Core X22 CI", "X10THINC Kill Critic", "Build SamuraiOS APK"]
+    types: [completed]
+
+permissions:
+  contents: read
+
+jobs:
+  enqueue-recovery:
+    if: >
+      github.event.workflow_run.conclusion != 'success' &&
+      github.event.workflow_run.conclusion != 'skipped'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Enqueue failed workflow into X10THINC
+        env:
+          RECOVERY_URL: ${{ secrets.X10THINK_RECOVERY_URL }}
+          RECOVERY_API_KEY: ${{ secrets.X10THINK_RECOVERY_API_KEY }}
+          EVENT_JSON: ${{ toJSON(github.event) }}
+        run: |
+          set -euo pipefail
+          test -n "$RECOVERY_URL"
+          test -n "$RECOVERY_API_KEY"
+          printf '%s' "$EVENT_JSON" > event.json
+          curl --fail-with-body --silent --show-error             --connect-timeout 10 --max-time 30             -X POST "$RECOVERY_URL/api/recovery/github"             -H 'Content-Type: application/json'             -H "X-API-Key: $RECOVERY_API_KEY"             --data-binary @event.json
+          rm -f event.json
