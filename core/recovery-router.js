@@ -2,7 +2,7 @@
 
 const { Router } = require("express");
 const { enqueue, find, list, update } = require("./recovery-store");
-const { analyzePatch, sha256 } = require("./x10thinc/kill-critic");
+const { analyzePatch, sha256, DEFAULT_POLICY } = require("./x10thinc/kill-critic");
 const { transition, STATES } = require("./x10thinc/recovery-state");
 const { buildPatchProposal } = require("./interop/patch-proposal");
 
@@ -95,7 +95,12 @@ function createRecoveryRouter({ requireRecoveryAuth }) {
         evidence: {patch:"proposal",sandbox:"pending",tests:"pending",ci:"pending"},
         sandboxPassed:false, testsPassed:false, ciPassed:false
       });
-      if (analyzed.decision !== "REJECT") {
+      const preSandboxAllowed =
+        analyzed.invariants.passed &&
+        analyzed.risk.score < DEFAULT_POLICY.criticalRiskScore &&
+        analyzed.decision !== "KILL" &&
+        analyzed.risk.score < DEFAULT_POLICY.maxRiskScore;
+      if (preSandboxAllowed) {
         const next = update(current.id, {
           status:"sandbox_pending", state:STATES.SANDBOXED,
           patch:proposal.proposal, diffHash, critic:analyzed.receipt
