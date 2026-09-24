@@ -33,7 +33,7 @@ function stableHash(value) {
 }
 
 function requiredProofFields(proof = {}) {
-  return proof &&
+  return Boolean(proof &&
     proof.patchApplied === true &&
     proof.sandboxPassed === true &&
     proof.testsPassed === true &&
@@ -43,7 +43,7 @@ function requiredProofFields(proof = {}) {
     String(proof.jobId || "") &&
     String(proof.repository || "") &&
     String(proof.headSha || "") &&
-    Number.isInteger(proof.verificationRunId);
+    Number.isInteger(proof.verificationRunId));
 }
 
 function proofBindsToJob(job = {}, proof = {}) {
