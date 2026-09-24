@@ -4,6 +4,11 @@ const { execFile } = require("node:child_process");
 const { promisify } = require("node:util");
 const exec = promisify(execFile);
 
+const ALLOWED_WORKFLOWS = new Set(
+  String(process.env.X10THINK_VERIFICATION_WORKFLOWS || "X10THINC Recovery Verification")
+    .split(",").map(x => x.trim()).filter(Boolean)
+);
+
 async function getVerification({ repository, headSha, workflowRunId } = {}) {
   if (!repository || !headSha || !Number.isInteger(Number(workflowRunId))) {
     return { accepted: false, reason: "VERIFICATION_IDENTITY_REQUIRED" };
@@ -25,12 +30,15 @@ async function getVerification({ repository, headSha, workflowRunId } = {}) {
       "-H", "X-GitHub-Api-Version: 2022-11-28"
     ], { timeout: 30000, maxBuffer: 1024 * 1024 });
     const run = JSON.parse(String(r.stdout || "{}"));
-    const success = run.status === "completed" &&
+    const workflowAllowed = ALLOWED_WORKFLOWS.has(String(run.name || ""));
+    const success =
+      run.status === "completed" &&
       run.conclusion === "success" &&
-      run.head_sha === headSha;
+      run.head_sha === headSha &&
+      workflowAllowed;
     return {
       accepted: success,
-      reason: success ? "VERIFIED" : "CI_RUN_NOT_SUCCESS_OR_SHA_MISMATCH",
+      reason: success ? "VERIFIED" : "CI_RUN_NOT_SUCCESS_OR_SHA_MISMATCH_OR_WORKFLOW_UNTRUSTED",
       run: {
         id: run.id,
         status: run.status,
@@ -45,4 +53,4 @@ async function getVerification({ repository, headSha, workflowRunId } = {}) {
   }
 }
 
-module.exports = { getVerification };
+module.exports = { getVerification, ALLOWED_WORKFLOWS };
