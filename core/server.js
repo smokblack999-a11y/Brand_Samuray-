@@ -8,11 +8,13 @@ const { generateReply, checkOpenAI } = require("./openai");
 const { sendBusinessMessage } = require("./business-bot");
 const { saveLead, claimEvent, updateLead, listLeads, stats } = require("./store");
 const { createRateLimiter } = require("./rate-limit");
+const { STATES, transition } = require("./x10thinc/recovery-state");
 
 const app = express();
 const PORT = Number(process.env.PORT || 8787);
 const API_KEY = String(process.env.CORE_API_KEY || "").trim();
 const WEBHOOK_SECRET = String(process.env.TELEGRAM_WEBHOOK_SECRET || "").trim();
+const RECOVERY_API_KEY = String(process.env.X10THINK_RECOVERY_API_KEY || "").trim();
 const MAX_MESSAGE_CHARS = Math.max(100, Math.min(Number(process.env.MAX_MESSAGE_CHARS || 4000), 10000));
 const CORS_ORIGIN = String(process.env.CORS_ORIGIN || "").trim();
 const REQUEST_TIMEOUT_MS = Math.max(5000, Number(process.env.REQUEST_TIMEOUT_MS || 30000));
@@ -23,6 +25,7 @@ if (process.env.NODE_ENV === "production") {
   const missing = [];
   if (!API_KEY) missing.push("CORE_API_KEY");
   if (!WEBHOOK_SECRET) missing.push("TELEGRAM_WEBHOOK_SECRET");
+  if (!RECOVERY_API_KEY) missing.push("X10THINK_RECOVERY_API_KEY");
   if (missing.length) throw new Error(`Production startup blocked: missing ${missing.join(", ")}`);
 }
 
@@ -49,6 +52,11 @@ function requireWebhookSecret(req, res, next) {
   if (!WEBHOOK_SECRET) return res.status(503).json(errorBody("WEBHOOK_AUTH_NOT_CONFIGURED", "Webhook authentication is not configured", req.requestId));
   if (safeEqual(WEBHOOK_SECRET, req.get("X-Telegram-Bot-Api-Secret-Token"))) return next();
   return res.status(401).json(errorBody("UNAUTHORIZED_WEBHOOK", "Unauthorized webhook", req.requestId));
+}
+function requireRecoveryAuth(req, res, next) {
+  if (!RECOVERY_API_KEY) return res.status(503).json(errorBody("RECOVERY_AUTH_NOT_CONFIGURED", "Recovery authentication is not configured", req.requestId));
+  if (safeEqual(RECOVERY_API_KEY, req.get("X-API-Key"))) return next();
+  return res.status(401).json(errorBody("UNAUTHORIZED_RECOVERY", "Unauthorized recovery request", req.requestId));
 }
 function requestId(req, res, next) {
   const id = crypto.randomUUID();
@@ -90,6 +98,24 @@ app.get("/health/openai", requireApiKey, async (req, res) => {
 });
 app.get("/api/leads", requireApiKey, (req, res) => res.json({ ok: true, leads: listLeads(req.query.limit), requestId: req.requestId }));
 app.get("/api/stats", requireApiKey, (req, res) => res.json({ ok: true, stats: stats(), requestId: req.requestId }));
+
+// Trusted recovery transitions are impossible without a complete, identity-bound proof.
+app.post("/api/recovery/state/transition", requireRecoveryAuth, (req, res) => {
+  try {
+    const current = req.body?.job;
+    const nextState = req.body?.nextState;
+    const evidence = { proof: req.body?.proof || {} };
+    if (!current?.id || !current?.repository || !current?.headSha || !current?.diffHash) {
+      return res.status(400).json(errorBody("RECOVERY_JOB_IDENTITY_REQUIRED", "job id, repository, headSha and diffHash are required", req.requestId));
+    }
+    const result = transition(current, nextState, evidence);
+    if (!result.ok) return res.status(409).json({ ...result, requestId: req.requestId });
+    const trusted = result.job.state === STATES.VERIFIED;
+    return res.status(200).json({ ...result, trusted, requestId: req.requestId });
+  } catch (error) {
+    return res.status(500).json(errorBody("RECOVERY_STATE_TRANSITION_FAILED", error.message, req.requestId));
+  }
+});
 
 async function analyze(message, business) {
   const text = String(message || "").trim();
