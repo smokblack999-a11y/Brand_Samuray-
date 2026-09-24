@@ -50,6 +50,8 @@ jobs:
           node --check interop/patch-candidate.js
           node --check interop/patch-proposal.js
           node --check x10thinc/recovery-state.js
+          node --check x10thinc/runtime-guard.js
+          node --check recovery-audit.js
           node --check x10thinc/kill-critic.js
 
       - name: Core tests
