@@ -1,0 +1,70 @@
+name: X10THINC Recovery Verification
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main, master]
+
+permissions:
+  contents: read
+  checks: read
+
+jobs:
+  verify-recovery:
+    if: startsWith(github.head_ref, 'recovery/')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout recovery head
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: core/package-lock.json
+
+      - name: Install dependencies
+        working-directory: core
+        run: npm ci
+
+      - name: Secret scan
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git grep -nE 'sk-(proj|svcacct)-[A-Za-z0-9_-]{20,}' -- ':!core/node_modules' ':!*.log'; then
+            echo "Potential API key found"
+            exit 1
+          fi
+
+      - name: Syntax gate
+        working-directory: core
+        run: |
+          node --check recovery-store.js
+          node --check recovery-router.js
+          node --check recovery-worker.js
+          node --check recovery-verification.js
+          node --check interop/patch-candidate.js
+          node --check interop/patch-proposal.js
+          node --check x10thinc/recovery-state.js
+          node --check x10thinc/kill-critic.js
+
+      - name: Core tests
+        working-directory: core
+        run: npm test
+
+      - name: Recovery invariants
+        working-directory: core
+        run: node --test test/recovery-state.test.js
+
+      - name: Recovery proof metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${GITHUB_SHA}"
+          test -n "${GITHUB_RUN_ID}"
+          echo "verificationRunId=${GITHUB_RUN_ID}"
+          echo "headSha=${GITHUB_SHA}"
