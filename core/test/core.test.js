@@ -56,7 +56,7 @@ test('health endpoint', async () => {
   const body = await r.json();
   assert.equal(body.ok, true);
   assert.equal(body.service, 'SamuraiOS Core');
-  assert.equal(body.version, '2.6.0');
+  assert.equal(body.version, '2.8.0');
 });
 
 test('readiness endpoint verifies critical configuration', async () => {
