@@ -8,6 +8,7 @@ const { generateReply, checkOpenAI } = require("./openai");
 const { sendBusinessMessage } = require("./business-bot");
 const { saveLead, claimEvent, updateLead, listLeads, stats } = require("./store");
 const { createRateLimiter } = require("./rate-limit");
+const { ingestMessageMedia } = require("./media-ingest");
 
 const app = express();
 const PORT = Number(process.env.PORT || 8787);
@@ -133,9 +134,9 @@ app.post("/api/telegram/webhook", requireWebhookSecret, async (req, res) => {
       return;
     }
     const message = update.business_message;
-    if (!message?.text || !message.business_connection_id || !message.chat?.id || !Number.isInteger(message.message_id)) return;
+    if (!message?.business_connection_id || !message.chat?.id || !Number.isInteger(message.message_id)) return;
     const eventKey = `telegram:${message.business_connection_id}:${message.chat.id}:${message.message_id}`;
-    const claim = claimEvent(eventKey, { source: "telegram_business", businessConnectionId: message.business_connection_id, chatId: message.chat.id, messageId: message.message_id, customer: message.from?.id || null, message: message.text });
+    const claim = claimEvent(eventKey, { source: "telegram_business", businessConnectionId: message.business_connection_id, chatId: message.chat.id, messageId: message.message_id, customer: message.from?.id || null, message: message.text || message.caption || null });
     if (!claim.claimed) {
       console.log(JSON.stringify({ event: "duplicate_telegram_event", eventKey, requestId: req.requestId }));
       return;
