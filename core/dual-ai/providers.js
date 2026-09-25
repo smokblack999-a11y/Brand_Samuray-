@@ -190,12 +190,44 @@ class OllamaProvider {
   }
 }
 
+class MockProvider {
+  constructor({ model }) {
+    this.name = "mock";
+    this.model = model;
+  }
+  async generate({ system }) {
+    if (system.includes("Final Kill Critic")) {
+      return { text: JSON.stringify({
+        decision: "PASS",
+        confidence: 0.96,
+        strengths: ["complete"],
+        issues: [],
+        verdict: "ready"
+      }), usage: null, provider: this.name, model: this.model, responseId: "mock-final" };
+    }
+    if (system.includes("Kill Critic")) {
+      return { text: JSON.stringify({
+        decision: "REVISE",
+        confidence: 0.91,
+        strengths: ["useful"],
+        issues: [{ severity:"medium", claim:"needs more detail", evidence:"mock", fix:"add detail" }],
+        verdict: "revise once"
+      }), usage: null, provider: this.name, model: this.model, responseId: "mock-critic" };
+    }
+    if (system.includes("Revision Engineer")) {
+      return { text: "Revised candidate with the requested implementation details and bounded assumptions.", usage:null, provider:this.name, model:this.model, responseId:"mock-revision" };
+    }
+    return { text: "Initial candidate with a concrete solution and explicit assumptions.", usage:null, provider:this.name, model:this.model, responseId:"mock-draft" };
+  }
+}
+
 function createProvider({ provider, model }) {
   const name = String(provider || "openai").toLowerCase();
   if (!model) throw new Error("model is required");
   if (name === "openai") return new OpenAIProvider({ model });
   if (name === "anthropic") return new AnthropicProvider({ model });
   if (name === "ollama") return new OllamaProvider({ model });
+  if (name === "mock" && process.env.NODE_ENV === "test") return new MockProvider({ model });
   throw new Error(`unsupported provider: ${name}`);
 }
 
@@ -204,7 +236,7 @@ function providerStatus({ provider, model }) {
   const configured =
     (name === "openai" && Boolean(process.env.OPENAI_API_KEY)) ||
     (name === "anthropic" && Boolean(process.env.ANTHROPIC_API_KEY)) ||
-    (name === "ollama");
+    (name === "ollama") || (name === "mock" && process.env.NODE_ENV === "test");
 
   return { provider: name, model, configured };
 }
