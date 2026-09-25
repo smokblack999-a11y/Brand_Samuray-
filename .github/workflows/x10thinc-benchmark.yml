@@ -22,3 +22,11 @@ jobs:
       - run: node --check core/x10thinc-solver.js
       - run: node --check core/kill-critic.js
       - run: node --check core/x10thinc-diff-critic.js
+      - run: node --test core/test/x10thinc-diff-critic.test.js
+      - run: node evaluation/run-benchmark.js
+      - name: Upload benchmark evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: x10thinc-benchmark-report
+          path: evaluation/benchmark-report.json
+          if-no-files-found: error
