@@ -2,7 +2,7 @@
 
 const OpenAI = require("openai");
 
-const DEFAULT_TIMEOUT_MS = Math.max(5000, Number(process.env.DUAL_AI_TIMEOUT_MS || 30000));
+const DEFAULT_TIMEOUT_MS = Math.max(5000, Number(process.env.DUAL_AI_TIMEOUT_MS || 25000));
 const DEFAULT_MAX_OUTPUT = Math.max(256, Math.min(Number(process.env.DUAL_AI_MAX_OUTPUT_TOKENS || 4096), 16384));
 
 function cleanText(value) {
