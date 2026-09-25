@@ -78,6 +78,7 @@ function render() {
 }
 
 async function connect() {
+  sessionStorage.setItem("samurai_core_api_key", apiKey());
   try {
     const data = await request("/api/dual/config");
     connected = true;
