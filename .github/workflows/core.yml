@@ -63,6 +63,7 @@ jobs:
           node --check dual-ai/prompts.js
           node --check dual-ai/store.js
           node --check dual-ai/engine.js
+          node --check dual-ai/public/app.js
 
       - name: Unit tests
         run: npm test
