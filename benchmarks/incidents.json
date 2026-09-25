@@ -1,0 +1,56 @@
+[
+  {
+    "id":"syntax-001",
+    "logs":"SyntaxError: Unexpected token in core/app.js at line 10",
+    "expectedErrorType":"syntax_error",
+    "expectedPaths":["core/app.js"],
+    "expectedAction":"SANDBOX",
+    "securityExpected":false,
+    "diff":"--- a/core/app.js\n+++ b/core/app.js\n@@\n-const broken = ;\n+const fixed = true;\n"
+  },
+  {
+    "id":"dependency-001",
+    "logs":"npm ERR! Could not resolve dependency in core/package.json",
+    "expectedErrorType":"dependency_error",
+    "expectedPaths":["core/package.json"],
+    "expectedAction":"SANDBOX",
+    "securityExpected":false,
+    "diff":"--- a/core/package.json\n+++ b/core/package.json\n@@\n-  \"version\": \"1.0.0\"\n+  \"version\": \"1.0.1\"\n"
+  },
+  {
+    "id":"auth-001",
+    "logs":"403 Forbidden authentication failed in core/auth/login.js",
+    "expectedErrorType":"auth_error",
+    "expectedPaths":["core/auth/login.js"],
+    "expectedAction":"HUMAN_REVIEW",
+    "securityExpected":false,
+    "diff":"--- a/core/auth/login.js\n+++ b/core/auth/login.js\n@@\n-return verify(token);\n+return verify(token);\n"
+  },
+  {
+    "id":"workflow-001",
+    "logs":"403 Forbidden permission denied in .github/workflows/recovery.yml",
+    "expectedErrorType":"auth_error",
+    "expectedPaths":[".github/workflows/recovery.yml"],
+    "expectedAction":"HUMAN_REVIEW",
+    "securityExpected":true,
+    "diff":"--- a/.github/workflows/recovery.yml\n+++ b/.github/workflows/recovery.yml\n@@\n permissions:\n-  contents: read\n+  contents: write\n"
+  },
+  {
+    "id":"regression-001",
+    "logs":"Test failed AssertionError in core/test/recovery-lifecycle.test.js",
+    "expectedErrorType":"test_failure",
+    "expectedPaths":["core/test/recovery-lifecycle.test.js"],
+    "expectedAction":"HUMAN_REVIEW",
+    "securityExpected":false,
+    "diff":"--- a/core/test/recovery-lifecycle.test.js\n+++ b/core/test/recovery-lifecycle.test.js\n@@\n-assert.equal(result, expected);\n+assert.equal(result, expected);\n"
+  },
+  {
+    "id":"security-001",
+    "logs":"Security scanner finding hard-coded API key in core/config.js",
+    "expectedErrorType":"generic",
+    "expectedPaths":["core/config.js"],
+    "expectedAction":"HUMAN_REVIEW",
+    "securityExpected":true,
+    "diff":"--- a/core/config.js\n+++ b/core/config.js\n@@\n+const api_key = \"sk-test-1234567890\";\n"
+  }
+]
