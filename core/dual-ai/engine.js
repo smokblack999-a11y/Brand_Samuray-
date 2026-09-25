@@ -8,6 +8,7 @@ const store = require("./store");
 
 const MAX_ROUNDS = Math.max(1, Math.min(Number(process.env.DUAL_AI_MAX_ROUNDS || 3), 5));
 const MAX_HISTORY = 12;
+const locks = new Set();
 
 function now() { return new Date().toISOString(); }
 
@@ -91,8 +92,11 @@ function addTurn(session, turn) {
 }
 
 async function next(id) {
-  const session = store.get(id);
-  requireRunning(session);
+  if (locks.has(id)) throw Object.assign(new Error("session_busy"), { code: "SESSION_BUSY" });
+  locks.add(id);
+  try {
+    const session = store.get(id);
+    requireRunning(session);
 
   if (session.phase === "A_INITIAL" || session.phase === "A_REVISION") {
     const input = session.phase === "A_INITIAL"
@@ -137,7 +141,10 @@ async function next(id) {
     session.phase = "INVALID_STATE";
   }
 
-  return safeSession(store.update(id, session));
+    return safeSession(store.update(id, session));
+  } finally {
+    locks.delete(id);
+  }
 }
 
 function stop(id) {
