@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SAMURAI AI DUAL</title>
+  <link rel="stylesheet" href="/dual-ai/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <div class="brand">SAMURAI<span>·</span>AI DUAL</div>
+      <div class="sub">GENERATOR × KILL CRITIC</div>
+    </div>
+    <div id="status" class="status">DISCONNECTED</div>
+  </header>
+
+  <main class="shell">
+    <section class="panel controls">
+      <div class="field wide">
+        <label>CORE API KEY</label>
+        <input id="apiKey" type="password" autocomplete="off" placeholder="X-API-Key">
+      </div>
+      <button id="connectBtn">CONNECT</button>
+
+      <div class="field wide">
+        <label>TASK</label>
+        <textarea id="task" rows="4" placeholder="Например: разработать архитектуру AI-агента для CI/CD"></textarea>
+      </div>
+
+      <div class="grid">
+        <div class="field">
+          <label>MODE</label>
+          <select id="mode">
+            <option value="critic">CRITIC LOOP</option>
+            <option value="debate">BOUNDED DEBATE</option>
+            <option value="independent">INDEPENDENT</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>MAX CYCLES</label>
+          <input id="maxCycles" type="number" min="1" max="5" value="2">
+        </div>
+        <div class="field">
+          <label>MODEL A</label>
+          <input id="modelA" value="gpt-5.6-luna">
+        </div>
+        <div class="field">
+          <label>MODEL B</label>
+          <input id="modelB" value="gpt-5.6-terra">
+        </div>
+      </div>
+
+      <div class="actions">
+        <button id="startBtn" class="primary">START</button>
+        <button id="nextBtn">NEXT TURN</button>
+        <button id="stopBtn" class="danger">STOP</button>
+        <button id="exportBtn">EXPORT TXT</button>
+      </div>
+
+      <div class="meta">
+        <span>SESSION</span><code id="sessionId">—</code>
+        <span>PHASE</span><strong id="phase">—</strong>
+        <span>GATE</span><strong id="gate">—</strong>
+      </div>
+    </section>
+
+    <section class="board">
+      <article class="agent-card">
+        <div class="agent-head">
+          <div><b>MODEL A</b><small>GENERATOR / REVISION</small></div>
+          <span id="agentAInfo">—</span>
+        </div>
+        <div id="agentA" class="stream"></div>
+      </article>
+
+      <article class="agent-card">
+        <div class="agent-head">
+          <div><b>MODEL B</b><small>KILL CRITIC / VERDICT</small></div>
+          <span id="agentBInfo">—</span>
+        </div>
+        <div id="agentB" class="stream"></div>
+      </article>
+    </section>
+
+    <section class="final-panel">
+      <div class="final-head">FINAL OUTPUT</div>
+      <pre id="final">Ожидание задачи…</pre>
+    </section>
+  </main>
+
+  <script src="/dual-ai/app.js"></script>
+</body>
+</html>
