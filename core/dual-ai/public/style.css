@@ -79,3 +79,14 @@ button:disabled { opacity: .4; cursor: not-allowed; }
   .board, .grid { grid-template-columns: 1fr; }
   .topbar { align-items: flex-start; }
 }
+
+\n@media print {
+  body { background: #fff !important; color: #000 !important; }
+  .topbar { position: static; background: #fff; color: #000; }
+  .controls, .actions, .field.wide:first-child, #connectBtn { display: none !important; }
+  .shell { max-width: none; padding: 0; }
+  .board { grid-template-columns: 1fr 1fr; gap: 8px; }
+  .agent-card, .final-panel { border: 1px solid #999; box-shadow: none; break-inside: avoid; }
+  .turn, .agent-card { background: #fff !important; color: #000 !important; }
+  pre { color: #000 !important; }
+}
