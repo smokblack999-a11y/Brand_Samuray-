@@ -110,7 +110,7 @@ npm run set-webhook
 - `debate`: чередование A/B с жёстким лимитом ходов.
 - `independent`: два независимых ответа.
 
-Провайдеры: `openai`, `anthropic`, `ollama`. По умолчанию используются OpenAI Responses API: A=`gpt-5.6-luna`, B=`gpt-5.6-terra`. Structured Outputs применяются для критика, чтобы его решение имело проверяемую схему.
+Провайдеры: `openai`, `anthropic`, `ollama`. По умолчанию используются OpenAI Responses API: A=`gpt-5.6-luna`, B=`gpt-5.6-terra`. Для OpenAI-критика Structured Outputs задают строгую проверяемую JSON-схему; для Anthropic/Ollama используется совместимая JSON-инструкция провайдеру.
 
 Сессии и все ходы сохраняются в `DATA_DIR/dual-sessions.json` атомарной записью. Экспорт: JSON/TXT. Финальный ответ выпускается только после прохождения Kill Critic gate; при исчерпании цикла статус становится `BLOCKED`, а не `COMPLETE`.
 
