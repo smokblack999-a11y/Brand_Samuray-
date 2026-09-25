@@ -8,7 +8,12 @@
     "start": "node server.js",
     "test": "node --test",
     "verify-config": "node scripts/verify-config.js",
-    "set-webhook": "node scripts/set-webhook.js"
+    "set-webhook": "node scripts/set-webhook.js",
+    "test:kill-critic": "node --test test/kill-critic.test.js",
+    "recovery:worker": "node recovery-worker.js",
+    "test:recovery": "node --test test/recovery-router.test.js test/kill-critic.test.js test/recovery-proposer.test.js test/recovery-lifecycle.test.js test/x10think-recovery.test.js nexus-proof-ledger.test.js nexus-automerge.test.js x10thinc-solver.test.js test/x10thinc-diff-critic.test.js",
+    "start:recovery": "node recovery-worker.js",
+    "start:all": "node server.js & node recovery-worker.js"
   },
   "dependencies": {
     "cors": "^2.8.6",

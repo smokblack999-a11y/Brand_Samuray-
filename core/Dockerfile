@@ -4,6 +4,11 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=8787
 
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends git ca-certificates curl \
+  && rm -rf /var/lib/apt/lists/* \
+  && git config --system --add safe.directory /workspace/repository
+
 COPY package*.json ./
 RUN npm ci --omit=dev
 
