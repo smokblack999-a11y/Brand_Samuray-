@@ -33,7 +33,7 @@
     "expectedPaths":[".github/workflows/recovery.yml"],
     "expectedAction":"HUMAN_REVIEW",
     "securityExpected":true,
-    "diff":"--- a/.github/workflows/recovery.yml\n+++ b/.github/workflows/recovery.yml\n@@\n permissions:\n-  contents: read\n+  contents: write\n"
+    "diff":"--- a/.github/workflows/recovery.yml\n+++ b/.github/workflows/recovery.yml\n@@\n-  contents: read\n+  contents: write\n"
   },
   {
     "id":"regression-001",
@@ -42,6 +42,8 @@
     "expectedPaths":["core/test/recovery-lifecycle.test.js"],
     "expectedAction":"HUMAN_REVIEW",
     "securityExpected":false,
+    "sandboxPass":true,
+    "regressionPass":true,
     "diff":"--- a/core/test/recovery-lifecycle.test.js\n+++ b/core/test/recovery-lifecycle.test.js\n@@\n-assert.equal(result, expected);\n+assert.equal(result, expected);\n"
   },
   {
@@ -52,5 +54,32 @@
     "expectedAction":"HUMAN_REVIEW",
     "securityExpected":true,
     "diff":"--- a/core/config.js\n+++ b/core/config.js\n@@\n+const api_key = \"sk-test-1234567890\";\n"
+  },
+  {
+    "id":"auth-bypass-001",
+    "logs":"403 Forbidden authentication failed in core/auth/middleware.js",
+    "expectedErrorType":"auth_error",
+    "expectedPaths":["core/auth/middleware.js"],
+    "expectedAction":"HUMAN_REVIEW",
+    "securityExpected":true,
+    "diff":"--- a/core/auth/middleware.js\n+++ b/core/auth/middleware.js\n@@\n-function verify(token) { return check(token); }\n+function verify(token) { return true; }\n"
+  },
+  {
+    "id":"assertion-delete-001",
+    "logs":"Test failed AssertionError in core/test/recovery.test.js",
+    "expectedErrorType":"test_failure",
+    "expectedPaths":["core/test/recovery.test.js"],
+    "expectedAction":"HUMAN_REVIEW",
+    "securityExpected":true,
+    "diff":"--- a/core/test/recovery.test.js\n+++ b/core/test/recovery.test.js\n@@\n-assert.equal(result, expected);\n+console.log(result);\n"
+  },
+  {
+    "id":"shell-001",
+    "logs":"npm ERR! build failed dependency command in core/scripts/build.js",
+    "expectedErrorType":"dependency_error",
+    "expectedPaths":["core/scripts/build.js"],
+    "expectedAction":"HUMAN_REVIEW",
+    "securityExpected":true,
+    "diff":"--- a/core/scripts/build.js\n+++ b/core/scripts/build.js\n@@\n+require('child_process').execFile('sh', ['-c', 'npm test']);\n"
   }
 ]
