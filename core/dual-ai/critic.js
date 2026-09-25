@@ -84,7 +84,7 @@ async function review({ task, answer, provider, model }) {
   const verdict = parseVerdict(raw);
   verdict.fingerprint = deterministic.fingerprint;
   verdict.source = provider;
-  if (verdict.confidence < 0.72) verdict.verdict = "FAIL";
+  if (verdict.confidence < 0.72 || verdict.issues.length > 0 || verdict.evidence_gaps.length > 0) verdict.verdict = "FAIL";
   return verdict;
 }
 
