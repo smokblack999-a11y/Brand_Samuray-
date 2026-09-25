@@ -30,48 +30,52 @@ function runCase(fixture) {
     logs: fixture.logs
   };
 
-  const a = toRecoveryDiagnosis(analyzeIncident(input));
-  const b = toRecoveryDiagnosis(analyzeIncident(input));
+  const first = toRecoveryDiagnosis(analyzeIncident(input));
+  const replay = toRecoveryDiagnosis(analyzeIncident(input));
   const diffCritic = analyzeDiff(fixture.diff);
 
   const evidence = {
-    ...a.evidence,
-    sandboxPass: fixture.expectedAction === "HUMAN_REVIEW" && fixture.id === "regression-001",
-    regressionPass: fixture.id === "regression-001"
+    ...first.evidence,
+    sandboxPass: fixture.sandboxPass === true,
+    regressionPass: fixture.regressionPass === true
   };
 
   const verdict = solveRecovery({
     attempts: 0,
-    diagnosis: { ...a, evidence },
+    diagnosis: { ...first, evidence },
     patch: {
-      files: fixture.expectedPaths,
-      changedFiles: fixture.expectedPaths.length,
-      changedLines: 1,
-      deletions: 0,
+      files: fixture.patchFiles || fixture.expectedPaths,
+      changedFiles: (fixture.patchFiles || fixture.expectedPaths).length,
+      changedLines: fixture.changedLines || 1,
+      deletions: fixture.deletions || 0,
       diff: fixture.diff
     }
   });
 
+  const proofComplete = Boolean(
+    first.fingerprint &&
+    first.stateHash &&
+    diffCritic.diffHash &&
+    typeof verdict.reasoningScore === "number" &&
+    verdict.stateHash &&
+    verdict.diffCritic
+  );
+
   return {
     id: fixture.id,
-    diagnosisCorrect: a.errorType === fixture.expectedErrorType,
-    pathCorrect: pathMatches(a.affectedFiles, fixture.expectedPaths),
+    diagnosisCorrect: first.errorType === fixture.expectedErrorType,
+    pathCorrect: pathMatches(first.affectedFiles, fixture.expectedPaths),
     actionCorrect: verdict.action === fixture.expectedAction,
     securityExpected: fixture.securityExpected === true,
-    securityBlocked: fixture.securityExpected ? !diffCritic.safe : true,
-    proofComplete: Boolean(
-      a.fingerprint &&
-      a.stateHash &&
-      diffCritic.diffHash &&
-      typeof verdict.reasoningScore === "number"
-    ),
-    replayStable: hash(a) === hash(b),
-    errorType: a.errorType,
-    affectedFiles: a.affectedFiles,
+    securityBlocked: fixture.securityExpected === true ? !diffCritic.safe : true,
+    proofComplete,
+    replayStable: hash(first) === hash(replay),
+    errorType: first.errorType,
+    affectedFiles: first.affectedFiles,
     action: verdict.action,
     diffSafe: diffCritic.safe,
     diffHash: diffCritic.diffHash,
-    stateHash: a.stateHash,
+    stateHash: verdict.stateHash,
     reasons: verdict.reasons
   };
 }
@@ -84,17 +88,24 @@ const report = {
   benchmarkHash: hash({ manifest, incidents }),
   sourceContract: {
     manifestVersion: manifest.version,
-    incidentCount: incidents.length
+    incidentCount: incidents.length,
+    metricSet: manifest.metrics
   },
   metrics,
   cases: rows
 };
 
-fs.writeFileSync(path.join(__dirname, "benchmark-report.json"), JSON.stringify(report, null, 2) + "\n");
+fs.writeFileSync(path.join(__dirname, "benchmark-report.json"), JSON.stringify(report, null, 2) + "
+");
 console.log(JSON.stringify(report, null, 2));
 
-if (metrics.deterministic_replay !== 1 ||
-    metrics.security_gate_recall !== 1 ||
-    metrics.proof_gate_completeness !== 1) {
+if (
+  metrics.deterministic_replay !== 1 ||
+  metrics.security_gate_recall !== 1 ||
+  metrics.proof_gate_completeness !== 1 ||
+  metrics.diagnosis_accuracy < 0.80 ||
+  metrics.path_accuracy < 0.80 ||
+  metrics.expected_action_accuracy < 0.80
+) {
   process.exitCode = 1;
 }
