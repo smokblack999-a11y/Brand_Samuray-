@@ -177,3 +177,23 @@ $("exportBtn").addEventListener("click", exportTxt);
 $("apiKey").value = sessionStorage.getItem("samurai_core_api_key") || "";
 $("apiKey").addEventListener("change", () => sessionStorage.setItem("samurai_core_api_key", apiKey()));
 render();
+
+\n$("jsonBtn").addEventListener("click", async () => {
+  if (!session) return;
+  const response = await fetch(`/api/dual/sessions/${session.id}/export?format=json`, {
+    headers: { "X-API-Key": apiKey() }
+  });
+  if (!response.ok) return alert("Не удалось экспортировать JSON");
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `dual-ai-${session.id}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+});
+
+$("pdfBtn").addEventListener("click", () => {
+  if (!session) return;
+  window.print();
+});
