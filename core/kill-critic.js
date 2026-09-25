@@ -108,7 +108,12 @@ function decide(input = {}, options = {}) {
   const attempts = Math.max(0, Number(input.attempts || 0));
   const score = scoreEvidence(evidence, w);
   const diffCritic = input.patch?.diff ? analyzeDiff(input.patch.diff) : null;
-  const reasons = [];\n\n  if (diffCritic && !diffCritic.safe) {\n    reasons.push(...diffCritic.reasons);\n    return { action: ACTIONS.HUMAN_REVIEW, score, risk: "high", reasons, diffCritic };\n  }
+  const reasons = [];
+
+  if (diffCritic && !diffCritic.safe) {
+    reasons.push(...diffCritic.reasons);
+    return { action: ACTIONS.HUMAN_REVIEW, score, risk: "high", reasons, diffCritic };
+  }
 
   if (attempts >= w.maxAttempts) {
     reasons.push("retry_budget_exhausted");
