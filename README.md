@@ -101,6 +101,27 @@ AUTO_REPLY=false
 npm run set-webhook
 ```
 
+## AI DUAL
+
+Встроенный GUI доступен на `/dual-ai/` и защищён тем же `X-API-Key`, что и административный Core API.
+
+Режимы:
+- `critic`: MODEL A → Kill Critic → revision → final gate; цикл ограничен `DUAL_AI_MAX_CYCLES`.
+- `debate`: чередование A/B с жёстким лимитом ходов.
+- `independent`: два независимых ответа.
+
+Провайдеры: `openai`, `anthropic`, `ollama`. По умолчанию используются OpenAI Responses API: A=`gpt-5.6-luna`, B=`gpt-5.6-terra`. Для OpenAI-критика Structured Outputs задают строгую проверяемую JSON-схему; для Anthropic/Ollama используется совместимая JSON-инструкция провайдеру.
+
+Сессии и все ходы сохраняются в `DATA_DIR/dual-sessions.json` атомарной записью. Экспорт: JSON/TXT. Финальный ответ выпускается только после прохождения Kill Critic gate; при исчерпании цикла статус становится `BLOCKED`, а не `COMPLETE`.
+
+Запуск GUI:
+
+```text
+npm start
+# открыть:
+http://127.0.0.1:8787/dual-ai/
+```
+
 ## MVP commercial gate
 
 Не расширять продукт, пока не проверены реальные сообщения минимум одного пилотного бизнеса.

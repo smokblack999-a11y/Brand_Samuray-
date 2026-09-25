@@ -1,6 +1,7 @@
 "use strict";
 require("dotenv").config();
 const crypto = require("crypto");
+const path = require("path");
 const express = require("express");
 const cors = require("cors");
 const { scoreLead } = require("./lead-engine");
@@ -8,6 +9,7 @@ const { generateReply, checkOpenAI } = require("./openai");
 const { sendBusinessMessage } = require("./business-bot");
 const { saveLead, claimEvent, updateLead, listLeads, stats } = require("./store");
 const { createRateLimiter } = require("./rate-limit");
+const dualAI = require("./dual-ai/engine");
 
 const app = express();
 const PORT = Number(process.env.PORT || 8787);
@@ -18,6 +20,8 @@ const CORS_ORIGIN = String(process.env.CORS_ORIGIN || "").trim();
 const REQUEST_TIMEOUT_MS = Math.max(5000, Number(process.env.REQUEST_TIMEOUT_MS || 30000));
 const LEAD_RATE_LIMIT_WINDOW_MS = Math.max(1000, Number(process.env.LEAD_RATE_LIMIT_WINDOW_MS || 60000));
 const LEAD_RATE_LIMIT_MAX = Math.max(1, Number(process.env.LEAD_RATE_LIMIT_MAX || 20));
+const DUAL_RATE_LIMIT_WINDOW_MS = Math.max(1000, Number(process.env.DUAL_RATE_LIMIT_WINDOW_MS || 60000));
+const DUAL_RATE_LIMIT_MAX = Math.max(1, Number(process.env.DUAL_RATE_LIMIT_MAX || 8));
 
 if (process.env.NODE_ENV === "production") {
   const missing = [];
@@ -67,8 +71,10 @@ app.use((req, res, next) => {
 });
 
 const leadRateLimit = createRateLimiter({ windowMs: LEAD_RATE_LIMIT_WINDOW_MS, max: LEAD_RATE_LIMIT_MAX });
+const dualRateLimit = createRateLimiter({ windowMs: DUAL_RATE_LIMIT_WINDOW_MS, max: DUAL_RATE_LIMIT_MAX });
 
-app.get("/health", (_req, res) => res.json({ ok: true, service: "SamuraiOS Core", version: "2.7.0" }));
+app.get("/health", (_req, res) => res.json({ ok: true, service: "SamuraiOS Core", version: "2.8.0" }));
+app.use("/dual-ai", express.static(path.join(__dirname, "dual-ai", "public"), { index: "index.html" }));
 app.get("/ready", (req, res) => {
   try {
     const current = stats();
@@ -90,6 +96,58 @@ app.get("/health/openai", requireApiKey, async (req, res) => {
 });
 app.get("/api/leads", requireApiKey, (req, res) => res.json({ ok: true, leads: listLeads(req.query.limit), requestId: req.requestId }));
 app.get("/api/stats", requireApiKey, (req, res) => res.json({ ok: true, stats: stats(), requestId: req.requestId }));
+
+app.get("/api/dual/config", requireApiKey, (req, res) => {
+  try { return res.json({ ok: true, ...dualAI.configStatus(), requestId: req.requestId }); }
+  catch { return res.status(500).json(errorBody("DUAL_CONFIG_FAILED", "Dual AI configuration failed", req.requestId)); }
+});
+
+app.post("/api/dual/sessions", requireApiKey, dualRateLimit, (req, res) => {
+  try { return res.status(201).json({ ok: true, session: dualAI.createSession(req.body || {}), requestId: req.requestId }); }
+  catch (error) {
+    const status = ["INVALID_TASK","TASK_TOO_LONG"].includes(error.code) ? 400 : 500;
+    return res.status(status).json(errorBody(error.code || "DUAL_CREATE_FAILED", status === 400 ? error.message : "Dual AI session creation failed", req.requestId));
+  }
+});
+
+app.get("/api/dual/sessions/:id", requireApiKey, (req, res) => {
+  const session = dualAI.getSession(req.params.id);
+  if (!session) return res.status(404).json(errorBody("SESSION_NOT_FOUND", "Session not found", req.requestId));
+  return res.json({ ok: true, session, requestId: req.requestId });
+});
+
+app.post("/api/dual/sessions/:id/turn", requireApiKey, dualRateLimit, async (req, res) => {
+  try { return res.json({ ok: true, session: await dualAI.runTurn(req.params.id), requestId: req.requestId }); }
+  catch (error) {
+    const status =
+      error.code === "SESSION_NOT_FOUND" ? 404 :
+      ["SESSION_BUSY","SESSION_NOT_RUNNABLE"].includes(error.code) ? 409 :
+      /not configured|authentication failed|rate limit|timed out|temporarily unavailable/i.test(error.message) ? 503 : 500;
+    console.error(JSON.stringify({ event:"dual_ai_turn_failed", requestId:req.requestId, sessionId:req.params.id, code:error.code||"DUAL_TURN_FAILED", error:error.message }));
+    return res.status(status).json(errorBody(error.code || "DUAL_TURN_FAILED", status === 503 ? "AI provider unavailable" : status >= 500 ? "Dual AI turn failed" : error.message, req.requestId));
+  }
+});
+
+app.post("/api/dual/sessions/:id/stop", requireApiKey, (req, res) => {
+  try { return res.json({ ok:true, session:dualAI.stopSession(req.params.id), requestId:req.requestId }); }
+  catch (error) {
+    const status = error.code === "SESSION_NOT_FOUND" ? 404 : 500;
+    return res.status(status).json(errorBody(error.code || "DUAL_STOP_FAILED", status === 404 ? "Session not found" : "Dual AI stop failed", req.requestId));
+  }
+});
+
+app.get("/api/dual/sessions/:id/export", requireApiKey, (req, res) => {
+  try {
+    const format = String(req.query.format || "json").toLowerCase() === "txt" ? "txt" : "json";
+    const artifact = dualAI.sessionExport(req.params.id, format);
+    res.setHeader("Content-Type", artifact.contentType);
+    res.setHeader("Content-Disposition", `attachment; filename="${artifact.filename}"`);
+    return res.send(artifact.content);
+  } catch (error) {
+    const status = error.code === "SESSION_NOT_FOUND" ? 404 : 500;
+    return res.status(status).json(errorBody(error.code || "DUAL_EXPORT_FAILED", status === 404 ? "Session not found" : "Dual AI export failed", req.requestId));
+  }
+});
 
 async function analyze(message, business) {
   const text = String(message || "").trim();
@@ -156,7 +214,7 @@ app.post("/api/telegram/webhook", requireWebhookSecret, async (req, res) => {
 
 app.use((req, res) => res.status(404).json(errorBody("NOT_FOUND", "Endpoint not found", req.requestId)));
 
-const server = app.listen(PORT, "0.0.0.0", () => console.log(`SamuraiOS Core 2.7.0 listening on :${PORT}`));
+const server = app.listen(PORT, "0.0.0.0", () => console.log(`SamuraiOS Core 2.8.0 listening on :${PORT}`));
 server.requestTimeout = REQUEST_TIMEOUT_MS;
 server.headersTimeout = REQUEST_TIMEOUT_MS + 5000;
 

@@ -59,6 +59,11 @@ jobs:
           node --check lead-engine.js
           node --check scripts/set-webhook.js
           node --check scripts/verify-config.js
+          node --check dual-ai/providers.js
+          node --check dual-ai/prompts.js
+          node --check dual-ai/store.js
+          node --check dual-ai/engine.js
+          node --check dual-ai/public/app.js
 
       - name: Unit tests
         run: npm test
