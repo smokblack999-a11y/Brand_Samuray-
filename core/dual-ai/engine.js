@@ -353,16 +353,17 @@ async function runTurn(idValue) {
   running.add(idValue);
   store.updateSession(idValue, { status: "WORKING" });
 
+  const activeSession = store.getSession(idValue);
+  const activePhase = activeSession.phase;
   try {
-    const session = store.getSession(idValue);
-    if (session.mode === "critic") await runCriticTurn(session, session.phase);
-    else if (session.mode === "debate") await runDebateTurn(session);
-    else await runIndependentTurn(session);
+    if (activeSession.mode === "critic") await runCriticTurn(activeSession, activeSession.phase);
+    else if (activeSession.mode === "debate") await runDebateTurn(activeSession);
+    else await runIndependentTurn(activeSession);
     return makePublic(store.getSession(idValue));
   } catch (error) {
     store.updateSession(idValue, {
       status: "ERROR",
-      phase: "ERROR",
+      phase: activePhase,
       error: error.message
     });
     throw error;
