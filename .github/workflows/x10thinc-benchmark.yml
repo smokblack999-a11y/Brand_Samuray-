@@ -19,11 +19,18 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-      - run: node --check core/x10thinc-solver.js
-      - run: node --check core/kill-critic.js
-      - run: node --check core/x10thinc-diff-critic.js
-      - run: node --test core/test/x10thinc-diff-critic.test.js
-      - run: node evaluation/run-benchmark.js
+      - name: Syntax gate
+        run: |
+          node --check core/x10thinc-solver.js
+          node --check core/kill-critic.js
+          node --check core/x10thinc-diff-critic.js
+          node --check core/x10think-recovery.js
+      - name: Unit gates
+        run: |
+          node --test core/test/x10thinc-diff-critic.test.js
+          node --test core/test/x10thinc-solver.test.js
+      - name: Deterministic benchmark
+        run: node evaluation/run-benchmark.js
       - name: Upload benchmark evidence
         uses: actions/upload-artifact@v4
         with:
