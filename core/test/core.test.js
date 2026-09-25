@@ -162,3 +162,20 @@ test('unknown route returns JSON 404', async () => {
   const body = await r.json();
   assert.equal(body.ok, false);
 });
+
+test('Dual AI GUI is served and config endpoint is protected', async () => {
+  const html = await fetch(`http://127.0.0.1:${port}/dual-ai/`);
+  assert.equal(html.status, 200);
+  assert.match(await html.text(), /SAMURAI.*AI DUAL/i);
+
+  const denied = await fetch(`http://127.0.0.1:${port}/api/dual/config`);
+  assert.equal(denied.status, 401);
+
+  const config = await api('/api/dual/config');
+  assert.equal(config.status, 200);
+  assert.equal(config.body, undefined);
+  const body = await config.json();
+  assert.equal(body.ok, true);
+  assert.equal(body.agents.A.configured, false);
+  assert.equal(body.agents.B.configured, false);
+});
