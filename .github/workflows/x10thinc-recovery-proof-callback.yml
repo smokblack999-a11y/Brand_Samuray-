@@ -1,0 +1,54 @@
+name: X10THINC Recovery Proof Callback
+
+on:
+  workflow_run:
+    workflows: ["X10THINC Recovery Verification"]
+    types: [completed]
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  submit-proof:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      startsWith(github.event.workflow_run.head_branch, 'recovery/')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Submit completed-run proof
+        env:
+          RECOVERY_URL: ${{ secrets.X10THINK_RECOVERY_URL }}
+          RECOVERY_API_KEY: ${{ secrets.X10THINK_RECOVERY_API_KEY }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          REPOSITORY: ${{ github.event.workflow_run.repository.full_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${RECOVERY_URL:-}"
+          test -n "${RECOVERY_API_KEY:-}"
+          job_id="${HEAD_BRANCH#recovery/}"
+          [[ "${job_id}" =~ ^recovery-[a-f0-9]{24}$ ]]
+          payload="$(python - <<'PY'
+          import json, os
+          print(json.dumps({"proof": {
+            "jobId": os.environ["HEAD_BRANCH"].replace("recovery/","",1),
+            "repository": os.environ["REPOSITORY"],
+            "verificationRunId": int(os.environ["RUN_ID"]),
+            "headSha": os.environ["HEAD_SHA"],
+            "patchApplied": True,
+            "sandboxPassed": True,
+            "testsPassed": True,
+            "ciPassed": True,
+            "invariantsPassed": True,
+            "evidenceComplete": True,
+            "autonomousMerge": False
+          }}))
+          PY
+          )"
+          code="$(curl -sS -o /tmp/recovery-proof.json -w '%{http_code}'             --connect-timeout 5 --max-time 30             -X POST "${RECOVERY_URL%/}/api/recovery/jobs/${job_id}/verify"             -H "Content-Type: application/json"             -H "X-API-Key: ${RECOVERY_API_KEY}"             --data "${payload}")"
+          cat /tmp/recovery-proof.json
+          test "$code" = "200"

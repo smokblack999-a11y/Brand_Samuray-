@@ -1,0 +1,49 @@
+name: X10THINC Security Gate
+
+on:
+  push:
+    branches: ["x10thinc/kill-critic-vnext"]
+  pull_request:
+    branches: [main, master]
+
+permissions:
+  contents: read
+
+jobs:
+  security:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: core/package-lock.json
+      - name: Install locked dependencies
+        working-directory: core
+        run: npm ci
+      - name: Dependency audit
+        working-directory: core
+        run: npm audit --audit-level=high
+      - name: Syntax gate
+        working-directory: core
+        run: |
+          find . -path './node_modules' -prune -o -name '*.js' -print0 | xargs -0 -n1 node --check
+      - name: Secret gate
+        run: |
+          set -euo pipefail
+          ! git grep -nE 'sk-(proj|svcacct)-[A-Za-z0-9_-]{20,}'
+          ! git grep -nE '(BEGIN (RSA|OPENSSH|EC) PRIVATE KEY|ghp_[A-Za-z0-9]{30,})'
+      - name: Recovery policy checks
+        working-directory: core
+        run: node --test test/x10thinc-recovery-26.test.js
+      - name: Workflow permission check
+        run: |
+          set -euo pipefail
+          for f in .github/workflows/*.yml .github/workflows/*.yaml; do
+            [ -f "$f" ] || continue
+            grep -q '^permissions:' "$f" || { echo "Missing explicit permissions: $f"; exit 1; }
+          done
