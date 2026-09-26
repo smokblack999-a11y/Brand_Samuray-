@@ -2,6 +2,7 @@
 require("dotenv").config();
 const crypto = require("crypto");
 const path = require("path");
+const fs = require("fs");
 const express = require("express");
 const cors = require("cors");
 const { scoreLead } = require("./lead-engine");
@@ -9,6 +10,9 @@ const { generateReply, checkOpenAI } = require("./openai");
 const { sendBusinessMessage } = require("./business-bot");
 const { saveLead, claimEvent, updateLead, listLeads, stats } = require("./store");
 const { createRateLimiter } = require("./rate-limit");
+const { ingestMessageMedia } = require("./media-ingest");
+const { requireWebAppAuth } = require("./webapp-auth");
+const { emitHamylionEvent } = require("./hamylion-adapter");
 const dualAI = require("./dual-ai/engine");
 
 const app = express();
@@ -20,6 +24,8 @@ const CORS_ORIGIN = String(process.env.CORS_ORIGIN || "").trim();
 const REQUEST_TIMEOUT_MS = Math.max(5000, Number(process.env.REQUEST_TIMEOUT_MS || 30000));
 const LEAD_RATE_LIMIT_WINDOW_MS = Math.max(1000, Number(process.env.LEAD_RATE_LIMIT_WINDOW_MS || 60000));
 const LEAD_RATE_LIMIT_MAX = Math.max(1, Number(process.env.LEAD_RATE_LIMIT_MAX || 20));
+const WEBAPP_MAX_MEDIA_BYTES = Math.max(1024 * 1024, Number(process.env.WEBAPP_MAX_MEDIA_BYTES || 50 * 1024 * 1024));
+const WEBAPP_MEDIA_DIR = process.env.MEDIA_DIR || path.join(process.env.DATA_DIR || path.join(__dirname, "data"), "media");
 
 if (process.env.NODE_ENV === "production") {
   const missing = [];
@@ -71,6 +77,7 @@ app.use((req, res, next) => {
 const leadRateLimit = createRateLimiter({ windowMs: LEAD_RATE_LIMIT_WINDOW_MS, max: LEAD_RATE_LIMIT_MAX });
 const dualRateLimit = createRateLimiter({ windowMs: Math.max(1000, Number(process.env.DUAL_AI_RATE_LIMIT_WINDOW_MS || 60000)), max: Math.max(1, Number(process.env.DUAL_AI_RATE_LIMIT_MAX || 10)) });
 app.use("/dual-ai", express.static(path.join(__dirname, "dual-ai", "public"), { index: "index.html" }));
+app.use("/mini-app", express.static(path.join(__dirname, "mini-app"), { index: "index.html" }));
 
 app.get("/health", (_req, res) => res.json({ ok: true, service: "SamuraiOS Core", version: "2.7.0" }));
 app.get("/ready", (req, res) => {
@@ -93,7 +100,87 @@ app.get("/health/openai", requireApiKey, async (req, res) => {
   }
 });
 app.get("/api/leads", requireApiKey, (req, res) => res.json({ ok: true, leads: listLeads(req.query.limit), requestId: req.requestId }));
-app.get("/api/stats", requireApiKey, (req, res) => res.json({ ok: true, stats: stats(), requestId: req.requestId }));
+app.get("/api/stats", requireApiKey, (req, res) => res.json({ ok: true, stats: stats(), requestId: req.requestId }));\n\nfunction readRawBody(req, maxBytes) {
+  return new Promise((resolve, reject) => {
+    let total = 0;
+    const chunks = [];
+    req.on("data", chunk => {
+      total += chunk.length;
+      if (total > maxBytes) {
+        req.destroy();
+        const error = new Error("Media payload too large");
+        error.code = "MEDIA_TOO_LARGE";
+        reject(error);
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on("end", () => resolve(Buffer.concat(chunks, total)));
+    req.on("error", reject);
+  });
+}
+
+function safeMediaExtension(mime, filename) {
+  const allowed = {
+    "image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp",
+    "image/heic": ".heic", "image/heif": ".heif", "video/mp4": ".mp4",
+    "video/webm": ".webm", "application/pdf": ".pdf"
+  };
+  return allowed[mime] || path.extname(path.basename(filename || "")) || ".bin";
+}
+
+app.post("/api/webapp/media", requireWebAppAuth, async (req, res) => {
+  try {
+    const mime = String(req.get("content-type") || "application/octet-stream").split(";")[0].toLowerCase();
+    const filename = path.basename(String(req.query.filename || req.get("X-Media-Name") || "capture"));
+    const ext = safeMediaExtension(mime, filename);
+    if (!["image/jpeg","image/png","image/webp","image/heic","image/heif","video/mp4","video/webm","application/pdf"].includes(mime)) {
+      return res.status(415).json(errorBody("UNSUPPORTED_MEDIA_TYPE", "Unsupported media type", req.requestId));
+    }
+    const body = await readRawBody(req, WEBAPP_MAX_MEDIA_BYTES);
+    if (!body.length) return res.status(400).json(errorBody("EMPTY_MEDIA", "Media body is empty", req.requestId));
+
+    fs.mkdirSync(WEBAPP_MEDIA_DIR, { recursive: true });
+    const storedName = crypto.randomUUID() + ext;
+    const storedPath = path.join(WEBAPP_MEDIA_DIR, storedName);
+    fs.writeFileSync(storedPath, body, { flag: "wx" });
+    const sha256 = crypto.createHash("sha256").update(body).digest("hex");
+    const saved = saveLead({
+      source: "telegram_webapp",
+      status: "completed",
+      telegramUserId: req.telegramWebApp.user.id,
+      media: { type: mime.startsWith("video/") ? "video" : "photo", fileName: filename, mimeType: mime, storedName, bytes: body.length, sha256 }
+    });
+    void emitHamylionEvent("telegram.webapp.media", { telegramUserId: req.telegramWebApp.user.id, media: saved.media, leadId: saved.id }, "webapp-media:" + saved.id).catch(error =>
+      console.error(JSON.stringify({ event: "hamylion_media_emit_failed", requestId: req.requestId, error: error.message }))
+    );
+    return res.status(201).json({ ok: true, media: saved.media, leadId: saved.id, requestId: req.requestId });
+  } catch (error) {
+    const status = error.code === "MEDIA_TOO_LARGE" ? 413 : 500;
+    return res.status(status).json(errorBody(error.code || "MEDIA_UPLOAD_FAILED", status === 413 ? error.message : "Media upload failed", req.requestId));
+  }
+});
+
+app.post("/api/webapp/location", requireWebAppAuth, async (req, res) => {
+  try {
+    const latitude = Number(req.body?.latitude);
+    const longitude = Number(req.body?.longitude);
+    const accuracy = req.body?.accuracy == null ? null : Number(req.body.accuracy);
+    const timestamp = req.body?.timestamp == null ? Date.now() : Number(req.body.timestamp);
+    if (!Number.isFinite(latitude) || latitude < -90 || latitude > 90 || !Number.isFinite(longitude) || longitude < -180 || longitude > 180) {
+      return res.status(400).json(errorBody("INVALID_LOCATION", "Invalid coordinates", req.requestId));
+    }
+    const location = { latitude, longitude, accuracy: Number.isFinite(accuracy) ? accuracy : null, timestamp };
+    const saved = saveLead({ source: "telegram_webapp", status: "completed", telegramUserId: req.telegramWebApp.user.id, location });
+    void emitHamylionEvent("telegram.webapp.location", { telegramUserId: req.telegramWebApp.user.id, location, leadId: saved.id }, "webapp-location:" + saved.id).catch(error =>
+      console.error(JSON.stringify({ event: "hamylion_location_emit_failed", requestId: req.requestId, error: error.message }))
+    );
+    return res.status(201).json({ ok: true, location, leadId: saved.id, requestId: req.requestId });
+  } catch (error) {
+    return res.status(500).json(errorBody("LOCATION_SAVE_FAILED", "Location save failed", req.requestId));
+  }
+});
+
 
 app.get("/api/dual-ai/config", requireApiKey, (req, res) => res.json({ ok: true, config: dualAI.config(), requestId: req.requestId }));
 
@@ -190,9 +277,9 @@ app.post("/api/telegram/webhook", requireWebhookSecret, async (req, res) => {
       return;
     }
     const message = update.business_message;
-    if (!message?.text || !message.business_connection_id || !message.chat?.id || !Number.isInteger(message.message_id)) return;
+    if (!message?.business_connection_id || !message.chat?.id || !Number.isInteger(message.message_id)) return;
     const eventKey = `telegram:${message.business_connection_id}:${message.chat.id}:${message.message_id}`;
-    const claim = claimEvent(eventKey, { source: "telegram_business", businessConnectionId: message.business_connection_id, chatId: message.chat.id, messageId: message.message_id, customer: message.from?.id || null, message: message.text });
+    const claim = claimEvent(eventKey, { source: "telegram_business", businessConnectionId: message.business_connection_id, chatId: message.chat.id, messageId: message.message_id, customer: message.from?.id || null, message: message.text || message.caption || null });
     if (!claim.claimed) {
       console.log(JSON.stringify({ event: "duplicate_telegram_event", eventKey, requestId: req.requestId }));
       return;
@@ -200,7 +287,7 @@ app.post("/api/telegram/webhook", requireWebhookSecret, async (req, res) => {
     try {
       const result = await analyze(message.text, process.env.BUSINESS_NAME);
       const saved = updateLead(claim.item.id, { ...result.lead, reply: result.reply, status: "completed" });
-      console.log(JSON.stringify({ event: "lead", id: saved.id, chatId: message.chat.id, score: result.lead.score, intent: result.lead.intent, requestId: req.requestId }));
+      console.log(JSON.stringify({ event: "lead", id: saved.id, chatId: message.chat.id, score: result.lead.score, intent: result.lead.intent, hasMedia: Boolean(saved.media), hasLocation: Boolean(saved.location), requestId: req.requestId }));\n      void emitHamylionEvent("telegram.business_message", { leadId: saved.id, businessConnectionId: message.business_connection_id, chatId: message.chat.id, messageId: message.message_id, customer: message.from?.id || null, message: text, lead: result.lead, reply: result.reply, media: saved.media, location: saved.location }, eventKey).catch(error => console.error(JSON.stringify({ event: "hamylion_emit_failed", requestId: req.requestId, error: error.message })));
       if (result.reply && String(process.env.AUTO_REPLY).toLowerCase() === "true") await sendBusinessMessage({ businessConnectionId: message.business_connection_id, chatId: message.chat.id, text: result.reply });
     } catch (error) {
       updateLead(claim.item.id, { status: "failed", error: error.message });
