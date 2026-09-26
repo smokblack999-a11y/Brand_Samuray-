@@ -30,7 +30,7 @@ function validateInitData(initData) {
     .update(dataCheckString)
     .digest("hex");
 
-  if (!crypto.timingSafeEqual(Buffer.from(receivedHash), Buffer.from(expectedHash))) {
+  if (receivedHash.length !== expectedHash.length || !crypto.timingSafeEqual(Buffer.from(receivedHash), Buffer.from(expectedHash))) {
     throw new Error("Invalid Telegram WebApp signature");
   }
 
