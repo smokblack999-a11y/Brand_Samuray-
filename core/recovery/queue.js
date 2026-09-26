@@ -31,7 +31,12 @@ function hashPayload(payload) {
 function enqueue({ source, deliveryId, payload, workflowRun }) {
   if (!source || !deliveryId || !payload) throw new Error("source, deliveryId and payload are required");
   const rows = read();
-  const existing = rows.find(x => x.deliveryId === deliveryId && x.source === source);
+  const repository = workflowRun?.repository || null;
+  const runId = workflowRun?.id == null ? null : String(workflowRun.id);
+  const existing = rows.find(x =>
+    (x.deliveryId === deliveryId && x.source === source) ||
+    (runId && x.runId === runId && repository && x.repository === repository)
+  );
   if (existing) return { created: false, job: existing };
 
   const now = new Date().toISOString();
@@ -41,7 +46,7 @@ function enqueue({ source, deliveryId, payload, workflowRun }) {
     source,
     deliveryId: String(deliveryId),
     runId,
-    repository: workflowRun?.repository || null,
+    repository,
     workflow: workflowRun?.workflow || null,
     conclusion: workflowRun?.conclusion || null,
     headBranch: workflowRun?.headBranch || null,
