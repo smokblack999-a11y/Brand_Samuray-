@@ -1,0 +1,39 @@
+name: HAMYLION Core CI
+
+on:
+  push:
+    paths:
+      - "hamylion-core/**"
+      - ".github/workflows/hamylion.yml"
+  pull_request:
+    paths:
+      - "hamylion-core/**"
+      - ".github/workflows/hamylion.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Compile Python sources
+        run: python -m compileall -q hamylion-core/backend
+
+  docker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build HAMYLION image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./hamylion-core/backend
+          push: false
+          tags: hamylion-core:ci
