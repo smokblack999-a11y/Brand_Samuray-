@@ -103,19 +103,25 @@ app.get("/api/leads", requireApiKey, (req, res) => res.json({ ok: true, leads: l
 app.get("/api/stats", requireApiKey, (req, res) => res.json({ ok: true, stats: stats(), requestId: req.requestId }));\n\nfunction readRawBody(req, maxBytes) {
   return new Promise((resolve, reject) => {
     let total = 0;
+    let tooLarge = false;
     const chunks = [];
     req.on("data", chunk => {
       total += chunk.length;
       if (total > maxBytes) {
-        req.destroy();
+        tooLarge = true;
+        return;
+      }
+      if (!tooLarge) chunks.push(chunk);
+    });
+    req.on("end", () => {
+      if (tooLarge) {
         const error = new Error("Media payload too large");
         error.code = "MEDIA_TOO_LARGE";
         reject(error);
         return;
       }
-      chunks.push(chunk);
+      resolve(Buffer.concat(chunks, total));
     });
-    req.on("end", () => resolve(Buffer.concat(chunks, total)));
     req.on("error", reject);
   });
 }
