@@ -282,25 +282,98 @@ app.post("/api/telegram/webhook", requireWebhookSecret, async (req, res) => {
       console.log(JSON.stringify({ event: "business_connection", id: update.business_connection.id, requestId: req.requestId }));
       return;
     }
+
     const message = update.business_message;
     if (!message?.business_connection_id || !message.chat?.id || !Number.isInteger(message.message_id)) return;
-    const eventKey = `telegram:${message.business_connection_id}:${message.chat.id}:${message.message_id}`;
-    const claim = claimEvent(eventKey, { source: "telegram_business", businessConnectionId: message.business_connection_id, chatId: message.chat.id, messageId: message.message_id, customer: message.from?.id || null, message: message.text || message.caption || null });
+
+    const eventKey = "telegram:" + message.business_connection_id + ":" + message.chat.id + ":" + message.message_id;
+    const claim = claimEvent(eventKey, {
+      source: "telegram_business",
+      businessConnectionId: message.business_connection_id,
+      chatId: message.chat.id,
+      messageId: message.message_id,
+      customer: message.from?.id || null,
+      message: message.text || message.caption || null
+    });
+
     if (!claim.claimed) {
       console.log(JSON.stringify({ event: "duplicate_telegram_event", eventKey, requestId: req.requestId }));
       return;
     }
+
     try {
-      const result = await analyze(message.text, process.env.BUSINESS_NAME);
-      const saved = updateLead(claim.item.id, { ...result.lead, reply: result.reply, status: "completed" });
-      console.log(JSON.stringify({ event: "lead", id: saved.id, chatId: message.chat.id, score: result.lead.score, intent: result.lead.intent, hasMedia: Boolean(saved.media), hasLocation: Boolean(saved.location), requestId: req.requestId }));\n      void emitHamylionEvent("telegram.business_message", { leadId: saved.id, businessConnectionId: message.business_connection_id, chatId: message.chat.id, messageId: message.message_id, customer: message.from?.id || null, message: text, lead: result.lead, reply: result.reply, media: saved.media, location: saved.location }, eventKey).catch(error => console.error(JSON.stringify({ event: "hamylion_emit_failed", requestId: req.requestId, error: error.message })));
-      if (result.reply && String(process.env.AUTO_REPLY).toLowerCase() === "true") await sendBusinessMessage({ businessConnectionId: message.business_connection_id, chatId: message.chat.id, text: result.reply });
+      const text = message.text || message.caption || "Медиа-сообщение";
+      const result = await analyze(text, process.env.BUSINESS_NAME);
+
+      let attachments = { media: null, location: null };
+      try {
+        attachments = await ingestMessageMedia(message);
+      } catch (mediaError) {
+        attachments = {
+          media: null,
+          location: message.location || null,
+          mediaError: mediaError.message
+        };
+      }
+
+      const saved = updateLead(claim.item.id, {
+        ...result.lead,
+        reply: result.reply,
+        ...attachments,
+        status: "completed"
+      });
+
+      console.log(JSON.stringify({
+        event: "lead",
+        id: saved.id,
+        chatId: message.chat.id,
+        score: result.lead.score,
+        intent: result.lead.intent,
+        hasMedia: Boolean(saved.media),
+        hasLocation: Boolean(saved.location),
+        requestId: req.requestId
+      }));
+
+      void emitHamylionEvent(
+        "telegram.business_message",
+        {
+          leadId: saved.id,
+          businessConnectionId: message.business_connection_id,
+          chatId: message.chat.id,
+          messageId: message.message_id,
+          customer: message.from?.id || null,
+          message: text,
+          lead: result.lead,
+          reply: result.reply,
+          media: saved.media,
+          location: saved.location
+        },
+        eventKey
+      ).catch(error =>
+        console.error(JSON.stringify({
+          event: "hamylion_emit_failed",
+          requestId: req.requestId,
+          error: error.message
+        }))
+      );
+
+      if (result.reply && String(process.env.AUTO_REPLY).toLowerCase() === "true") {
+        await sendBusinessMessage({
+          businessConnectionId: message.business_connection_id,
+          chatId: message.chat.id,
+          text: result.reply
+        });
+      }
     } catch (error) {
       updateLead(claim.item.id, { status: "failed", error: error.message });
       throw error;
     }
   } catch (error) {
-    console.error(JSON.stringify({ event: "business_webhook_error", requestId: req.requestId, error: error.message }));
+    console.error(JSON.stringify({
+      event: "business_webhook_error",
+      requestId: req.requestId,
+      error: error.message
+    }));
   }
 });
 
