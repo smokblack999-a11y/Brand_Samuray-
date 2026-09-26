@@ -10,6 +10,7 @@ const { sendBusinessMessage } = require("./business-bot");
 const { saveLead, claimEvent, updateLead, listLeads, stats } = require("./store");
 const { createRateLimiter } = require("./rate-limit");
 const dualAI = require("./dual-ai/engine");
+const recovery = require("./recovery/runtime");
 
 const app = express();
 const PORT = Number(process.env.PORT || 8787);
@@ -31,7 +32,10 @@ if (process.env.NODE_ENV === "production") {
 app.disable("x-powered-by");
 app.set("trust proxy", process.env.TRUST_PROXY === "true" ? 1 : false);
 app.use(cors(CORS_ORIGIN ? { origin: CORS_ORIGIN } : { origin: false }));
-app.use(express.json({ limit: "256kb" }));
+app.use(express.json({
+  limit: "256kb",
+  verify: (req, _res, buf) => { req.rawBody = Buffer.from(buf); }
+}));
 
 function errorBody(code, message, requestId) {
   return { ok: false, error: { code, message, requestId } };
@@ -82,6 +86,48 @@ app.get("/ready", (req, res) => {
     return res.status(503).json(errorBody("NOT_READY", "Service is not ready", req.requestId));
   }
 });
+app.get("/api/recovery/health", (_req, res) => {
+  const health = recovery.health();
+  return res.status(health.ok ? 200 : 503).json(health);
+});
+
+app.get("/api/recovery/jobs/:id", requireApiKey, (req, res) => {
+  const job = recovery.getJob(req.params.id);
+  if (!job) return res.status(404).json(errorBody("RECOVERY_JOB_NOT_FOUND", "Recovery job not found", req.requestId));
+  return res.json({ ok: true, job, requestId: req.requestId });
+});
+
+app.get("/api/recovery/jobs", requireApiKey, (req, res) => {
+  return res.json({ ok: true, jobs: recovery.listJobs(req.query.limit), stats: recovery.queueStats(), requestId: req.requestId });
+});
+
+app.post("/api/recovery/github", (req, res) => {
+  try {
+    const result = recovery.accept(req, { source: "github-api", requireSignature: false });
+    return res.status(result.created ? 202 : 200).json({ ...result, requestId: req.requestId });
+  } catch (error) {
+    return res.status(error.status || 500).json(errorBody(error.code || "RECOVERY_ACCEPT_FAILED", error.status === 500 ? "Recovery request failed" : error.message, req.requestId));
+  }
+});
+
+app.post("/api/recovery/ci", (req, res) => {
+  try {
+    const result = recovery.accept(req, { source: "github-ci", requireSignature: false });
+    return res.status(result.created ? 202 : 200).json({ ...result, requestId: req.requestId });
+  } catch (error) {
+    return res.status(error.status || 500).json(errorBody(error.code || "RECOVERY_CI_ACCEPT_FAILED", error.status === 500 ? "Recovery CI request failed" : error.message, req.requestId));
+  }
+});
+
+app.post("/api/recovery/github/webhook", (req, res) => {
+  try {
+    const result = recovery.accept(req, { source: "github-webhook", requireSignature: true });
+    return res.status(result.created ? 202 : 200).json({ ...result, requestId: req.requestId });
+  } catch (error) {
+    return res.status(error.status || 500).json(errorBody(error.code || "RECOVERY_WEBHOOK_FAILED", error.status === 500 ? "Recovery webhook failed" : error.message, req.requestId));
+  }
+});
+
 app.get("/health/openai", requireApiKey, async (req, res) => {
   if (!process.env.OPENAI_API_KEY) return res.status(503).json(errorBody("OPENAI_NOT_CONFIGURED", "OpenAI is not configured", req.requestId));
   try {
