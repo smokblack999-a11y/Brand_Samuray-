@@ -8,7 +8,7 @@ from sqlalchemy import select, update
 from app.config import settings
 from app.db import SessionLocal
 from app.models import Event
-from app.queue import ensure_group, reclaim_pending, redis_client
+from app.queue import DEAD_LETTER_STREAM, ensure_group, reclaim_pending, redis_client
 from app.websocket import manager
 
 def backoff(attempt: int) -> int:
@@ -73,6 +73,18 @@ async def process(message_id, fields):
         await session.commit()
     await redis_client.xack(settings.STREAM, settings.GROUP, message_id)
 
+async def requeue_due():
+    now = datetime.utcnow()
+    rows = []
+    async with SessionLocal() as session:
+        result = await session.execute(select(Event).where(Event.status == "queued", Event.next_attempt_at.is_not(None), Event.next_attempt_at <= now).limit(100))
+        rows = result.scalars().all()
+        for event in rows:
+            event.next_attempt_at = None
+        await session.commit()
+    for event in rows:
+        await redis_client.xadd(settings.STREAM, {"event": json.dumps({"id": event.id, "project_id": event.project_id, "type": event.event_type, "payload": event.payload}, separators=(",", ":"))})
+
 async def mark_failed(event_id: str, exc: Exception):
     async with SessionLocal() as session:
         result = await session.execute(select(Event).where(Event.id == event_id))
@@ -95,11 +107,10 @@ async def mark_failed(event_id: str, exc: Exception):
             "payload": event.payload,
         }
         status = event.status
-    if status == "queued":
-        await asyncio.sleep(backoff(event.attempts))
+    if status == "deadletter":
         await redis_client.xadd(
-            settings.STREAM,
-            {"event": json.dumps(current, separators=(",", ":"))},
+            DEAD_LETTER_STREAM,
+            {"event": json.dumps({**current, "error": str(exc)[:2000], "attempts": event.attempts}, separators=(",", ":"))},
         )
 
 async def handle_message(message_id, fields):
@@ -130,6 +141,10 @@ async def main():
                     await handle_message(message_id, fields)
 
             ticks += 1
+            try:
+                await requeue_due()
+            except Exception:
+                pass
             if ticks % 6 == 0:
                 try:
                     await requeue_stale()
