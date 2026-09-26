@@ -100,7 +100,9 @@ app.get("/health/openai", requireApiKey, async (req, res) => {
   }
 });
 app.get("/api/leads", requireApiKey, (req, res) => res.json({ ok: true, leads: listLeads(req.query.limit), requestId: req.requestId }));
-app.get("/api/stats", requireApiKey, (req, res) => res.json({ ok: true, stats: stats(), requestId: req.requestId }));\n\nfunction readRawBody(req, maxBytes) {
+app.get("/api/stats", requireApiKey, (req, res) => res.json({ ok: true, stats: stats(), requestId: req.requestId }));
+
+function readRawBody(req, maxBytes) {
   return new Promise((resolve, reject) => {
     let total = 0;
     let tooLarge = false;
