@@ -1,0 +1,41 @@
+services:
+  api:
+    build: ./backend
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+    environment:
+      DATABASE_URL: postgresql+asyncpg://hamylion:hamylion@postgres:5432/hamylion
+      REDIS_URL: redis://redis:6379/0
+      HAMYLION_API_KEY: ${HAMYLION_API_KEY}
+    ports:
+      - "8000:8000"
+    depends_on:
+      - postgres
+      - redis
+
+  worker:
+    build: ./backend
+    command: python worker.py
+    environment:
+      DATABASE_URL: postgresql+asyncpg://hamylion:hamylion@postgres:5432/hamylion
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      - postgres
+      - redis
+
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: hamylion
+      POSTGRES_USER: hamylion
+      POSTGRES_PASSWORD: hamylion
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7
+    volumes:
+      - redisdata:/data
+
+volumes:
+  pgdata:
+  redisdata:
