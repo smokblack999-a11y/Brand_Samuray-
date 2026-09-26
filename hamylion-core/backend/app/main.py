@@ -112,6 +112,29 @@ async def ack_event(event_id: str, project_id: str = Depends(validate_api_key)):
         await session.commit()
     return {"event_id": event_id, "status": "delivered"}
 
+@app.post("/v1/events/{event_id}/replay")
+async def replay_event(event_id: str, project_id: str = Depends(validate_api_key)):
+    async with SessionLocal() as session:
+        result = await session.execute(select(Event).where(Event.id == event_id, Event.project_id == project_id))
+        event = result.scalar_one_or_none()
+        if not event:
+            raise HTTPException(status_code=404, detail="Event not found")
+        event.status = "queued"
+        event.attempts = 0
+        event.next_attempt_at = None
+        event.last_error = None
+        event.dispatched_at = None
+        event.delivered_at = None
+        await session.commit()
+        payload = {
+            "id": event.id,
+            "project_id": event.project_id,
+            "type": event.event_type,
+            "payload": event.payload,
+        }
+    stream_id = await enqueue_event(payload)
+    return {"event_id": event_id, "status": "queued", "stream_id": stream_id}
+
 @app.get("/v1/events")
 async def list_events(
     status: str | None = Query(default=None),
