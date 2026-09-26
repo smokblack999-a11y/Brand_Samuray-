@@ -1,0 +1,126 @@
+name: RepoOwl Kill Critic Enforcement
+
+on:
+  workflow_run:
+    workflows: ["RepoOwl Kill Critic"]
+    types: [completed]
+
+permissions:
+  actions: read
+  contents: read
+  issues: write
+  pull-requests: write
+
+jobs:
+  enforce:
+    if: github.event.workflow_run.conclusion != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Download proof receipt
+        uses: actions/download-artifact@v5
+        with:
+          name: kill-critic-receipt
+          path: ${{ runner.temp }}/kill-critic
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Enforce decision
+        env:
+          REPOSITORY: ${{ github.repository }}
+          RECEIPT_PATH: ${{ runner.temp }}/kill-critic/kill-critic-receipt.json
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          WORKFLOW_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require('fs');
+          const crypto = require('crypto');
+
+          const receipt = JSON.parse(fs.readFileSync(process.env.RECEIPT_PATH, 'utf8'));
+
+          if (receipt.schema !== 'repoowl.kill-critic.receipt/v2') {
+            throw new Error('Unsupported receipt schema');
+          }
+
+          if (receipt.repository !== process.env.REPOSITORY) {
+            throw new Error('Receipt repository mismatch');
+          }
+
+          if (!Number.isInteger(receipt.pull_request) || receipt.pull_request < 1) {
+            throw new Error('Invalid pull request number');
+          }
+
+          if (!/^[0-9a-f]{40}$/.test(receipt.base_sha) ||
+              !/^[0-9a-f]{40}$/.test(receipt.head_sha)) {
+            throw new Error('Invalid commit SHA in receipt');
+          }
+
+          if (!['ALLOW', 'REVIEW', 'BLOCK'].includes(receipt.decision)) {
+            throw new Error('Invalid Kill Critic decision');
+          }
+
+          const canonical = JSON.stringify({
+            schema: receipt.schema,
+            repository: receipt.repository,
+            pull_request: receipt.pull_request,
+            base_sha: receipt.base_sha,
+            head_sha: receipt.head_sha,
+            findings: receipt.findings,
+            decision: receipt.decision
+          });
+
+          const expected = crypto.createHash('sha256').update(canonical).digest('hex');
+          if (expected !== receipt.receipt_sha256) {
+            throw new Error('Receipt SHA256 mismatch');
+          }
+
+          console.log(JSON.stringify({
+            decision: receipt.decision,
+            pull_request: receipt.pull_request,
+            receipt_sha256: receipt.receipt_sha256
+          }, null, 2));
+          NODE
+
+      - name: Apply labels and comment
+        uses: actions/github-script@v8
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+            const receipt = JSON.parse(
+              fs.readFileSync(
+                path.join(process.env.RUNNER_TEMP, 'kill-critic', 'kill-critic-receipt.json'),
+                'utf8'
+              )
+            );
+
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const pr = receipt.pull_request;
+
+            if (receipt.decision === 'BLOCK' || receipt.decision === 'REVIEW') {
+              await github.rest.issues.addLabels({
+                owner,
+                repo,
+                issue_number: pr,
+                labels: ['security', 'needs-triage']
+              });
+
+              const summary = receipt.findings
+                .slice(0, 10)
+                .map(f => `- ${f.code} [${f.severity}] ${f.file || ''}`)
+                .join('\n') || '- Manual review required';
+
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number: pr,
+                body:
+                  `## RepoOwl Kill Critic: ${receipt.decision}\n\n` +
+                  `Receipt: \`${receipt.receipt_sha256}\`\n\n` +
+                  summary
+              });
+            }
