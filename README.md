@@ -112,3 +112,25 @@ npm run set-webhook
 5. Есть измеримый результат: время ответа, количество лидов и конверсии.
 
 Следующий этап после прохождения gate: persistent storage → lead pipeline → dashboard → onboarding → billing.
+
+## X10THINC Media Capture + HAMYLION Core V3
+
+The repository now contains two interoperable layers:
+
+- /mini-app — Telegram Mini App for camera, gallery and device geolocation. Backend validates Telegram initData; device permissions remain controlled by the OS/WebView.
+- /hamylion-core — portable event infrastructure independent from Telegram and Firebase: PostgreSQL event journal, Redis Streams, per-project idempotency, pending-message reclaim, bounded retries, dead-letter state, explicit WebSocket ACK and replay.
+- core/hamylion-adapter.js — optional bridge from Telegram Business events into HAMYLION over HTTP.
+
+Run the portable core with the optional Compose profile:
+
+    HAMYLION_API_KEY="$(openssl rand -hex 32)" docker compose --profile hamylion up --build
+
+The main Core remains usable without HAMYLION. Set HAMYLION_URL and HAMYLION_API_KEY in core/.env only when the bridge is enabled.
+
+### Media endpoints
+
+- GET /mini-app
+- POST /api/webapp/media with X-Telegram-Init-Data
+- POST /api/webapp/location with X-Telegram-Init-Data
+
+Media is stored privately under DATA_DIR/media; SHA-256 is recorded for evidence. No public media route is exposed.
