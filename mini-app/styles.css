@@ -1,0 +1,13 @@
+:root { color-scheme: light dark; font-family: Inter, system-ui, sans-serif; }
+body { margin: 0; background: #0b1020; color: #eef2ff; }
+.app { max-width: 560px; margin: 0 auto; padding: 16px; }
+header { display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; }
+header strong { font-size:20px; display:block; } header span { opacity:.7; }
+.badge { background:#1c2745; border-radius:999px; padding:6px 10px; font-size:12px; }
+.card { background:#121a2e; border:1px solid #24304f; border-radius:20px; padding:18px; box-shadow:0 10px 30px rgba(0,0,0,.2); }
+h1 { margin:0 0 8px; font-size:26px; } p { color:#b8c2dc; line-height:1.45; }
+.grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:16px; }
+button { border:0; border-radius:14px; padding:16px; font-size:16px; font-weight:700; cursor:pointer; }
+button.wide { grid-column:1 / -1; }
+.preview { margin-top:16px; min-height:40px; } .preview img, .preview video { max-width:100%; border-radius:14px; }
+.status { margin-top:12px; color:#9db0d7; font-size:14px; min-height:20px; }
