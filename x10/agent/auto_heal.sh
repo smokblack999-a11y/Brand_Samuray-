@@ -31,9 +31,9 @@ heartbeat() {
 }
 
 restart_app() {
-  am force-stop "${X10_TARGET_PACKAGE}" || true
+  am force-stop "${X10_TARGET_PACKAGE}" || return 1
   sleep 1
-  am start -n "${X10_TARGET_PACKAGE}/.MainActivity" -f 0x10000000 >/dev/null 2>&1 || true
+  am start -n "${X10_TARGET_PACKAGE}/.MainActivity" -f 0x10000000 >/dev/null 2>&1
 }
 
 heartbeat "STARTING"
