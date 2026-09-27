@@ -19,7 +19,7 @@ function stableHash(value) {
 function extractPaths(text) {
   return [...new Set(
     String(text || "").match(
-      /(?:^|\s)((?:[A-Za-z0-9_@-]+\/[A-Za-z0-9_.@-]+)*\/[A-Za-z0-9_.@-]+\.(?:json|yaml|yml|cjs|mjs|tsx|ts|js|sh|kt|java|xml|gradle|properties|go|py)|[A-Za-z0-9_.@-]+\.(?:json|yaml|yml|cjs|mjs|tsx|ts|js|sh|kt|java|xml|gradle|properties|go|py))(?=\s|:|$)/g
+      /(?:[A-Za-z0-9_.@-]+\/)*[A-Za-z0-9_.@-]+\.(?:json|yaml|yml|cjs|mjs|tsx|ts|js|sh|kt|java|xml|gradle|properties|go|py)\b/g
     ) || []
   )].map(x => x.trim()).slice(0, 20);
 }
