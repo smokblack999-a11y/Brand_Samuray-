@@ -8,6 +8,12 @@ on:
 permissions:
   contents: read
 
+# Recovery routing is an optional control-plane integration. Core CI must remain green
+# when the external recovery service has not been configured yet.
+env:
+  RECOVERY_URL: ${{ secrets.X10THINK_RECOVERY_URL }}
+  RECOVERY_API_KEY: ${{ secrets.X10THINK_RECOVERY_API_KEY }}
+
 jobs:
   route:
     if: >-
@@ -20,18 +26,19 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Validate recovery endpoint configuration
-        env:
-          RECOVERY_URL: ${{ secrets.X10THINK_RECOVERY_URL }}
-          RECOVERY_API_KEY: ${{ secrets.X10THINK_RECOVERY_API_KEY }}
+        if: env.RECOVERY_URL != '' && env.RECOVERY_API_KEY != ''
         run: |
           set -euo pipefail
-          test -n "${RECOVERY_URL:-}" || { echo "X10THINK_RECOVERY_URL is not configured"; exit 1; }
-          test -n "${RECOVERY_API_KEY:-}" || { echo "X10THINK_RECOVERY_API_KEY is not configured"; exit 1; }
+          echo "X10THINK recovery routing configured"
+
+      - name: Skip recovery routing when unconfigured
+        if: env.RECOVERY_URL == '' || env.RECOVERY_API_KEY == ''
+        run: |
+          echo "X10THINK recovery routing is not configured; skipping optional control-plane delivery"
 
       - name: Route workflow result
+        if: env.RECOVERY_URL != '' && env.RECOVERY_API_KEY != ''
         env:
-          RECOVERY_URL: ${{ secrets.X10THINK_RECOVERY_URL }}
-          RECOVERY_API_KEY: ${{ secrets.X10THINK_RECOVERY_API_KEY }}
           PAYLOAD: ${{ toJSON(github.event) }}
           HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
         run: |
