@@ -37,7 +37,8 @@ jobs:
           echo "X10THINK recovery routing is not configured; skipping optional control-plane delivery"
 
       - name: Route workflow result
-        if: env.RECOVERY_URL != '' && env.RECOVERY_API_KEY != ''        env:
+        if: env.RECOVERY_URL != '' && env.RECOVERY_API_KEY != ''
+        env:
           PAYLOAD: ${{ toJSON(github.event) }}
           HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
         run: |
