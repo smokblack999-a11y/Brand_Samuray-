@@ -99,7 +99,9 @@ function solveRecovery(input = {}) {
   let action = base.action;
   const reasons = [...(base.reasons || [])];
 
-  if (diffCritic && !diffCritic.safe) hardStops.push("SEMANTIC_DIFF_RISK");\n\n  if (hardStops.length) {
+  if (diffCritic && !diffCritic.safe) hardStops.push("SEMANTIC_DIFF_RISK");
+
+  if (hardStops.length) {
     action = protectedTouched.length ? ACTIONS.HUMAN_REVIEW : ACTIONS.STOP;
     reasons.push(...hardStops);
   }
