@@ -2,6 +2,7 @@
 require("dotenv").config();
 const queue = require("./queue");
 const github = require("./github-transport");
+const { fingerprint } = require("../kill-critic");
 const ACTIVE = new Set();
 const MAX_ATTEMPTS = Math.max(1, Number(process.env.NEXUS_RECOVERY_MAX_ATTEMPTS || 3));
 function failureEvidence(run, jobs) {
@@ -13,7 +14,10 @@ async function diagnose(job) {
   const run = await github.workflowRun(job.runId);
   const jobs = await github.workflowJobs(job.runId);
   const evidence = failureEvidence(run, jobs);
-  return { run: { id: run.id, name: run.name, status: run.status, conclusion: run.conclusion, headBranch: run.head_branch, headSha: run.head_sha, htmlUrl: run.html_url }, evidence, failed: run.conclusion !== "success", repairable: evidence.length > 0 };
+  const firstFailure = evidence[0]?.failedSteps?.[0] || {};
+  const failure = { workflow: run.name, job: evidence[0]?.name, step: firstFailure.name, errorMessage: firstFailure.name, command: run.html_url };
+  const incidentFingerprint = fingerprint(failure);
+  return { fingerprint: incidentFingerprint, run: { id: run.id, name: run.name, status: run.status, conclusion: run.conclusion, headBranch: run.head_branch, headSha: run.head_sha, htmlUrl: run.html_url }, evidence, failed: run.conclusion !== "success", repairable: evidence.length > 0 };
 }
 async function processJob(job) {
   if (!job || ACTIVE.has(job.id)) return null;
@@ -26,7 +30,7 @@ async function processJob(job) {
     const diagnosis = await diagnose(current);
     if (!diagnosis.failed) return queue.update(job.id, { status: "verified", diagnosis });
     if (!diagnosis.repairable) return queue.update(job.id, { status: "stopped", stopReason: "NO_ACTIONABLE_FAILURE_EVIDENCE", diagnosis });
-    return queue.update(job.id, { status: "diagnosed", diagnosis, nextAction: "CANDIDATE_REQUIRED" });
+    return queue.update(job.id, { status: "diagnosed", fingerprint: diagnosis.fingerprint, diagnosis, nextAction: "CANDIDATE_REQUIRED" });
   } catch (error) {
     return queue.update(job.id, { status: "failed", lastError: { code: error.code || "WORKER_FAILED", message: error.message } });
   } finally { ACTIVE.delete(job.id); }
