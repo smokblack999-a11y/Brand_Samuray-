@@ -13,6 +13,7 @@ const dualAI = require("./dual-ai/engine");
 const recovery = require("./recovery/runtime");
 const { buildPatchCandidate } = require("./interop/patch-candidate");
 const { evaluatePatch } = require("./kill-critic");
+const sandbox = require("./recovery/sandbox");
 
 const app = express();
 const PORT = Number(process.env.PORT || 8787);
@@ -149,6 +150,22 @@ app.post("/api/recovery/jobs/:id/candidate", requireApiKey, (req, res) => {
     return res.status(202).json({ ok: true, accepted: true, job: saved, critic, nextAction: "SANDBOX_REQUIRED", requestId: req.requestId });
   } catch (error) {
     return res.status(error.status || 500).json(errorBody(error.code || "RECOVERY_CANDIDATE_FAILED", error.status === 500 ? "Recovery candidate failed" : error.message, req.requestId));
+  }
+});
+
+app.post("/api/recovery/jobs/:id/sandbox", requireApiKey, (req, res) => {
+  try {
+    const job = recovery.getJob(req.params.id);
+    if (!job) return res.status(404).json(errorBody("RECOVERY_JOB_NOT_FOUND", "Recovery job not found", req.requestId));
+    if (job.status !== "sandbox_pending" || !job.patch?.diff) return res.status(409).json(errorBody("SANDBOX_NOT_READY", "Job has no pending candidate for sandbox verification", req.requestId));
+    const repoDir = String(process.env.NEXUS_SANDBOX_REPO || "").trim();
+    if (!repoDir) return res.status(503).json(errorBody("SANDBOX_NOT_CONFIGURED", "NEXUS_SANDBOX_REPO is not configured", req.requestId));
+    const result = sandbox.verify({ diff: job.patch.diff, repoDir });
+    const saved = recovery.updateJob(job.id, { status: "sandbox_verified", sandbox: result, nextAction: "DRAFT_PR_REQUIRED" });
+    return res.status(200).json({ ok: true, job: saved, sandbox: result, requestId: req.requestId });
+  } catch (error) {
+    const saved = recovery.updateJob(req.params.id, { status: "stopped", stopReason: "SANDBOX_FAILED", sandboxError: { code: error.code || "SANDBOX_FAILED", message: error.message } });
+    return res.status(422).json({ ok:false, job:saved, error:errorBody(error.code || "SANDBOX_FAILED", "Sandbox verification failed", req.requestId).error });
   }
 });
 
