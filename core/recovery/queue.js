@@ -40,7 +40,6 @@ function enqueue({ source, deliveryId, payload, workflowRun }) {
   if (existing) return { created: false, job: existing };
 
   const now = new Date().toISOString();
-  const runId = workflowRun?.id == null ? null : String(workflowRun.id);
   const job = {
     id: `rec_${crypto.randomUUID()}`,
     source,
