@@ -11,6 +11,8 @@ const { saveLead, claimEvent, updateLead, listLeads, stats } = require("./store"
 const { createRateLimiter } = require("./rate-limit");
 const dualAI = require("./dual-ai/engine");
 const recovery = require("./recovery/runtime");
+const { buildPatchCandidate } = require("./interop/patch-candidate");
+const { evaluatePatch } = require("./kill-critic");
 
 const app = express();
 const PORT = Number(process.env.PORT || 8787);
@@ -116,6 +118,37 @@ app.post("/api/recovery/ci", (req, res) => {
     return res.status(result.created ? 202 : 200).json({ ...result, requestId: req.requestId });
   } catch (error) {
     return res.status(error.status || 500).json(errorBody(error.code || "RECOVERY_CI_ACCEPT_FAILED", error.status === 500 ? "Recovery CI request failed" : error.message, req.requestId));
+  }
+});
+
+app.post("/api/recovery/jobs/:id/candidate", requireApiKey, (req, res) => {
+  try {
+    const job = recovery.getJob(req.params.id);
+    if (!job) return res.status(404).json(errorBody("RECOVERY_JOB_NOT_FOUND", "Recovery job not found", req.requestId));
+    if (!["diagnosed", "queued"].includes(job.status)) {
+      return res.status(409).json(errorBody("INVALID_RECOVERY_STATE", "Job is not accepting a patch candidate", req.requestId));
+    }
+    const fingerprint = String(req.body?.evidenceFingerprint || "").trim();
+    if (!job.fingerprint || fingerprint !== job.fingerprint) {
+      return res.status(409).json(errorBody("EVIDENCE_BINDING_MISMATCH", "Candidate evidenceFingerprint does not match the recovery job", req.requestId));
+    }
+    const candidate = buildPatchCandidate(req.body || {});
+    if (!candidate.accepted) return res.status(422).json(errorBody("INVALID_PATCH_CANDIDATE", candidate.reason, req.requestId));
+    const diff = candidate.candidate.diff;
+    const changedFiles = candidate.candidate.files;
+    const changedLines = diff.split(/\r?\n/).filter(line => /^\+[^+]|^-[^-]/.test(line)).length;
+    const deletions = diff.split(/\r?\n/).filter(line => /^-[^-]/.test(line)).length;
+    const sensitivePaths = changedFiles.filter(p => /(^|\/)(\.github|\.env|package-lock\.json|yarn\.lock|pnpm-lock\.yaml|android\/app\/src\/main\/AndroidManifest\.xml)(\/|$)/i.test(p));
+    const critic = evaluatePatch({ diff, testsPassed: false, buildPassed: false, proposalId: job.id });
+    const patch = { files: changedFiles, changedFiles: changedFiles.length, changedLines, deletions, sensitivePaths, diff };
+    if (critic.decision === "block") {
+      const saved = recovery.updateJob(job.id, { status: "stopped", patchCandidate: candidate.candidate, patch, critic, stopReason: "KILL_CRITIC_BLOCK" });
+      return res.status(422).json({ ok: false, accepted: false, job: saved, critic, requestId: req.requestId });
+    }
+    const saved = recovery.updateJob(job.id, { status: "sandbox_pending", patchCandidate: candidate.candidate, patch, critic });
+    return res.status(202).json({ ok: true, accepted: true, job: saved, critic, nextAction: "SANDBOX_REQUIRED", requestId: req.requestId });
+  } catch (error) {
+    return res.status(error.status || 500).json(errorBody(error.code || "RECOVERY_CANDIDATE_FAILED", error.status === 500 ? "Recovery candidate failed" : error.message, req.requestId));
   }
 });
 
