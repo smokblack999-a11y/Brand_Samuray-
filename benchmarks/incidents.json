@@ -40,7 +40,7 @@
     "logs":"Test failed AssertionError in core/test/recovery-lifecycle.test.js",
     "expectedErrorType":"test_failure",
     "expectedPaths":["core/test/recovery-lifecycle.test.js"],
-    "expectedAction":"HUMAN_REVIEW",
+    "expectedAction":"STOP",
     "securityExpected":false,
     "sandboxPass":true,
     "regressionPass":true,
@@ -51,7 +51,7 @@
     "logs":"Security scanner finding hard-coded API key in core/config.js",
     "expectedErrorType":"generic",
     "expectedPaths":["core/config.js"],
-    "expectedAction":"HUMAN_REVIEW",
+    "expectedAction":"STOP",
     "securityExpected":true,
     "diff":"--- a/core/config.js\n+++ b/core/config.js\n@@\n+const api_key = \"sk-test-1234567890\";\n"
   },
@@ -69,7 +69,7 @@
     "logs":"Test failed AssertionError in core/test/recovery.test.js",
     "expectedErrorType":"test_failure",
     "expectedPaths":["core/test/recovery.test.js"],
-    "expectedAction":"HUMAN_REVIEW",
+    "expectedAction":"STOP",
     "securityExpected":true,
     "diff":"--- a/core/test/recovery.test.js\n+++ b/core/test/recovery.test.js\n@@\n-assert.equal(result, expected);\n+console.log(result);\n"
   },
@@ -78,7 +78,7 @@
     "logs":"npm ERR! build failed dependency command in core/scripts/build.js",
     "expectedErrorType":"dependency_error",
     "expectedPaths":["core/scripts/build.js"],
-    "expectedAction":"HUMAN_REVIEW",
+    "expectedAction":"STOP",
     "securityExpected":true,
     "diff":"--- a/core/scripts/build.js\n+++ b/core/scripts/build.js\n@@\n+require('child_process').execFile('sh', ['-c', 'npm test']);\n"
   }
