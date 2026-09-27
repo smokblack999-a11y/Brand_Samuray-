@@ -1,0 +1,19 @@
+name: x10-mvp
+on:
+  push:
+    paths: ["x10/**",".github/workflows/x10-mvp.yml"]
+  pull_request:
+    paths: ["x10/**",".github/workflows/x10-mvp.yml"]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: x10/hub
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm test
+      - run: docker build -t x10-hub .
