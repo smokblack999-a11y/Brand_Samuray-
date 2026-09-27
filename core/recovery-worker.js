@@ -8,7 +8,7 @@ const { promisify } = require("node:util");
 const { list, update } = require("./recovery-store");
 const { transition, STATES } = require("./x10thinc/recovery-state");
 const { validateUnifiedDiff } = require("./interop/patch-candidate");
-const { sha256 } = require("./x10thinc/kill-critic");
+const { sha256, analyzePatch, DEFAULT_POLICY } = require("./x10thinc/kill-critic");
 
 const exec = promisify(execFile);
 const POLL_MS = Math.max(1000, Number(process.env.RECOVERY_POLL_MS || 5000));
@@ -61,6 +61,11 @@ async function processJob(job) {
     return true;
   }
   const validation=validateUnifiedDiff(job.patch.diff);
+  const preflightCritic=analyzePatch({diff:validation.diff,invariants:job.invariants||[],evidence:{patch:"validated",sandbox:"pending",tests:"pending",ci:"pending"},sandboxPassed:false,testsPassed:false,ciPassed:false});
+  if(!preflightCritic.invariants.passed||preflightCritic.risk.score>=DEFAULT_POLICY.criticalRiskScore||preflightCritic.decision==="KILL"){
+    update(job.id,{status:"human_review",state:STATES.HUMAN_REVIEW,critic:preflightCritic.receipt,workerError:"KILL_CRITIC_PREFLIGHT_BLOCKED"});
+    return true;
+  }
   const worktree=fs.mkdtempSync(path.join(os.tmpdir(),"x10think-recovery-"));
   const patchFile=path.join(worktree,"recovery.patch");
   try {
@@ -87,11 +92,17 @@ async function processJob(job) {
       testEvidence={pass:false,exitCode:Number.isInteger(error.code)?error.code:1,stdout:String(error.stdout||"").slice(-12000),stderr:String(error.stderr||error.message||"").slice(-12000)};
     }
     if(!testPassed){
-      update(job.id,{status:"retryable",state:STATES.RETRYABLE,sandbox:{pass:false,test:testEvidence},workerError:"SANDBOX_TESTS_FAILED"});
+      update(job.id,{status:"retryable",state:STATES.RETRYABLE,sandbox:{pass:false,test:testEvidence},critic:preflightCritic.receipt,workerError:"SANDBOX_TESTS_FAILED"});
       return true;
     }
 
-    await git(["switch","-c",`recovery/${job.id}`],worktree);
+    const postSandboxCritic=analyzePatch({diff:validation.diff,invariants:job.invariants||[],evidence:{patch:"applied",sandbox:{pass:true},tests:testEvidence,ci:"pending"},sandboxPassed:true,testsPassed:true,ciPassed:false});
+    if(!postSandboxCritic.invariants.passed||postSandboxCritic.risk.score>=DEFAULT_POLICY.criticalRiskScore||postSandboxCritic.decision==="KILL"){
+      update(job.id,{status:"human_review",state:STATES.HUMAN_REVIEW,sandbox:{pass:true,test:testEvidence,files:validation.files},critic:postSandboxCritic.receipt,workerError:"KILL_CRITIC_POST_SANDBOX_BLOCKED"});
+      return true;
+    }
+
+    await git(["switch","-c","recovery/"+job.id],worktree);
     await git(["add","--all"],worktree);
     await git(["commit","-m",`fix: X10THINC recovery ${job.id}`],worktree);
     const repairHeadSha=String((await git(["rev-parse","HEAD"],worktree)).stdout||"").trim();
@@ -109,7 +120,8 @@ async function processJob(job) {
     update(job.id,{
       status:"pr_ready",state:STATES.PR_READY,repairBranch:`recovery/${job.id}`,
       repairHeadSha,prUrl,sandbox:{pass:true,test:testEvidence,files:validation.files},
-      proofReady:false
+      proofReady:false,
+      critic:postSandboxCritic.receipt
     });
     return true;
   } catch(error) {
