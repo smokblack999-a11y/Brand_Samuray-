@@ -1,4 +1,5 @@
 name: X10THINC Benchmark
+# Evidence gate: benchmark + security + deterministic replay
 on:
   pull_request:
     paths:
