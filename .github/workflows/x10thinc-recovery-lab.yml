@@ -1,0 +1,45 @@
+name: X10THINC CI Recovery Lab
+
+on:
+  workflow_dispatch:
+    inputs:
+      scenario:
+        description: "Deterministic lab scenario"
+        required: true
+        default: "safe"
+        type: choice
+        options:
+          - safe
+          - blocked
+          - failing
+      emit_artifact:
+        description: "Upload the proof bundle"
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  recovery-lab:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run deterministic recovery lab
+        env:
+          SCENARIO: ${{ inputs.scenario }}
+        run: |
+          set -euo pipefail
+          node scripts/x10thinc-recovery-lab.mjs
+
+      - name: Upload proof bundle
+        if: always() && inputs.emit_artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: x10thinc-proof-${{ github.run_id }}
+          path: proof-bundle/
+          if-no-files-found: error
