@@ -95,8 +95,7 @@ const report = {
   cases: rows
 };
 
-fs.writeFileSync(path.join(__dirname, "benchmark-report.json"), JSON.stringify(report, null, 2) + "
-");
+fs.writeFileSync(path.join(__dirname, "benchmark-report.json"), JSON.stringify(report, null, 2) + "\n");
 console.log(JSON.stringify(report, null, 2));
 
 if (
