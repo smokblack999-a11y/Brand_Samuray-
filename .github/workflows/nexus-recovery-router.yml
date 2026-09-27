@@ -27,8 +27,11 @@ jobs:
           HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
         run: |
           set -euo pipefail
-          test -n "${RECOVERY_URL:-}"
-          test -n "${GITHUB_WEBHOOK_SECRET:-}"
+
+          if [ -z "${RECOVERY_URL:-}" ] || [ -z "${GITHUB_WEBHOOK_SECRET:-}" ]; then
+            echo "Optional X10THINK recovery routing is not configured; skipping."
+            exit 0
+          fi
 
           if [[ "${HEAD_BRANCH}" == x10think/recovery-* ]]; then
             test -n "${RECOVERY_API_KEY:-}"
