@@ -12,7 +12,7 @@ const BLOCKED_PATTERNS = [
   { id:"workflow-code-exec", re:/\b(pull_request_target|workflow_run)\b[^\n]*(run:|shell:)/i },
   { id:"dynamic-eval", re:/\b(eval|new\s+Function)\s*\(/i }
 ];
-const HIGH_RISK_FILE_PATTERNS = [/^|\.github\/workflows\//i, /(^|\/)Dockerfile(?:\.|$)/i, /(^|\/)package(?:-lock)?\.json$/i];
+const HIGH_RISK_FILE_PATTERNS = [/(^|\/)\.github\/workflows\//i, /(^|\/)Dockerfile(?:\.|$)/i, /(^|\/)package(?:-lock)?\.json$/i];
 
 function normalizePatch(input) {
   const patch = String(input || "").replace(/\r\n/g, "\n");
