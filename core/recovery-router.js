@@ -6,6 +6,7 @@ const { analyzePatch, sha256, DEFAULT_POLICY } = require("./x10thinc/kill-critic
 const { transition, STATES } = require("./x10thinc/recovery-state");
 const { getVerification } = require("./recovery-verification");
 const { buildPatchProposal } = require("./interop/patch-proposal");
+const { append: appendProofLedger } = require("./x10thinc/proof-ledger");
 
 const FAILURE_CONCLUSIONS = new Set(["failure","timed_out","cancelled","startup_failure","action_required"]);
 const RECOVERY_BRANCH_RE = /^recovery\/(recovery-[a-f0-9]{24})$/;
@@ -232,7 +233,8 @@ function createRecoveryRouter({ requireRecoveryAuth }) {
         proofReceipt:result.job.proofReceipt,
         verifiedAt:new Date().toISOString()
       });
-      return res.status(200).json({ok:true,trusted:true,job:saved});
+      const ledgerRecord = appendProofLedger(result.job.proofReceipt);
+      return res.status(200).json({ok:true,trusted:true,job:saved,ledger:{recordHash:ledgerRecord.recordHash,prevHash:ledgerRecord.prevHash}});
     } catch(error) {
       return res.status(500).json({ok:false,error:{code:"RECOVERY_VERIFY_FAILED",message:error.message}});
     }
