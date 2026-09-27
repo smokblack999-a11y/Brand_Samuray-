@@ -6,7 +6,7 @@ const DANGEROUS = [
   { id:"secret_literal", re:/(?:api[_-]?key|token|password|private[_-]?key|client[_-]?secret)\s*[:=]\s*["'][^"']{8,}/i, severity:"critical" },
   { id:"dangerous_shell", re:/(?:child_process|execFile|spawn|system\s*\()|rm\s+-rf|curl\s+[^\n]*\|\s*(?:sh|bash)/i, severity:"high" },
   { id:"workflow_privilege", re:/permissions:\s*|contents:\s*write|pull-requests:\s*write|id-token:\s*write/i, severity:"high" },
-  { id:"auth_bypass", re:/(?:skip|disable|bypass)[_-]?(?:auth|authorization|tls|csrf|signature)|verify\s*\(\s*\)\s*\{?\s*return\s+true/i, severity:"critical" },
+  { id:"auth_bypass", re:/(?:skip|disable|bypass)[_-]?(?:auth|authorization|tls|csrf|signature)|verify\s*\([^)]*\)\s*\{?\s*return\s+true/i, severity:"critical" },
   { id:"assertion_weakening", re:/(?:assert\.skip|test\.skip|describe\.skip|\.only\s*\(|it\.only\s*\()/i, severity:"high" },
   { id:"destructive_sql", re:/\b(?:DROP|TRUNCATE)\s+(?:TABLE|DATABASE)\b/i, severity:"critical" }
 ];
