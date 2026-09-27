@@ -170,7 +170,7 @@ function toRecoveryDiagnosis(state) {
     evidence: state.evidence,
     fingerprint: state.fingerprint,
     stateHash: state.stateHash,
-    checkpoints: state.checkpoints || [],
+    checkpoints: (state.checkpoints || []).map(({ createdAt, ...checkpoint }) => checkpoint),
     trace: state.trace || []
   };
 }
