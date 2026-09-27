@@ -1,5 +1,7 @@
 "use strict";
 
+const crypto = require("crypto");
+
 const CRITICAL_PATHS = [
   /(^|\/)auth(\/|$)/i, /(^|\/)crypto(\/|$)/i, /(^|\/)tls(\/|$)/i,
   /(^|\/)acl(\/|$)/i, /(^|\/)policy(\/|$)/i, /(^|\/)\_test\.go$/i,
