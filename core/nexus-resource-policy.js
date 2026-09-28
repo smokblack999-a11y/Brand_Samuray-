@@ -7,10 +7,22 @@ const STATES = Object.freeze([
   "CI_PASSED","READY_FOR_REVIEW","BLOCKED"
 ]);
 
-const CRITICAL_PATHS = Object.freeze([
-  /^auth\//i,/^crypto\//i,/^tls\//i,/^acl\//i,/^policy\//i,
-  /^\.github\/workflows\//i,/^Dockerfile(?:\.|$)/i,
-  /(?:^|\/)[^/]+\.test\.[^/]+$/i,/(?:^|\/)[^/]*_test\.[^/]+$/i
+const CRITICAL_RULES = Object.freeze([
+  ["authentication", /^auth\//i],
+  ["cryptography", /^crypto\//i],
+  ["tls", /^tls\//i],
+  ["acl", /^acl\//i],
+  ["policy", /^policy\//i],
+  ["github_actions", /^\.github\/workflows\//i],
+  ["docker", /^Dockerfile(?:\.|$)/i],
+  ["tests", /(?:^|\/)[^/]+\.test\.[^/]+$/i],
+  ["tests_convention", /(?:^|\/)[^/]*_test\.[^/]+$/i],
+  ["dependencies", /(?:^|\/)(package\.json|package-lock\.json|pnpm-lock\.yaml|yarn\.lock|go\.mod|go\.sum|Cargo\.toml|Cargo\.lock|requirements\.txt|poetry\.lock)$/i],
+  ["infrastructure", /(?:^|\/)(terraform|k8s|kubernetes|helm|charts)(?:\/|$)/i],
+  ["configuration", /(?:^|\/)(config|configs|\.env\.example|settings)(?:\/|$)|(?:^|\/)[^/]*config[^/]*\.(json|ya?ml|toml)$/i],
+  ["api_surface", /(?:^|\/)(routes?|controllers?|handlers?|openapi|swagger)(?:\/|$)/i],
+  ["database", /(?:^|\/)(migrations?|schema|db)(?:\/|$)|(?:^|\/)[^/]*(migration|schema)[^/]*\.(sql|js|ts)$/i],
+  ["large_change", /^__NEXUS_LARGE_CHANGE_SENTINEL__$/i]
 ]);
 
 const DANGEROUS_PATTERNS = Object.freeze([
@@ -27,48 +39,49 @@ const ALLOWED_TRANSITIONS = Object.freeze({
   READY_FOR_REVIEW:[], BLOCKED:[]
 });
 
-function sha256(value) {
-  return crypto.createHash("sha256").update(String(value)).digest("hex");
-}
+function sha256(value){return crypto.createHash("sha256").update(String(value)).digest("hex");}
 
-function normalizeFiles(files) {
+function normalizeFiles(files){
   return [...new Set((Array.isArray(files)?files:[])
-    .map(x=>String(x).replace(/^\.\//,"").replace(/\\/g,"/"))
-    .filter(Boolean))];
+    .map(x=>String(x).replace(/^\.\//,"").replace(/\\/g,"/")).filter(Boolean))];
 }
 
-function classifyFiles(files) {
+function classifyFiles(files){
   const normalized=normalizeFiles(files);
-  const critical=normalized.filter(file=>CRITICAL_PATHS.some(re=>re.test(file)));
-  return {files:normalized,critical,criticality:critical.length?"HIGH":"NORMAL"};
+  const categories=[];
+  for(const [name,re] of CRITICAL_RULES){
+    if(normalized.some(file=>re.test(file))) categories.push(name);
+  }
+  if(normalized.length>=20 || normalized.some(file=>file.length>180)) categories.push("large_change");
+  return {
+    files:normalized,
+    categories:[...new Set(categories)],
+    criticalFiles:normalized.filter(file=>CRITICAL_RULES.slice(0,9).some(([,re])=>re.test(file))),
+    criticality:categories.length?"HIGH":"NORMAL"
+  };
 }
 
-function scanDiff(diff) {
+function scanDiff(diff){
   const text=String(diff||"");
   const findings=DANGEROUS_PATTERNS.filter(re=>re.test(text)).map(re=>re.source);
   return {findings,dangerous:findings.length>0};
 }
 
-function canTransition(from,to) {
-  return Boolean(ALLOWED_TRANSITIONS[from]?.includes(to));
-}
+function canTransition(from,to){return Boolean(ALLOWED_TRANSITIONS[from]?.includes(to));}
 
-function evaluate({resource,fromState,toState,files,diff,actor="x10think"}) {
+function evaluate({resource,fromState,toState,files,diff,actor="x10think"}){
   const target=resource||"unknown";
   const classification=classifyFiles(files);
   const scan=scanDiff(diff);
   const reasons=[],required=[];
   let decision="ALLOW";
 
-  if(!STATES.includes(fromState)||!STATES.includes(toState)) {
-    decision="BLOCK"; reasons.push("unknown_state");
-  } else if(!canTransition(fromState,toState)) {
-    decision="BLOCK"; reasons.push("invalid_state_transition");
-  }
-  if(!resource) { decision="BLOCK"; reasons.push("resource_identity_missing"); }
-  if(scan.dangerous) { decision="BLOCK"; reasons.push("dangerous_change_pattern"); }
+  if(!STATES.includes(fromState)||!STATES.includes(toState)){decision="BLOCK";reasons.push("unknown_state");}
+  else if(!canTransition(fromState,toState)){decision="BLOCK";reasons.push("invalid_state_transition");}
+  if(!resource){decision="BLOCK";reasons.push("resource_identity_missing");}
+  if(scan.dangerous){decision="BLOCK";reasons.push("dangerous_change_pattern");}
 
-  if(classification.criticality==="HIGH") {
+  if(classification.criticality==="HIGH"){
     required.push("sandbox","ci","proof_receipt");
     if(toState==="READY_FOR_REVIEW") required.push("human_review");
   }
@@ -79,30 +92,37 @@ function evaluate({resource,fromState,toState,files,diff,actor="x10think"}) {
   return {
     decision,resource:target,actor,fromState,toState,
     criticality:classification.criticality,
-    changedFiles:classification.files,criticalFiles:classification.critical,
-    requiredChecks:[...new Set(required)],reasons:[...new Set(reasons)],
-    dangerousFindings:scan.findings,policyVersion:"nexus-policy-v1",
+    categories:classification.categories,
+    changedFiles:classification.files,
+    criticalFiles:classification.criticalFiles,
+    requiredChecks:[...new Set(required)],
+    reasons:[...new Set(reasons)],
+    dangerousFindings:scan.findings,
+    policyVersion:"nexus-policy-v2",
     evaluationHash:sha256(JSON.stringify({
       resource:target,fromState,toState,files:classification.files,diff:String(diff||""),actor
     }))
   };
 }
 
-function transition(currentState,nextState,context={}) {
+function transition(currentState,nextState,context={}){
   const evaluation=evaluate({...context,fromState:currentState,toState:nextState});
   return {...evaluation,state:evaluation.decision==="ALLOW"?nextState:"BLOCKED"};
 }
 
-function createProofReceipt({evaluation,beforeSha,afterSha,validations=[]}) {
+function createProofReceipt({evaluation,beforeSha,afterSha,validations=[]}){
   if(!evaluation||evaluation.decision!=="ALLOW") throw new Error("proof_requires_allowed_transition");
   const receipt={
     schema:"nexus-proof-receipt/v2",resource:evaluation.resource,
     transition:{from:evaluation.fromState,action:"CONTROLLED_CHANGE",to:evaluation.toState},
     before:{sha:beforeSha||null},after:{sha:afterSha||null},
-    policy:evaluation.policyVersion,checks:[...new Set(validations.map(String))],
+    policy:evaluation.policyVersion,
+    categories:evaluation.categories,
+    checks:[...new Set(validations.map(String))],
     criticality:evaluation.criticality,evaluationHash:evaluation.evaluationHash
   };
   return {...receipt,proofHash:sha256(JSON.stringify(receipt))};
 }
 
-module.exports={STATES,CRITICAL_PATHS,classifyFiles,scanDiff,canTransition,evaluate,transition,createProofReceipt};
+module.exports={STATES,CRITICAL_RULES,CRITICAL_PATHS:CRITICAL_RULES.map(([,re])=>re),
+  classifyFiles,scanDiff,canTransition,evaluate,transition,createProofReceipt};
