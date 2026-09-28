@@ -10,6 +10,10 @@ const { sendBusinessMessage } = require("./business-bot");
 const { saveLead, claimEvent, updateLead, listLeads, stats } = require("./store");
 const { createRateLimiter } = require("./rate-limit");
 const dualAI = require("./dual-ai/engine");
+const recovery = require("./recovery/runtime");
+const { buildPatchCandidate } = require("./interop/patch-candidate");
+const { evaluatePatch } = require("./kill-critic");
+const sandbox = require("./recovery/sandbox");
 
 const app = express();
 const PORT = Number(process.env.PORT || 8787);
@@ -31,7 +35,10 @@ if (process.env.NODE_ENV === "production") {
 app.disable("x-powered-by");
 app.set("trust proxy", process.env.TRUST_PROXY === "true" ? 1 : false);
 app.use(cors(CORS_ORIGIN ? { origin: CORS_ORIGIN } : { origin: false }));
-app.use(express.json({ limit: "256kb" }));
+app.use(express.json({
+  limit: "256kb",
+  verify: (req, _res, buf) => { req.rawBody = Buffer.from(buf); }
+}));
 
 function errorBody(code, message, requestId) {
   return { ok: false, error: { code, message, requestId } };
@@ -82,6 +89,95 @@ app.get("/ready", (req, res) => {
     return res.status(503).json(errorBody("NOT_READY", "Service is not ready", req.requestId));
   }
 });
+app.get("/api/recovery/health", (_req, res) => {
+  const health = recovery.health();
+  return res.status(health.ok ? 200 : 503).json(health);
+});
+
+app.get("/api/recovery/jobs/:id", requireApiKey, (req, res) => {
+  const job = recovery.getJob(req.params.id);
+  if (!job) return res.status(404).json(errorBody("RECOVERY_JOB_NOT_FOUND", "Recovery job not found", req.requestId));
+  return res.json({ ok: true, job, requestId: req.requestId });
+});
+
+app.get("/api/recovery/jobs", requireApiKey, (req, res) => {
+  return res.json({ ok: true, jobs: recovery.listJobs(req.query.limit), stats: recovery.queueStats(), requestId: req.requestId });
+});
+
+app.post("/api/recovery/github", (req, res) => {
+  try {
+    const result = recovery.accept(req, { source: "github-api", requireSignature: false });
+    return res.status(result.created ? 202 : 200).json({ ...result, requestId: req.requestId });
+  } catch (error) {
+    return res.status(error.status || 500).json(errorBody(error.code || "RECOVERY_ACCEPT_FAILED", error.status === 500 ? "Recovery request failed" : error.message, req.requestId));
+  }
+});
+
+app.post("/api/recovery/ci", (req, res) => {
+  try {
+    const result = recovery.accept(req, { source: "github-ci", requireSignature: false });
+    return res.status(result.created ? 202 : 200).json({ ...result, requestId: req.requestId });
+  } catch (error) {
+    return res.status(error.status || 500).json(errorBody(error.code || "RECOVERY_CI_ACCEPT_FAILED", error.status === 500 ? "Recovery CI request failed" : error.message, req.requestId));
+  }
+});
+
+app.post("/api/recovery/jobs/:id/candidate", requireApiKey, (req, res) => {
+  try {
+    const job = recovery.getJob(req.params.id);
+    if (!job) return res.status(404).json(errorBody("RECOVERY_JOB_NOT_FOUND", "Recovery job not found", req.requestId));
+    if (!["diagnosed", "queued"].includes(job.status)) {
+      return res.status(409).json(errorBody("INVALID_RECOVERY_STATE", "Job is not accepting a patch candidate", req.requestId));
+    }
+    const fingerprint = String(req.body?.evidenceFingerprint || "").trim();
+    if (!job.fingerprint || fingerprint !== job.fingerprint) {
+      return res.status(409).json(errorBody("EVIDENCE_BINDING_MISMATCH", "Candidate evidenceFingerprint does not match the recovery job", req.requestId));
+    }
+    const candidate = buildPatchCandidate(req.body || {});
+    if (!candidate.accepted) return res.status(422).json(errorBody("INVALID_PATCH_CANDIDATE", candidate.reason, req.requestId));
+    const diff = candidate.candidate.diff;
+    const changedFiles = candidate.candidate.files;
+    const changedLines = diff.split(/\r?\n/).filter(line => /^\+[^+]|^-[^-]/.test(line)).length;
+    const deletions = diff.split(/\r?\n/).filter(line => /^-[^-]/.test(line)).length;
+    const sensitivePaths = changedFiles.filter(p => /(^|\/)(\.github|\.env|package-lock\.json|yarn\.lock|pnpm-lock\.yaml|android\/app\/src\/main\/AndroidManifest\.xml)(\/|$)/i.test(p));
+    const critic = evaluatePatch({ diff, testsPassed: false, buildPassed: false, proposalId: job.id });
+    const patch = { files: changedFiles, changedFiles: changedFiles.length, changedLines, deletions, sensitivePaths, diff };
+    if (critic.decision === "block") {
+      const saved = recovery.updateJob(job.id, { status: "stopped", patchCandidate: candidate.candidate, patch, critic, stopReason: "KILL_CRITIC_BLOCK" });
+      return res.status(422).json({ ok: false, accepted: false, job: saved, critic, requestId: req.requestId });
+    }
+    const saved = recovery.updateJob(job.id, { status: "sandbox_pending", patchCandidate: candidate.candidate, patch, critic });
+    return res.status(202).json({ ok: true, accepted: true, job: saved, critic, nextAction: "SANDBOX_REQUIRED", requestId: req.requestId });
+  } catch (error) {
+    return res.status(error.status || 500).json(errorBody(error.code || "RECOVERY_CANDIDATE_FAILED", error.status === 500 ? "Recovery candidate failed" : error.message, req.requestId));
+  }
+});
+
+app.post("/api/recovery/jobs/:id/sandbox", requireApiKey, (req, res) => {
+  try {
+    const job = recovery.getJob(req.params.id);
+    if (!job) return res.status(404).json(errorBody("RECOVERY_JOB_NOT_FOUND", "Recovery job not found", req.requestId));
+    if (job.status !== "sandbox_pending" || !job.patch?.diff) return res.status(409).json(errorBody("SANDBOX_NOT_READY", "Job has no pending candidate for sandbox verification", req.requestId));
+    const repoDir = String(process.env.NEXUS_SANDBOX_REPO || "").trim();
+    if (!repoDir) return res.status(503).json(errorBody("SANDBOX_NOT_CONFIGURED", "NEXUS_SANDBOX_REPO is not configured", req.requestId));
+    const result = sandbox.verify({ diff: job.patch.diff, repoDir });
+    const saved = recovery.updateJob(job.id, { status: "sandbox_verified", sandbox: result, nextAction: "DRAFT_PR_REQUIRED" });
+    return res.status(200).json({ ok: true, job: saved, sandbox: result, requestId: req.requestId });
+  } catch (error) {
+    const saved = recovery.updateJob(req.params.id, { status: "stopped", stopReason: "SANDBOX_FAILED", sandboxError: { code: error.code || "SANDBOX_FAILED", message: error.message } });
+    return res.status(422).json({ ok:false, job:saved, error:errorBody(error.code || "SANDBOX_FAILED", "Sandbox verification failed", req.requestId).error });
+  }
+});
+
+app.post("/api/recovery/github/webhook", (req, res) => {
+  try {
+    const result = recovery.accept(req, { source: "github-webhook", requireSignature: true });
+    return res.status(result.created ? 202 : 200).json({ ...result, requestId: req.requestId });
+  } catch (error) {
+    return res.status(error.status || 500).json(errorBody(error.code || "RECOVERY_WEBHOOK_FAILED", error.status === 500 ? "Recovery webhook failed" : error.message, req.requestId));
+  }
+});
+
 app.get("/health/openai", requireApiKey, async (req, res) => {
   if (!process.env.OPENAI_API_KEY) return res.status(503).json(errorBody("OPENAI_NOT_CONFIGURED", "OpenAI is not configured", req.requestId));
   try {
