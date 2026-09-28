@@ -5,6 +5,8 @@ import android.content.pm.PackageManager
 import android.graphics.Color
 import android.location.Location
 import android.location.LocationManager
+import android.os.Build
+import android.os.CancellationSignal
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -43,6 +45,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var previewView: PreviewView
     private lateinit var statusText: TextView
     private lateinit var outputText: TextView
+    private lateinit var apiKeyInput: EditText
     private lateinit var chatIdInput: EditText
     private lateinit var messageInput: EditText
     private lateinit var galleryContainer: LinearLayout
@@ -78,6 +81,21 @@ class MainActivity : ComponentActivity() {
         val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(24, 24, 24, 24); setBackgroundColor(Color.rgb(5, 8, 17)) }
         statusText = TextView(this).apply { text = "SamuraiOS: запуск..."; textSize = 20f; setTextColor(Color.rgb(0, 255, 136)); setPadding(0, 0, 0, 12) }
         root.addView(statusText)
+        apiKeyInput = EditText(this).apply {
+            hint = "CORE API KEY (локальная настройка)"
+            setSingleLine(true); setTextColor(Color.WHITE); setHintTextColor(Color.GRAY)
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
+            setText(getPreferences(MODE_PRIVATE).getString("core_api_key", ""))
+        }
+        root.addView(apiKeyInput, LinearLayout.LayoutParams(-1, -2))
+        root.addView(Button(this).apply {
+            text = "СОХРАНИТЬ CORE KEY"
+            setOnClickListener {
+                getPreferences(MODE_PRIVATE).edit().putString("core_api_key", apiKeyInput.text.toString().trim()).apply()
+                showToast("CORE API KEY сохранён локально")
+                checkCoreStatus()
+            }
+        })
         previewView = PreviewView(this).apply { scaleType = PreviewView.ScaleType.FILL_CENTER }
         root.addView(previewView, LinearLayout.LayoutParams(-1, 520))
         root.addView(Button(this).apply { text = "СНЯТЬ ФОТО + GPS"; setOnClickListener { capturePhoto() } })
@@ -148,21 +166,43 @@ class MainActivity : ComponentActivity() {
             Vault.saveMetadata(photo, null, null, null, timestamp); mainHandler.post { refreshGallery(); showToast("Фото сохранено, GPS без разрешения") }; return
         }
         val providers = listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)
-        val location = providers.mapNotNull { provider ->
-            runCatching { if (locationManager.isProviderEnabled(provider)) locationManager.getLastKnownLocation(provider) else null }.getOrNull()
+        val provider = providers.firstOrNull { runCatching { locationManager.isProviderEnabled(it) }.getOrDefault(false) }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && provider != null) {
+            try {
+                val signal = CancellationSignal()
+                locationManager.getCurrentLocation(provider, signal, ContextCompat.getMainExecutor(this)) { location ->
+                    if (location != null) saveLocationMetadata(photo, timestamp, location)
+                    else saveBestKnownLocation(photo, timestamp, providers)
+                }
+                return
+            } catch (_: Exception) { }
+        }
+        saveBestKnownLocation(photo, timestamp, providers)
+    }
+
+    private fun saveBestKnownLocation(photo: File, timestamp: Long, providers: List<String>) {
+        val location = providers.mapNotNull { name ->
+            runCatching { if (locationManager.isProviderEnabled(name)) locationManager.getLastKnownLocation(name) else null }.getOrNull()
         }.minByOrNull { it.accuracy }
-        if (location != null) {
-            runCatching {
-                val exif = ExifInterface(photo.absolutePath)
-                exif.setGpsInfo(location)
-                exif.saveAttributes()
-            }
-            Vault.saveMetadata(photo, location.latitude, location.longitude, location.accuracy, timestamp)
-            mainHandler.post { refreshGallery(); outputText.text = "Сохранено: %.6f, %.6f ± %.1fm".format(location.latitude, location.longitude, location.accuracy) }
-        } else {
+        if (location != null) saveLocationMetadata(photo, timestamp, location)
+        else {
             Vault.saveMetadata(photo, null, null, null, timestamp)
             mainHandler.post { refreshGallery(); showToast("Фото сохранено, GPS fix недоступен") }
         }
+    }
+
+    private fun saveLocationMetadata(photo: File, timestamp: Long, location: Location) {
+        runCatching {
+            val exif = ExifInterface(photo.absolutePath)
+            exif.setGpsInfo(location)
+            exif.saveAttributes()
+        }
+        Vault.saveMetadata(photo, location.latitude, location.longitude, location.accuracy, timestamp)
+        mainHandler.post {
+            refreshGallery()
+            outputText.text = "Сохранено: %.6f, %.6f ± %.1fm".format(location.latitude, location.longitude, location.accuracy)
+        }
+    }
     }
 
     private fun refreshGallery() {
@@ -219,6 +259,7 @@ class MainActivity : ComponentActivity() {
                     requestMethod = "GET"; connectTimeout = 5000; readTimeout = 10000; useCaches = false
                     setRequestProperty("Accept", "application/json")
                     setRequestProperty("X-Request-ID", UUID.randomUUID().toString())
+                    getPreferences(MODE_PRIVATE).getString("core_api_key", "")?.takeIf { it.isNotBlank() }?.let { setRequestProperty("X-API-Key", it) }
                 }
                 val code = connection.responseCode; val stream = if (code in 200..299) connection.inputStream else connection.errorStream; val body = stream?.bufferedReader()?.use { it.readText() } ?: ""
                 callback(if (code in 200..299) body else "ERROR: HTTP $code\n$body")
@@ -234,6 +275,7 @@ class MainActivity : ComponentActivity() {
                     requestMethod = "POST"; connectTimeout = 5000; readTimeout = 30000; useCaches = false; doOutput = true
                     setRequestProperty("Content-Type", "application/json; charset=UTF-8"); setRequestProperty("Accept", "application/json")
                     setRequestProperty("X-Request-ID", UUID.randomUUID().toString())
+                    getPreferences(MODE_PRIVATE).getString("core_api_key", "")?.takeIf { it.isNotBlank() }?.let { setRequestProperty("X-API-Key", it) }
                 }
                 connection.outputStream.use { output: OutputStream -> output.write(json.toByteArray(Charsets.UTF_8)); output.flush() }
                 val code = connection.responseCode; val stream = if (code in 200..299) connection.inputStream else connection.errorStream; val body = stream?.bufferedReader()?.use { it.readText() } ?: ""
