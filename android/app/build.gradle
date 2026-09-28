@@ -24,11 +24,13 @@ android {
 
     buildTypes {
         debug {
-            buildConfigField 'String', 'CORE_BASE_URL', '"http://10.0.2.2:8787"'
+            manifestPlaceholders.allowCleartext = "true"
+            buildConfigField 'String', 'CORE_BASE_URL', '"http://127.0.0.1:8787"'
         }
         release {
             minifyEnabled false
-            buildConfigField 'String', 'CORE_BASE_URL', '"https://core.example.invalid"'
+            manifestPlaceholders.allowCleartext = "false"
+            buildConfigField 'String', 'CORE_BASE_URL', '"' + configuredCoreUrl.replace('"', '\\"') + '"'
         }
     }
 
