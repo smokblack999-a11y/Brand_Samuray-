@@ -28,10 +28,11 @@ android {
             buildConfigField 'String', 'CORE_BASE_URL', '"http://127.0.0.1:8787"'
         }
         release {
-            minifyEnabled false
-            manifestPlaceholders.allowCleartext = "false"
-            buildConfigField 'String', 'CORE_BASE_URL', '"' + configuredCoreUrl.replace('"', '\\"') + '"'
-        }
+        minifyEnabled false
+        manifestPlaceholders.allowCleartext = "false"
+        def releaseCoreUrl = project.findProperty('CORE_BASE_URL') ?: 'https://core.example.invalid'
+        buildConfigField 'String', 'CORE_BASE_URL', '"' + releaseCoreUrl.replace('"', '\\"') + '"'
+    }
     }
 
     compileOptions {
