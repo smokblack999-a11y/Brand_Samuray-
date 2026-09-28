@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.pm.PackageManager
 import android.graphics.Color
 import android.location.Location
+import android.location.LocationManager
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -25,9 +26,7 @@ import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
-import com.google.android.gms.location.LocationServices
-import com.google.android.gms.location.Priority
-import com.google.android.gms.tasks.CancellationTokenSource
+import androidx.exifinterface.media.ExifInterface
 import java.io.File
 import java.io.OutputStream
 import java.net.HttpURLConnection
@@ -52,7 +51,7 @@ class MainActivity : ComponentActivity() {
     private var pendingTimestamp: Long = 0L
     private var cameraExecutor: ExecutorService? = null
     private val mainHandler = Handler(Looper.getMainLooper())
-    private val locationClient by lazy { LocationServices.getFusedLocationProviderClient(this) }
+    private val locationManager by lazy { getSystemService(LOCATION_SERVICE) as LocationManager }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -128,12 +127,22 @@ class MainActivity : ComponentActivity() {
         if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
             Vault.saveMetadata(photo, null, null, null, timestamp); mainHandler.post { refreshGallery(); showToast("Фото сохранено, GPS без разрешения") }; return
         }
-        locationClient.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, CancellationTokenSource().token)
-            .addOnSuccessListener { location: Location? ->
-                Vault.saveMetadata(photo, location?.latitude, location?.longitude, location?.accuracy, timestamp)
-                mainHandler.post { refreshGallery(); outputText.text = if (location != null) "Сохранено: %.6f, %.6f ± %.1fm".format(location.latitude, location.longitude, location.accuracy) else "Сохранено без GPS fix" }
+        val providers = listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)
+        val location = providers.mapNotNull { provider ->
+            runCatching { if (locationManager.isProviderEnabled(provider)) locationManager.getLastKnownLocation(provider) else null }.getOrNull()
+        }.minByOrNull { it.accuracy }
+        if (location != null) {
+            runCatching {
+                val exif = ExifInterface(photo.absolutePath)
+                exif.setGpsInfo(location)
+                exif.saveAttributes()
             }
-            .addOnFailureListener { Vault.saveMetadata(photo, null, null, null, timestamp); mainHandler.post { refreshGallery(); showToast("Фото сохранено, GPS недоступен") } }
+            Vault.saveMetadata(photo, location.latitude, location.longitude, location.accuracy, timestamp)
+            mainHandler.post { refreshGallery(); outputText.text = "Сохранено: %.6f, %.6f ± %.1fm".format(location.latitude, location.longitude, location.accuracy) }
+        } else {
+            Vault.saveMetadata(photo, null, null, null, timestamp)
+            mainHandler.post { refreshGallery(); showToast("Фото сохранено, GPS fix недоступен") }
+        }
     }
 
     private fun refreshGallery() {
