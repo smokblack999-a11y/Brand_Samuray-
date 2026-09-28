@@ -1,0 +1,27 @@
+name: X10 Auto-Heal CI
+on:
+  push:
+    paths: ["x10/**", ".github/workflows/x10-autoheal-ci.yml"]
+  pull_request:
+    paths: ["x10/**", ".github/workflows/x10-autoheal-ci.yml"]
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      - run: python -m py_compile x10/hub/app.py x10/agent/agent.py x10/bot/bot.py
+      - run: pip install -r x10/hub/requirements.txt
+      - run: python - <<'PY'
+        import os, tempfile
+        os.environ["X10_DB"] = tempfile.mktemp(suffix=".db")
+        from x10.hub.app import app, init
+        init()
+        c=app.test_client()
+        assert c.get("/healthz").status_code == 200
+        print("hub health PASS")
+        PY
+      - run: docker compose -f x10/docker-compose.yml config
