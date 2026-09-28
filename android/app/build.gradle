@@ -11,8 +11,8 @@ android {
         applicationId 'com.samuraios.app'
         minSdk 26
         targetSdk 35
-        versionCode 4
-        versionName '1.2.1'
+        versionCode 5
+        versionName '1.3.0'
 
         def configuredCoreUrl = project.findProperty('CORE_BASE_URL') ?: 'https://core.example.invalid'
         buildConfigField 'String', 'CORE_BASE_URL', '"' + configuredCoreUrl.replace('"', '\\"') + '"'
@@ -52,5 +52,4 @@ dependencies {
     implementation 'androidx.camera:camera-lifecycle:1.5.3'
     implementation 'androidx.camera:camera-view:1.5.3'
     implementation 'androidx.exifinterface:exifinterface:1.3.7'
-    implementation 'com.google.android.gms:play-services-location:21.3.0'
 }
