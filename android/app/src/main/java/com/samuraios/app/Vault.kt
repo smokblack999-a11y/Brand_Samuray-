@@ -1,6 +1,8 @@
 package com.samuraios.app
 
 import android.content.Context
+import android.net.Uri
+import java.io.FileOutputStream
 import java.io.File
 import org.json.JSONObject
 
@@ -39,6 +41,18 @@ object Vault {
             ?.filter { it.isFile && it.extension.lowercase() == "jpg" }
             ?.sortedByDescending { it.lastModified() }
             ?: emptyList()
+    }
+
+    fun importPhoto(context: Context, uri: Uri): File? {
+        return runCatching {
+            val out = createPhotoFile(context)
+            context.contentResolver.openInputStream(uri).use { input ->
+                requireNotNull(input) { "Unable to open image" }
+                FileOutputStream(out).use { output -> input.copyTo(output) }
+            }
+            saveMetadata(out, null, null, null, System.currentTimeMillis())
+            out
+        }.getOrNull()
     }
 
     fun deletePhoto(file: File): Boolean {
