@@ -119,6 +119,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun startCamera() {
+        if (!::previewView.isInitialized) return
         val future = ProcessCameraProvider.getInstance(this)
         future.addListener({
             try {
