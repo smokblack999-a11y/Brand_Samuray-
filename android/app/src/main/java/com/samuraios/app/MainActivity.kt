@@ -203,7 +203,6 @@ class MainActivity : ComponentActivity() {
             outputText.text = "Сохранено: %.6f, %.6f ± %.1fm".format(location.latitude, location.longitude, location.accuracy)
         }
     }
-    }
 
     private fun refreshGallery() {
         galleryContainer.removeAllViews()
