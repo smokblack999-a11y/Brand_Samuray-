@@ -84,6 +84,15 @@ class MainActivity : ComponentActivity() {
         root.addView(TextView(this).apply { text = "Проектная галерея — приватное хранилище"; textSize = 18f; setTextColor(Color.WHITE); setPadding(0, 18, 0, 8) })
         galleryContainer = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         root.addView(galleryContainer)
+        root.addView(Button(this).apply {
+            text = "ИМПОРТ ФОТО В SAMURAI GALLERY"
+            setOnClickListener {
+                startActivityForResult(android.content.Intent(android.content.Intent.ACTION_OPEN_DOCUMENT).apply {
+                    type = "image/*"
+                    addCategory(android.content.Intent.CATEGORY_OPENABLE)
+                }, 300)
+            }
+        })
         root.addView(TextView(this).apply { text = "Telegram"; textSize = 20f; setTextColor(Color.WHITE); setPadding(0, 24, 0, 8) })
         root.addView(Button(this).apply { text = "Мой Telegram"; setOnClickListener { loadMe() } })
         root.addView(Button(this).apply { text = "Диалоги"; setOnClickListener { loadDialogs() } })
@@ -97,6 +106,16 @@ class MainActivity : ComponentActivity() {
         outputText = TextView(this).apply { text = "Выберите фото в галерее, затем отправьте его в Telegram."; textSize = 14f; setTextColor(Color.LTGRAY); setPadding(0, 18, 0, 18) }
         root.addView(outputText)
         setContentView(ScrollView(this).apply { addView(root) })
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: android.content.Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == 300 && resultCode == RESULT_OK) {
+            val uri = data?.data ?: return
+            selectedPhoto = Vault.importPhoto(this, uri)
+            refreshGallery()
+            outputText.text = selectedPhoto?.let { "Импортировано: " + it.name } ?: "Ошибка импорта"
+        }
     }
 
     private fun startCamera() {
