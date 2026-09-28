@@ -12,16 +12,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
-        with: {python-version: "3.12"}
-      - run: python -m py_compile x10/hub/app.py x10/agent/agent.py x10/bot/bot.py
-      - run: pip install -r x10/hub/requirements.txt
-      - run: python - <<'PY'
-        import os, tempfile
-        os.environ["X10_DB"] = tempfile.mktemp(suffix=".db")
-        from x10.hub.app import app, init
-        init()
-        c=app.test_client()
-        assert c.get("/healthz").status_code == 200
-        print("hub health PASS")
-        PY
-      - run: docker compose -f x10/docker-compose.yml config
+        with:
+          python-version: "3.12"
+      - name: Python syntax
+        run: python -m py_compile x10/hub/app.py x10/agent/agent.py x10/bot/bot.py
+      - name: Hub smoke test
+        run: |
+          pip install -r x10/hub/requirements.txt
+          python - <<'PY'
+          import os, tempfile
+          os.environ["X10_DB"] = tempfile.mktemp(suffix=".db")
+          from x10.hub.app import app, init
+          init()
+          c = app.test_client()
+          assert c.get("/healthz").status_code == 200
+          print("hub health PASS")
+          PY
+      - name: Compose validation
+        run: docker compose -f x10/docker-compose.yml config
