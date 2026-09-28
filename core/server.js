@@ -3,6 +3,8 @@ require("dotenv").config();
 const crypto = require("crypto");
 const path = require("path");
 const express = require("express");
+const fs = require("fs");
+const os = require("os");
 const cors = require("cors");
 const { scoreLead } = require("./lead-engine");
 const { generateReply, checkOpenAI } = require("./openai");
@@ -31,7 +33,7 @@ if (process.env.NODE_ENV === "production") {
 app.disable("x-powered-by");
 app.set("trust proxy", process.env.TRUST_PROXY === "true" ? 1 : false);
 app.use(cors(CORS_ORIGIN ? { origin: CORS_ORIGIN } : { origin: false }));
-app.use(express.json({ limit: "256kb" }));
+app.use(express.json({ limit: "12mb" }));
 
 function errorBody(code, message, requestId) {
   return { ok: false, error: { code, message, requestId } };
@@ -93,6 +95,42 @@ app.get("/health/openai", requireApiKey, async (req, res) => {
   }
 });
 app.get("/api/leads", requireApiKey, (req, res) => res.json({ ok: true, leads: listLeads(req.query.limit), requestId: req.requestId }));
+
+function telegramClient() {
+  try { return require("./telegram"); }
+  catch (error) { const e = new Error(error.message || "Telegram is not configured"); e.code = "TELEGRAM_NOT_CONFIGURED"; throw e; }
+}
+
+app.get("/api/telegram/me", requireApiKey, async (req, res) => {
+  try { return res.json({ ok: true, me: await telegramClient().getMe(), requestId: req.requestId }); }
+  catch (error) { return res.status(503).json(errorBody(error.code || "TELEGRAM_UNAVAILABLE", "Telegram is unavailable", req.requestId)); }
+});
+app.get("/api/telegram/dialogs", requireApiKey, async (req, res) => {
+  try { return res.json({ ok: true, dialogs: await telegramClient().getDialogs(req.query.limit), requestId: req.requestId }); }
+  catch (error) { return res.status(503).json(errorBody(error.code || "TELEGRAM_UNAVAILABLE", "Telegram is unavailable", req.requestId)); }
+});
+app.get("/api/telegram/messages", requireApiKey, async (req, res) => {
+  try { return res.json({ ok: true, messages: await telegramClient().getMessages(req.query.chatId, req.query.limit), requestId: req.requestId }); }
+  catch (error) { const status = error.code === "TELEGRAM_NOT_CONFIGURED" ? 503 : 400; return res.status(status).json(errorBody(error.code || "TELEGRAM_MESSAGES_FAILED", status === 503 ? "Telegram is unavailable" : error.message, req.requestId)); }
+});
+app.post("/api/telegram/send", requireApiKey, async (req, res) => {
+  try { return res.json({ ok: true, result: await telegramClient().sendMessage(String(req.body?.chatId || ""), String(req.body?.message || "")), requestId: req.requestId }); }
+  catch (error) { return res.status(503).json(errorBody(error.code || "TELEGRAM_SEND_FAILED", "Telegram send failed", req.requestId)); }
+});
+app.post("/api/telegram/send-photo", requireApiKey, async (req, res) => {
+  let tempPath;
+  try {
+    const { chatId, fileName, caption, base64 } = req.body || {};
+    if (!chatId || !base64) return res.status(400).json(errorBody("PHOTO_REQUIRED", "chatId and base64 photo are required", req.requestId));
+    const bytes = Buffer.from(String(base64), "base64");
+    if (!bytes.length || bytes.length > 10 * 1024 * 1024) return res.status(400).json(errorBody("PHOTO_INVALID", "photo must be 1..10 MB", req.requestId));
+    tempPath = path.join(os.tmpdir(), `samurai-${crypto.randomUUID()}-${path.basename(String(fileName || "photo.jpg"))}`);
+    fs.writeFileSync(tempPath, bytes, { flag: "wx", mode: 0o600 });
+    const result = await telegramClient().sendPhoto(String(chatId), tempPath, String(caption || "SamuraiOS"));
+    return res.json({ ok: true, result, requestId: req.requestId });
+  } catch (error) { return res.status(503).json(errorBody(error.code || "TELEGRAM_PHOTO_FAILED", "Telegram photo send failed", req.requestId)); }
+  finally { if (tempPath) fs.rmSync(tempPath, { force: true }); }
+});
 app.get("/api/stats", requireApiKey, (req, res) => res.json({ ok: true, stats: stats(), requestId: req.requestId }));
 
 app.get("/api/dual-ai/config", requireApiKey, (req, res) => res.json({ ok: true, config: dualAI.config(), requestId: req.requestId }));

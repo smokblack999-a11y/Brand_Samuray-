@@ -4,6 +4,9 @@ import android.Manifest
 import android.content.pm.PackageManager
 import android.graphics.Color
 import android.location.Location
+import android.location.LocationManager
+import android.os.Build
+import android.os.CancellationSignal
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -25,9 +28,7 @@ import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
-import com.google.android.gms.location.LocationServices
-import com.google.android.gms.location.Priority
-import com.google.android.gms.tasks.CancellationTokenSource
+import androidx.exifinterface.media.ExifInterface
 import java.io.File
 import java.io.OutputStream
 import java.net.HttpURLConnection
@@ -44,6 +45,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var previewView: PreviewView
     private lateinit var statusText: TextView
     private lateinit var outputText: TextView
+    private lateinit var apiKeyInput: EditText
     private lateinit var chatIdInput: EditText
     private lateinit var messageInput: EditText
     private lateinit var galleryContainer: LinearLayout
@@ -52,7 +54,7 @@ class MainActivity : ComponentActivity() {
     private var pendingTimestamp: Long = 0L
     private var cameraExecutor: ExecutorService? = null
     private val mainHandler = Handler(Looper.getMainLooper())
-    private val locationClient by lazy { LocationServices.getFusedLocationProviderClient(this) }
+    private val locationManager by lazy { getSystemService(LOCATION_SERVICE) as LocationManager }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -79,12 +81,36 @@ class MainActivity : ComponentActivity() {
         val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(24, 24, 24, 24); setBackgroundColor(Color.rgb(5, 8, 17)) }
         statusText = TextView(this).apply { text = "SamuraiOS: запуск..."; textSize = 20f; setTextColor(Color.rgb(0, 255, 136)); setPadding(0, 0, 0, 12) }
         root.addView(statusText)
+        apiKeyInput = EditText(this).apply {
+            hint = "CORE API KEY (локальная настройка)"
+            setSingleLine(true); setTextColor(Color.WHITE); setHintTextColor(Color.GRAY)
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
+            setText(getPreferences(MODE_PRIVATE).getString("core_api_key", ""))
+        }
+        root.addView(apiKeyInput, LinearLayout.LayoutParams(-1, -2))
+        root.addView(Button(this).apply {
+            text = "СОХРАНИТЬ CORE KEY"
+            setOnClickListener {
+                getPreferences(MODE_PRIVATE).edit().putString("core_api_key", apiKeyInput.text.toString().trim()).apply()
+                showToast("CORE API KEY сохранён локально")
+                checkCoreStatus()
+            }
+        })
         previewView = PreviewView(this).apply { scaleType = PreviewView.ScaleType.FILL_CENTER }
         root.addView(previewView, LinearLayout.LayoutParams(-1, 520))
         root.addView(Button(this).apply { text = "СНЯТЬ ФОТО + GPS"; setOnClickListener { capturePhoto() } })
         root.addView(TextView(this).apply { text = "Проектная галерея — приватное хранилище"; textSize = 18f; setTextColor(Color.WHITE); setPadding(0, 18, 0, 8) })
         galleryContainer = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         root.addView(galleryContainer)
+        root.addView(Button(this).apply {
+            text = "ИМПОРТ ФОТО В SAMURAI GALLERY"
+            setOnClickListener {
+                startActivityForResult(android.content.Intent(android.content.Intent.ACTION_OPEN_DOCUMENT).apply {
+                    type = "image/*"
+                    addCategory(android.content.Intent.CATEGORY_OPENABLE)
+                }, 300)
+            }
+        })
         root.addView(TextView(this).apply { text = "Telegram"; textSize = 20f; setTextColor(Color.WHITE); setPadding(0, 24, 0, 8) })
         root.addView(Button(this).apply { text = "Мой Telegram"; setOnClickListener { loadMe() } })
         root.addView(Button(this).apply { text = "Диалоги"; setOnClickListener { loadDialogs() } })
@@ -100,7 +126,18 @@ class MainActivity : ComponentActivity() {
         setContentView(ScrollView(this).apply { addView(root) })
     }
 
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: android.content.Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == 300 && resultCode == RESULT_OK) {
+            val uri = data?.data ?: return
+            selectedPhoto = Vault.importPhoto(this, uri)
+            refreshGallery()
+            outputText.text = selectedPhoto?.let { "Импортировано: " + it.name } ?: "Ошибка импорта"
+        }
+    }
+
     private fun startCamera() {
+        if (!::previewView.isInitialized) return
         val future = ProcessCameraProvider.getInstance(this)
         future.addListener({
             try {
@@ -128,12 +165,43 @@ class MainActivity : ComponentActivity() {
         if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
             Vault.saveMetadata(photo, null, null, null, timestamp); mainHandler.post { refreshGallery(); showToast("Фото сохранено, GPS без разрешения") }; return
         }
-        locationClient.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, CancellationTokenSource().token)
-            .addOnSuccessListener { location: Location? ->
-                Vault.saveMetadata(photo, location?.latitude, location?.longitude, location?.accuracy, timestamp)
-                mainHandler.post { refreshGallery(); outputText.text = if (location != null) "Сохранено: %.6f, %.6f ± %.1fm".format(location.latitude, location.longitude, location.accuracy) else "Сохранено без GPS fix" }
-            }
-            .addOnFailureListener { Vault.saveMetadata(photo, null, null, null, timestamp); mainHandler.post { refreshGallery(); showToast("Фото сохранено, GPS недоступен") } }
+        val providers = listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)
+        val provider = providers.firstOrNull { runCatching { locationManager.isProviderEnabled(it) }.getOrDefault(false) }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && provider != null) {
+            try {
+                val signal = CancellationSignal()
+                locationManager.getCurrentLocation(provider, signal, ContextCompat.getMainExecutor(this)) { location ->
+                    if (location != null) saveLocationMetadata(photo, timestamp, location)
+                    else saveBestKnownLocation(photo, timestamp, providers)
+                }
+                return
+            } catch (_: Exception) { }
+        }
+        saveBestKnownLocation(photo, timestamp, providers)
+    }
+
+    private fun saveBestKnownLocation(photo: File, timestamp: Long, providers: List<String>) {
+        val location = providers.mapNotNull { name ->
+            runCatching { if (locationManager.isProviderEnabled(name)) locationManager.getLastKnownLocation(name) else null }.getOrNull()
+        }.minByOrNull { it.accuracy }
+        if (location != null) saveLocationMetadata(photo, timestamp, location)
+        else {
+            Vault.saveMetadata(photo, null, null, null, timestamp)
+            mainHandler.post { refreshGallery(); showToast("Фото сохранено, GPS fix недоступен") }
+        }
+    }
+
+    private fun saveLocationMetadata(photo: File, timestamp: Long, location: Location) {
+        runCatching {
+            val exif = ExifInterface(photo.absolutePath)
+            exif.setGpsInfo(location)
+            exif.saveAttributes()
+        }
+        Vault.saveMetadata(photo, location.latitude, location.longitude, location.accuracy, timestamp)
+        mainHandler.post {
+            refreshGallery()
+            outputText.text = "Сохранено: %.6f, %.6f ± %.1fm".format(location.latitude, location.longitude, location.accuracy)
+        }
     }
 
     private fun refreshGallery() {
@@ -190,6 +258,7 @@ class MainActivity : ComponentActivity() {
                     requestMethod = "GET"; connectTimeout = 5000; readTimeout = 10000; useCaches = false
                     setRequestProperty("Accept", "application/json")
                     setRequestProperty("X-Request-ID", UUID.randomUUID().toString())
+                    getPreferences(MODE_PRIVATE).getString("core_api_key", "")?.takeIf { it.isNotBlank() }?.let { setRequestProperty("X-API-Key", it) }
                 }
                 val code = connection.responseCode; val stream = if (code in 200..299) connection.inputStream else connection.errorStream; val body = stream?.bufferedReader()?.use { it.readText() } ?: ""
                 callback(if (code in 200..299) body else "ERROR: HTTP $code\n$body")
@@ -205,6 +274,7 @@ class MainActivity : ComponentActivity() {
                     requestMethod = "POST"; connectTimeout = 5000; readTimeout = 30000; useCaches = false; doOutput = true
                     setRequestProperty("Content-Type", "application/json; charset=UTF-8"); setRequestProperty("Accept", "application/json")
                     setRequestProperty("X-Request-ID", UUID.randomUUID().toString())
+                    getPreferences(MODE_PRIVATE).getString("core_api_key", "")?.takeIf { it.isNotBlank() }?.let { setRequestProperty("X-API-Key", it) }
                 }
                 connection.outputStream.use { output: OutputStream -> output.write(json.toByteArray(Charsets.UTF_8)); output.flush() }
                 val code = connection.responseCode; val stream = if (code in 200..299) connection.inputStream else connection.errorStream; val body = stream?.bufferedReader()?.use { it.readText() } ?: ""
