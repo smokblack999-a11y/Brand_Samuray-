@@ -8,7 +8,7 @@ const base = {
   workflow: { id: 123, conclusion: "failure" },
   diagnosis: { reproduction: true, causality: true },
   changedFiles: ["src/service.js"],
-  proposal: { diff: "--- a/src/service.js\n+++ b/src/service.js\n+ safeFix();" }
+  proposal: { diff: "--- a/src/service.js\n+++ b/src/service.js\n@@ -1 +1 @@\n+safeFix();" }
 };
 
 test("observed failure can enter bounded repair", () => {
@@ -36,7 +36,7 @@ test("retry limit is hard", () => {
 });
 
 test("dangerous candidate is blocked by policy", () => {
-  const r = evaluateRecovery({ ...base, proposal: { diff: "--- a/src/service.js\n+++ b/src/service.js\n+ rm -rf /" } });
+  const r = evaluateRecovery({ ...base, proposal: { diff: "--- a/src/service.js\n+++ b/src/service.js\n@@ -1 +1 @@\n+rm -rf /" } });
   assert.equal(r.decision, "BLOCK");
   assert.ok(r.dangerousFindings.includes("recursive_delete"));
 });
@@ -45,7 +45,7 @@ test("critical workflow change exposes required controls", () => {
   const r = evaluateRecovery({
     ...base,
     changedFiles: [".github/workflows/build.yml"],
-    proposal: { diff: "--- a/.github/workflows/build.yml\n+++ b/.github/workflows/build.yml\n+ safeStep: true" }
+    proposal: { diff: "--- a/.github/workflows/build.yml\n+++ b/.github/workflows/build.yml\n@@ -1 +1 @@\n+safeStep: true" }
   });
   assert.equal(r.decision, "ALLOW");
   assert.ok(r.requiredChecks.includes("sandbox"));
