@@ -41,6 +41,7 @@ import kotlin.concurrent.thread
 
 class MainActivity : ComponentActivity() {
     private val coreUrl = BuildConfig.CORE_BASE_URL.trimEnd('/')
+    private val coreApiKey = BuildConfig.CORE_API_KEY.trim()
     private val permissionRequest = 100
     private lateinit var previewView: PreviewView
     private lateinit var statusText: TextView
@@ -76,7 +77,8 @@ class MainActivity : ComponentActivity() {
 
     private fun hasPermissions(): Boolean =
         ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED &&
-        ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
+         ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED)
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
@@ -194,14 +196,19 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun apiHeaders(connection: HttpURLConnection) {
+        connection.setRequestProperty("Accept", "application/json")
+        connection.setRequestProperty("X-Request-ID", UUID.randomUUID().toString())
+        if (coreApiKey.isNotEmpty()) connection.setRequestProperty("X-API-Key", coreApiKey)
+    }
+
     private fun apiGet(path: String, callback: (String) -> Unit) {
         thread {
             var connection: HttpURLConnection? = null
             try {
                 connection = (URL(coreUrl + path).openConnection() as HttpURLConnection).apply {
                     requestMethod = "GET"; connectTimeout = 5000; readTimeout = 10000; useCaches = false
-                    setRequestProperty("Accept", "application/json")
-                    setRequestProperty("X-Request-ID", UUID.randomUUID().toString())
+                    apiHeaders(this)
                 }
                 val code = connection.responseCode; val stream = if (code in 200..299) connection.inputStream else connection.errorStream; val body = stream?.bufferedReader()?.use { it.readText() } ?: ""
                 callback(if (code in 200..299) body else "ERROR: HTTP $code\n$body")
@@ -215,8 +222,8 @@ class MainActivity : ComponentActivity() {
             try {
                 connection = (URL(coreUrl + path).openConnection() as HttpURLConnection).apply {
                     requestMethod = "POST"; connectTimeout = 5000; readTimeout = 30000; useCaches = false; doOutput = true
-                    setRequestProperty("Content-Type", "application/json; charset=UTF-8"); setRequestProperty("Accept", "application/json")
-                    setRequestProperty("X-Request-ID", UUID.randomUUID().toString())
+                    setRequestProperty("Content-Type", "application/json; charset=UTF-8")
+                    apiHeaders(this)
                 }
                 connection.outputStream.use { output: OutputStream -> output.write(json.toByteArray(Charsets.UTF_8)); output.flush() }
                 val code = connection.responseCode; val stream = if (code in 200..299) connection.inputStream else connection.errorStream; val body = stream?.bufferedReader()?.use { it.readText() } ?: ""
