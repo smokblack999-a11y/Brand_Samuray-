@@ -37,7 +37,7 @@ const DANGEROUS_PATTERNS = Object.freeze([
   ["privileged_container", /\bprivileged\s*:\s*true\b/i],
   ["setuid", /\bset-user-ID\b/i],
   ["privilege_escalation", /\b(?:sudo|su)\s+/i],
-  ["workflow_command_injection", /\b(?:github\.event|pull_request)\b.*\$\{\{.*\}\}/i]
+  ["workflow_command_injection", /\$\{\{[^}]*\b(?:github\.event|pull_request|github\.head_ref|github\.base_ref)\b[^}]*\}\}/i],
 ]);
 
 const ALLOWED_TRANSITIONS = Object.freeze({
