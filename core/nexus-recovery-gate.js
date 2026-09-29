@@ -41,7 +41,7 @@ function evaluateRecovery(input = {}) {
     };
   }
 
-  const retryCount = Number.isInteger(input.retryCount) ? input.retryCount : 0;
+  if (["success", "cancelled", "neutral"].includes(conclusion)) {\n    return { decision: "BLOCK", state: "BLOCKED", reason: "recovery_requires_observed_ci_failure" };\n  }\n\n  const retryCount = Number.isInteger(input.retryCount) ? input.retryCount : 0;
   if (retryCount < 0 || retryCount >= MAX_RETRIES) {
     return {
       decision: "BLOCK",
