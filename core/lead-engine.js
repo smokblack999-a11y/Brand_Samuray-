@@ -3,7 +3,7 @@
 function scoreLead(text) {
   const value = String(text || "").trim();
   const lower = value.toLowerCase();
-  let score = 15;
+  let score = 20;
   const signals = [];
 
   const strong = ["купить", "заказать", "цена", "стоимость", "сколько стоит", "оплат", "записать", "забронировать", "доставка", "сегодня", "сейчас"];
