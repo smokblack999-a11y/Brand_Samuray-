@@ -78,7 +78,7 @@ test("critical transition requires proof and validation", () => {
 });
 
 test("workflow expression added to a workflow is blocked", () => {
-  const expression = "$" + "{ github.event.pull_request.title }}";
+  const expression = "${{ github.event.pull_request.title }}";
   const r = nexus.transition("CI_FAILED", "REPAIR_PROPOSED", {
     resource: "github://repo/pull/5",
     files: [".github/workflows/build.yml"],
