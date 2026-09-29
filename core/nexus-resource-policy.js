@@ -66,16 +66,10 @@ function classifyFiles(files) {
   for (const [name, re] of CRITICAL_RULES) {
     if (normalized.some(file => re.test(file))) categories.push(name);
   }
-  if (normalized.length >= 20 || normalized.some(file => file.length > 180)) {
-    categories.push("large_change");
-  }
+  if (normalized.length >= 20 || normalized.some(file => file.length > 180)) categories.push("large_change");
 
   const criticalSet = new Set([
     "authentication", "cryptography", "tls", "acl", "policy",
-  if (/\$\{\{[\s\S]*?\}\}/.test(added) && /(github\.event|pull_request|github\.head_ref|github\.base_ref)/i.test(added)) {
-    findings.push("workflow_command_injection");
-  }
-
     "github_actions", "docker", "dependencies", "infrastructure",
     "configuration", "api_surface", "database", "large_change"
   ]);
@@ -99,11 +93,16 @@ function scanDiff(diff) {
 
   const findings = DANGEROUS_PATTERNS
     .filter(([, re]) => re.test(added))
-    .map(([name]) => name);\n\n  if (/\\$\\{\\{[\\s\\S]*?\\}\\}/.test(added) && /(github\\.event|pull_request|github\\.head_ref|github\\.base_ref)/i.test(added)) {\n    findings.push("workflow_command_injection");\n  }
+    .map(([name]) => name);
+
+  if (/\$\{\{[\s\S]*?\}\}/.test(added) &&
+      /(github\.event|pull_request|github\.head_ref|github\.base_ref)/i.test(added)) {
+    findings.push("workflow_command_injection");
+  }
 
   return {
     addedLines: added,
-    findings,
+    findings: [...new Set(findings)],
     dangerous: findings.length > 0
   };
 }
