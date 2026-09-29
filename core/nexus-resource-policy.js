@@ -72,6 +72,10 @@ function classifyFiles(files) {
 
   const criticalSet = new Set([
     "authentication", "cryptography", "tls", "acl", "policy",
+  if (/\$\{\{[\s\S]*?\}\}/.test(added) && /(github\.event|pull_request|github\.head_ref|github\.base_ref)/i.test(added)) {
+    findings.push("workflow_command_injection");
+  }
+
     "github_actions", "docker", "dependencies", "infrastructure",
     "configuration", "api_surface", "database", "large_change"
   ]);
