@@ -113,6 +113,10 @@ function evaluate({ resource, fromState, toState, files, diff, actor = "x10think
   const target = resource || "unknown";
   const classification = classifyFiles(files);
   const scan = scanDiff(diff);
+  if (classification.categories.includes("github_actions") && String(diff || "").includes("github.event")) {
+    scan.findings.push("workflow_command_injection");
+    scan.dangerous = true;
+  }
   const reasons = [];
   const required = [];
   let decision = "ALLOW";
