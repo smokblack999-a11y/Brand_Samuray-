@@ -95,11 +95,9 @@ function scanDiff(diff) {
     .filter(([, re]) => re.test(added))
     .map(([name]) => name);
 
-  if (/\$\{\{[\s\S]*?\}\}/.test(added) &&
-      /(github\.event|pull_request|github\.head_ref|github\.base_ref)/i.test(added)) {
+  if (added.includes("${{") && /(github\.event|pull_request|github\.head_ref|github\.base_ref)/i.test(added)) {
     findings.push("workflow_command_injection");
   }
-
   return {
     addedLines: added,
     findings: [...new Set(findings)],
