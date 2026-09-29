@@ -99,7 +99,7 @@ function scanDiff(diff) {
 
   const findings = DANGEROUS_PATTERNS
     .filter(([, re]) => re.test(added))
-    .map(([name]) => name);
+    .map(([name]) => name);\n\n  if (/\\$\\{\\{[\\s\\S]*?\\}\\}/.test(added) && /(github\\.event|pull_request|github\\.head_ref|github\\.base_ref)/i.test(added)) {\n    findings.push("workflow_command_injection");\n  }
 
   return {
     addedLines: added,
