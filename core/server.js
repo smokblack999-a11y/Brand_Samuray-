@@ -48,6 +48,7 @@ function requireApiKey(req, res, next) {
   if (safeEqual(API_KEY, req.get("X-API-Key"))) return next();
   return res.status(401).json(errorBody("UNAUTHORIZED", "Unauthorized", req.requestId));
 }
+function telegramUser() { return require("./telegram"); }
 function requireWebhookSecret(req, res, next) {
   if (!WEBHOOK_SECRET) return res.status(503).json(errorBody("WEBHOOK_AUTH_NOT_CONFIGURED", "Webhook authentication is not configured", req.requestId));
   if (safeEqual(WEBHOOK_SECRET, req.get("X-Telegram-Bot-Api-Secret-Token"))) return next();
@@ -192,11 +193,23 @@ app.get("/api/telegram/me", requireApiKey, async (req, res) => {
 });
 
 app.get("/api/telegram/dialogs", requireApiKey, async (req, res) => {
-  return res.status(501).json(errorBody("BOT_API_UNSUPPORTED", "Bot API does not expose user dialogs", req.requestId));
+  try {
+    const result = await telegramUser().getDialogs(req.query.limit);
+    return res.json({ ok: true, dialogs: result, requestId: req.requestId });
+  } catch (error) {
+    return res.status(503).json(errorBody(error.code || "TELEGRAM_USER_UNAVAILABLE", "Telegram user session unavailable", req.requestId));
+  }
 });
 
 app.get("/api/telegram/messages", requireApiKey, async (req, res) => {
-  return res.status(501).json(errorBody("BOT_API_UNSUPPORTED", "Bot API does not expose arbitrary user message history", req.requestId));
+  try {
+    const chatId = String(req.query.chatId || "").trim();
+    if (!chatId) return res.status(400).json(errorBody("INVALID_CHAT_ID", "chatId is required", req.requestId));
+    const result = await telegramUser().getMessages(chatId, req.query.limit);
+    return res.json({ ok: true, messages: result, requestId: req.requestId });
+  } catch (error) {
+    return res.status(503).json(errorBody(error.code || "TELEGRAM_USER_UNAVAILABLE", "Telegram user session unavailable", req.requestId));
+  }
 });
 
 app.post("/api/telegram/send", requireApiKey, async (req, res) => {
