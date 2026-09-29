@@ -32,7 +32,7 @@ if (process.env.NODE_ENV === "production") {
 app.disable("x-powered-by");
 app.set("trust proxy", process.env.TRUST_PROXY === "true" ? 1 : false);
 app.use(cors(CORS_ORIGIN ? { origin: CORS_ORIGIN } : { origin: false }));
-app.use(express.json({ limit: "12mb" }));
+app.use(express.json({ limit: "16mb" }));
 
 function errorBody(code, message, requestId) {
   return { ok: false, error: { code, message, requestId } };
