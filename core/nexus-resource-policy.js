@@ -95,7 +95,7 @@ function scanDiff(diff) {
     .filter(([, re]) => re.test(added))
     .map(([name]) => name);
 
-  if (String(diff || "").includes("${{") && /(github\.event|pull_request|github\.head_ref|github\.base_ref)/i.test(String(diff || ""))) {
+  if (String(diff || "").includes("${{") && String(diff || "").includes("github.event")) {
     findings.push("workflow_command_injection");
   }
   return {
