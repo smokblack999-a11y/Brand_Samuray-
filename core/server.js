@@ -85,7 +85,7 @@ app.get("/ready", (req, res) => {
   }
 });
 app.get("/health/openai", requireApiKey, async (req, res) => {
-  if (!process.env.OPENAI_API_KEY) return res.status(503).json(errorBody("OPENAI_NOT_CONFIGURED", "OpenAI is not configured", req.requestId));
+  if (!process.env.OPENAI_API_KEY) return res.status(503).json({ ...errorBody("OPENAI_NOT_CONFIGURED", "OpenAI is not configured", req.requestId), configured: false });
   try {
     await checkOpenAI();
     return res.json({ ok: true, service: "openai", configured: true, requestId: req.requestId });
