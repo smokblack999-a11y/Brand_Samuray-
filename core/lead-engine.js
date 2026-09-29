@@ -16,7 +16,9 @@ function scoreLead(text) {
   if (/\d/.test(value)) score += 5;
   if (value.length > 80) score += 5;
 
-  if (signals.some(s => ["купить", "заказать", "оплат", "забронировать"].includes(s)) && signals.length >= 2) score += 10;\n\n  score = Math.max(0, Math.min(100, score));
+  if (signals.some(s => ["купить", "заказать", "оплат", "забронировать"].includes(s)) && signals.length >= 2) score += 10;
+
+  score = Math.max(0, Math.min(100, score));
   const intent = score >= 70 ? "hot" : score >= 40 ? "warm" : "cold";
   return { score, intent, signals: [...new Set(signals)] };
 }
