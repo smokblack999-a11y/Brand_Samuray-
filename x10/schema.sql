@@ -32,6 +32,7 @@ CREATE TABLE IF NOT EXISTS x10_incidents (
 
 CREATE INDEX IF NOT EXISTS idx_x10_incidents_state ON x10_incidents(state);
 CREATE INDEX IF NOT EXISTS idx_x10_incidents_fingerprint ON x10_incidents(failure_fingerprint);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_x10_incidents_event_id_unique ON x10_incidents(event_id);
 
 CREATE TABLE IF NOT EXISTS x10_state_ledger (
   ledger_id BIGSERIAL PRIMARY KEY,
