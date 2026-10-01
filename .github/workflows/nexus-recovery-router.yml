@@ -5,6 +5,7 @@ on:
     workflows:
       - "SamuraiOS Core CI"
       - "SamuraiOS Core X22 CI"
+      - "Build SamuraiOS APK"
       - "X20 Verified Recovery Tests"
       - "X20 E2E Failure Probe"
     types: [completed]
@@ -14,37 +15,26 @@ permissions:
 
 jobs:
   route:
-    if: github.event.workflow_run.conclusion != ''
+    if: >-
+      github.event.workflow_run.conclusion == 'failure' ||
+      github.event.workflow_run.conclusion == 'timed_out' ||
+      github.event.workflow_run.conclusion == 'startup_failure'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Route workflow result
+      - name: Route failed workflow to SamuraiOS X10
         env:
           RECOVERY_URL: ${{ secrets.X10THINK_RECOVERY_URL }}
           RECOVERY_API_KEY: ${{ secrets.X10THINK_RECOVERY_API_KEY }}
-          GITHUB_WEBHOOK_SECRET: ${{ secrets.GITHUB_WEBHOOK_SECRET }}
           PAYLOAD: ${{ toJSON(github.event) }}
-          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
         run: |
           set -euo pipefail
-          test -n "${RECOVERY_URL:-}"
-          test -n "${GITHUB_WEBHOOK_SECRET:-}"
+          test -n "${RECOVERY_URL:-}" || { echo "X10THINK_RECOVERY_URL is not configured"; exit 1; }
+          test -n "${RECOVERY_API_KEY:-}" || { echo "X10THINK_RECOVERY_API_KEY is not configured"; exit 1; }
 
-          if [[ "${HEAD_BRANCH}" == x10think/recovery-* ]]; then
-            test -n "${RECOVERY_API_KEY:-}"
-            endpoint="${RECOVERY_URL}/api/recovery/ci"
-            headers=(-H "X-API-Key: ${RECOVERY_API_KEY}")
-          else
-            endpoint="${RECOVERY_URL}/api/recovery/github/webhook"
-            signature="sha256=$(printf '%s' "${PAYLOAD}" | openssl dgst -sha256 -hmac "${GITHUB_WEBHOOK_SECRET}" -hex | sed 's/^.* //')"
-            headers=(
-              -H "X-GitHub-Event: workflow_run"
-              -H "X-GitHub-Delivery: workflow-run-${{ github.event.workflow_run.id }}"
-              -H "X-Hub-Signature-256: ${signature}"
-            )
-          fi
+          endpoint="${RECOVERY_URL}/api/x10/github/workflow_run"
 
-          code="$(curl -sS -o /tmp/recovery.json -w '%{http_code}'             --connect-timeout 5 --max-time 20             -X POST "${endpoint}"             -H "Content-Type: application/json"             "${headers[@]}"             --data "${PAYLOAD}")"
+          code="$(curl -sS -o /tmp/x10.json -w '%{http_code}'             --connect-timeout 5 --max-time 20             -X POST "${endpoint}"             -H "Content-Type: application/json"             -H "X-API-Key: ${RECOVERY_API_KEY}"             --data "${PAYLOAD}")"
 
-          cat /tmp/recovery.json
+          cat /tmp/x10.json
           test "${code}" -ge 200 -a "${code}" -lt 300
