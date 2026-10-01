@@ -6,6 +6,15 @@ const { buildPatchProposal } = require("./interop/patch-proposal");
 
 const MAX_RETRIES = 3;
 
+const REQUIRED_RECOVERY_EVIDENCE = Object.freeze([
+  "patch_applied",
+  "sandbox_passed",
+  "tests_passed",
+  "ci_passed",
+  "invariants_passed",
+  "evidence_complete"
+]);
+
 function hash(value) {
   return crypto.createHash("sha256").update(JSON.stringify(value)).digest("hex");
 }
@@ -104,18 +113,131 @@ function evaluateRecovery(input = {}) {
       workflowRunId: workflow.id || null,
       retryCount,
       evaluationHash: evaluation.evaluationHash
-    })
+    }),
+    executionContract: {
+      executor: "x29-github-transport",
+      writeScope: candidate.proposal.files,
+      targetResource: input.resource,
+      policyVersion: evaluation.policyVersion,
+      evaluationHash: evaluation.evaluationHash,
+      requiredAfterExecutionChecks: ["sandbox", "ci", "proof_receipt"],
+      autonomousWrite: false,
+      autonomousMerge: false,
+      autoDeploy: false
+    }
   };
+}
+
+
+function normalizeEvidence(evidence = {}) {
+  return Object.fromEntries(
+    REQUIRED_RECOVERY_EVIDENCE.map(key => [key, evidence[key] === true])
+  );
+}
+
+function finalizeRecovery(input = {}) {
+  const evidence = normalizeEvidence(input.evidence);
+  const missing = REQUIRED_RECOVERY_EVIDENCE.filter(key => !evidence[key]);
+  if (!input.resource) {
+    return { decision: "BLOCK", state: "BLOCKED", reason: "resource_identity_missing", evidence };
+  }
+  if (missing.length) {
+    return {
+      decision: "BLOCK",
+      state: "BLOCKED",
+      reason: "verification_evidence_incomplete",
+      missingEvidence: missing,
+      evidence
+    };
+  }
+
+  const evaluation = policy.transition("CI_PASSED", "READY_FOR_REVIEW", {
+    resource: input.resource,
+    files: input.changedFiles || [],
+    diff: input.diff || "",
+    actor: input.actor || "x10think"
+  });
+
+  if (evaluation.decision !== "ALLOW") return { ...evaluation, evidence };
+
+  return {
+    ...evaluation,
+    evidence,
+    state: "READY_FOR_REVIEW"
+  };
+}
+
+function createRecoveryProof(input = {}) {
+  const evaluation = input.evaluation;
+  if (!evaluation || evaluation.decision !== "ALLOW") {
+    throw new Error("recovery_proof_requires_allowed_evaluation");
+  }
+
+  const evidence = normalizeEvidence(input.evidence || evaluation.evidence);
+  const missing = REQUIRED_RECOVERY_EVIDENCE.filter(key => !evidence[key]);
+  if (missing.length) throw new Error("recovery_proof_missing_evidence");
+
+  const receipt = {
+    schema: "nexus-recovery-proof/v1",
+    recoveryId: input.recoveryId || null,
+    resource: evaluation.resource,
+    workflowRunId: input.workflowRunId || null,
+    transition: {
+      from: evaluation.fromState,
+      to: evaluation.toState
+    },
+    beforeSha: input.beforeSha || null,
+    afterSha: input.afterSha || null,
+    verificationRunId: input.verificationRunId || null,
+    policyVersion: evaluation.policyVersion,
+    evaluationHash: evaluation.evaluationHash,
+    evidence
+  };
+
+  return Object.freeze({
+    ...receipt,
+    proofHash: hash(receipt)
+  });
 }
 
 function canExecute(result) {
   return Boolean(result && result.decision === "ALLOW" &&
     result.state === "REPAIR_PROPOSED" &&
-    result.candidateAccepted === true);
+    result.candidateAccepted === true &&
+    result.executionContract &&
+    result.executionContract.executor === "x29-github-transport" &&
+    result.executionContract.autonomousMerge === false &&
+    result.executionContract.autoDeploy === false);
+}
+
+function buildVerificationContract(result, verification = {}) {
+  if (!canExecute(result)) {
+    throw new Error("verification_contract_requires_executable_recovery");
+  }
+
+  const required = [...new Set(result.executionContract.requiredAfterExecutionChecks)];
+  const observed = Object.fromEntries(required.map(key => [key, verification[key] === true]));
+  const missing = required.filter(key => !observed[key]);
+
+  return Object.freeze({
+    resource: result.resource,
+    recoveryId: result.recoveryId,
+    evaluationHash: result.evaluationHash,
+    policyVersion: result.policyVersion,
+    required,
+    observed,
+    missing,
+    readyForProof: missing.length === 0
+  });
 }
 
 module.exports = {
   MAX_RETRIES,
+  REQUIRED_RECOVERY_EVIDENCE,
+  normalizeEvidence,
   evaluateRecovery,
-  canExecute
+  finalizeRecovery,
+  createRecoveryProof,
+  canExecute,
+  buildVerificationContract
 };

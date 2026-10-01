@@ -81,3 +81,14 @@ Recommended runtime sequence:
 - No credential persistence.
 - No claim that CI passed without an external CI result.
 - No AI authority to override deterministic policy.
+
+
+## Runtime execution bridge
+
+The recovery gate is now wired to `core/nexus-recovery-orchestrator.js`. The orchestrator is adapter-injected: it requires the real X29 GitHub, sandbox and CI adapters and has no credential or fake-transport fallback.
+
+Runtime sequence:
+
+`workflow_run → diagnosis → policy → REPAIR_PROPOSED → repair branch → bounded patch → sandbox → CI → draft PR → final evidence → Proof Receipt → READY_FOR_REVIEW`
+
+No adapter call occurs unless the deterministic gate returns `ALLOW`. Merge and deploy remain outside the orchestrator.

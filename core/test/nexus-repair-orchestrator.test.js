@@ -1,0 +1,27 @@
+"use strict";
+const test=require("node:test"); const assert=require("node:assert/strict");
+const {createJob,nextState,evaluateRepair,recordSandbox,recordCI,finalizeProof}=require("../nexus-repair-orchestrator");
+test("failure enters bounded repair pipeline",()=>{let j=createJob({resource:"github://repo/pull/1",changedFiles:["src/app.js"],headSha:"abc"});j=nextState(j,"DIAGNOSING");j=nextState(j,"REPAIR_PROPOSED");j=evaluateRepair(j,{diff:"+ safeFix();"}).job;assert.equal(j.state,"SANDBOX_REQUIRED");j=recordSandbox(j,{passed:true});j=recordCI(j,{conclusion:"success"});const r=finalizeProof(j,{afterSha:"def"});assert.equal(r.job.state,"READY_FOR_REVIEW");assert.match(r.receipt.proofHash,/^[a-f0-9]{64}$/)});
+test("dangerous added code is blocked",()=>{let j=createJob({resource:"github://repo/pull/2",changedFiles:["src/app.js"]});j=nextState(j,"DIAGNOSING");j=nextState(j,"REPAIR_PROPOSED");const r=evaluateRepair(j,{diff:"+ rm -rf /"});assert.equal(r.evaluation.decision,"BLOCK");assert.equal(r.job.state,"CRITIC_BLOCKED")});
+test("retry budget stops repeated CI failure",()=>{let j=createJob({resource:"github://repo/pull/3",changedFiles:["src/app.js"]},{maxAttempts:1});j=nextState(j,"DIAGNOSING");j=nextState(j,"REPAIR_PROPOSED");j=evaluateRepair(j,{diff:"+ safeFix();"}).job;j=recordSandbox(j,{passed:true});j=recordCI(j,{conclusion:"failure"});assert.equal(j.state,"STOPPED")});
+test("workflow metadata expression is not blocked unless executable", () => {
+  const policy = require("../nexus-resource-policy");
+  const expression = "$" + "{{ github.event.pull_request.title }}";
+  const result = policy.transition("CI_FAILED", "REPAIR_PROPOSED", {
+    resource: "github://repo/pull/60",
+    files: [".github/workflows/build.yml"],
+    diff: "+ name: \"test " + expression + "\"\n+ on: pull_request",
+    actor: "x10think"
+  });
+  assert.equal(result.decision, "ALLOW");
+});
+
+test("failed CI cannot produce proof", () => {
+  let j = createJob({resource:"github://repo/pull/61",changedFiles:["src/app.js"],headSha:"abc"});
+  j = nextState(j,"DIAGNOSING");
+  j = nextState(j,"REPAIR_PROPOSED");
+  j = evaluateRepair(j,{diff:"+ safeFix();"}).job;
+  j = recordSandbox(j,{passed:true});
+  j = recordCI(j,{conclusion:"failure"});
+  assert.throws(() => finalizeProof(j), /proof_requires_ci_success/);
+});
