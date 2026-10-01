@@ -34,5 +34,5 @@ jobs:
         run: |
           node --check core/x10-router.js
           node --check core/server.js
-      - name: Compose validation
+      - name: X10 policy tests\n        working-directory: x10\n        run: python -m unittest test_policy.py\n      - name: Compose validation
         run: touch core/.env && docker compose config -q
