@@ -10,7 +10,7 @@ const { sendBusinessMessage } = require("./business-bot");
 const telegramCamera = require("./telegram-camera");
 const { saveLead, claimEvent, updateLead, listLeads, stats } = require("./store");
 const { createRateLimiter } = require("./rate-limit");
-const dualAI = require("./dual-ai/engine");\nconst x10Router = require("./x10-router");
+const dualAI = require("./dual-ai/engine");
 const x10Router = require("./x10-router");
 
 const app = express();
