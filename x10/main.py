@@ -1,3 +1,4 @@
+import hashlib
 import json
 import os
 import uuid
@@ -108,6 +109,89 @@ async def control():
     async with pool.acquire() as conn:
         row = await conn.fetchrow("SELECT * FROM x10_kill_switch WHERE singleton=TRUE")
     return {"ok": True, "kill_switch": dict(row)}
+
+@app.post("/v1/github/workflow_run")
+async def github_workflow_run(payload: dict):
+    event = payload.get("workflow_run") or {}
+    repository = payload.get("repository") or {}
+    conclusion = str(event.get("conclusion") or "").strip().lower()
+    repository_full_name = str(repository.get("full_name") or "").strip()
+    commit_sha = str(event.get("head_sha") or "").strip()
+    workflow_id = str(event.get("workflow_id") or "").strip()
+    workflow_name = str(event.get("name") or "").strip()
+    run_id = str(event.get("id") or "").strip()
+    head_branch = str(event.get("head_branch") or "").strip()
+
+    if not repository_full_name or not commit_sha or not run_id:
+        raise HTTPException(400, "workflow_run_identity_missing")
+
+    if conclusion in {"success", "neutral", "skipped"}:
+        return {"ok": True, "accepted": False, "action": "ignored",
+                "reason": "workflow_run_not_failed", "repository": repository_full_name,
+                "run_id": run_id, "conclusion": conclusion}
+
+    if conclusion not in {"failure", "timed_out", "startup_failure"}:
+        return {"ok": True, "accepted": False, "action": "ignored",
+                "reason": "unsupported_workflow_conclusion", "repository": repository_full_name,
+                "run_id": run_id, "conclusion": conclusion}
+
+    event_id = f"github:workflow_run:{repository_full_name}:{run_id}"
+    fingerprint_source = {
+        "repository": repository_full_name,
+        "workflow_id": workflow_id or workflow_name,
+        "workflow_name": workflow_name,
+        "conclusion": conclusion,
+        "head_branch": head_branch,
+        "commit_sha": commit_sha,
+    }
+    failure_fingerprint = hashlib.sha256(
+        json.dumps(fingerprint_source, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            await conn.execute("SELECT pg_advisory_xact_lock(hashtext($1))", event_id)
+            existing = await conn.fetchrow(
+                "SELECT incident_id,state,attempt FROM x10_incidents WHERE event_id=$1",
+                event_id,
+            )
+            if existing:
+                return {"ok": True, "accepted": True, "action": "duplicate",
+                        "event_id": event_id, "incident_id": existing["incident_id"],
+                        "state": existing["state"], "attempt": existing["attempt"]}
+
+            incident_id = "inc_" + uuid.uuid4().hex
+            initial = "AUTONOMY_KILLED" if await _is_killed() else "DETECTED"
+            data = {
+                "source": "github",
+                "event_type": "workflow_run",
+                "workflow": {
+                    "id": workflow_id or None,
+                    "name": workflow_name or None,
+                    "run_id": int(run_id) if run_id.isdigit() else run_id,
+                    "run_attempt": event.get("run_attempt"),
+                    "conclusion": conclusion,
+                    "head_branch": head_branch or None,
+                    "head_sha": commit_sha,
+                    "html_url": event.get("html_url"),
+                },
+                "repository": {
+                    "full_name": repository_full_name,
+                    "default_branch": repository.get("default_branch"),
+                },
+                "proposal_required": True,
+            }
+            await conn.execute(
+                """INSERT INTO x10_incidents
+                (incident_id,event_id,repository,commit_sha,failure_fingerprint,state,risk,attempt,max_attempts,data)
+                VALUES($1,$2,$3,$4,$5,$6::x10_incident_state,$7::x10_risk_level,$8,$9,$10::jsonb)""",
+                incident_id, event_id, repository_full_name, commit_sha,
+                failure_fingerprint, initial, "HIGH", 1, MAX_ATTEMPTS, json.dumps(data)
+            )
+
+    return {"ok": True, "accepted": True, "action": "incident_created",
+            "event_id": event_id, "incident_id": incident_id, "state": initial,
+            "failure_fingerprint": failure_fingerprint, "next": "PROPOSER_REQUIRED"}
 
 @app.post("/v1/incidents")
 async def create_incident(body: IncidentIn):
