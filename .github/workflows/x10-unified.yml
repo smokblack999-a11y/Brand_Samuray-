@@ -26,4 +26,4 @@ jobs:
       - name: Node syntax
         run: node --check core/x10-router.js
       - name: Compose validation
-        run: docker compose config -q
+        run: touch core/.env && docker compose config -q
