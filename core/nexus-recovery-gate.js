@@ -113,7 +113,18 @@ function evaluateRecovery(input = {}) {
       workflowRunId: workflow.id || null,
       retryCount,
       evaluationHash: evaluation.evaluationHash
-    })
+    }),
+    executionContract: {
+      executor: "x29-github-transport",
+      writeScope: candidate.proposal.files,
+      targetResource: input.resource,
+      policyVersion: evaluation.policyVersion,
+      evaluationHash: evaluation.evaluationHash,
+      requiredAfterExecutionChecks: ["sandbox", "ci", "proof_receipt"],
+      autonomousWrite: false,
+      autonomousMerge: false,
+      autoDeploy: false
+    }
   };
 }
 
@@ -192,7 +203,32 @@ function createRecoveryProof(input = {}) {
 function canExecute(result) {
   return Boolean(result && result.decision === "ALLOW" &&
     result.state === "REPAIR_PROPOSED" &&
-    result.candidateAccepted === true);
+    result.candidateAccepted === true &&
+    result.executionContract &&
+    result.executionContract.executor === "x29-github-transport" &&
+    result.executionContract.autonomousMerge === false &&
+    result.executionContract.autoDeploy === false);
+}
+
+function buildVerificationContract(result, verification = {}) {
+  if (!canExecute(result)) {
+    throw new Error("verification_contract_requires_executable_recovery");
+  }
+
+  const required = [...new Set(result.executionContract.requiredAfterExecutionChecks)];
+  const observed = Object.fromEntries(required.map(key => [key, verification[key] === true]));
+  const missing = required.filter(key => !observed[key]);
+
+  return Object.freeze({
+    resource: result.resource,
+    recoveryId: result.recoveryId,
+    evaluationHash: result.evaluationHash,
+    policyVersion: result.policyVersion,
+    required,
+    observed,
+    missing,
+    readyForProof: missing.length === 0
+  });
 }
 
 module.exports = {
@@ -202,5 +238,6 @@ module.exports = {
   evaluateRecovery,
   finalizeRecovery,
   createRecoveryProof,
-  canExecute
+  canExecute,
+  buildVerificationContract
 };
