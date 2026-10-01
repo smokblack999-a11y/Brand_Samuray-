@@ -85,7 +85,13 @@ async def activate_kill(body: KillIn):
             SET active=TRUE,reason=$1,actor=$2,version=version+1,activated_at=now(),updated_at=now()
             WHERE singleton=TRUE""", body.reason, body.actor
         )
-    return {"ok": True, "active": True}
+    cancelled = None
+    try:
+        response = await http.post(f"{SANDBOX_URL}/v1/cancel-all", timeout=5)
+        cancelled = response.json()
+    except Exception:
+        cancelled = {"ok":False,"error":"sandbox_cancel_unavailable"}
+    return {"ok": True, "active": True, "sandbox": cancelled}
 
 @app.post("/v1/resume")
 async def resume(body: KillIn):
