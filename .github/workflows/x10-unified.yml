@@ -3,27 +3,44 @@ name: SamuraiOS X10 Unified
 on:
   push:
     paths:
-      - "x10/**"
-      - "sandbox/**"
-      - "core/x10-router.js"
-      - "docker-compose.yml"
+      - "core/x10/**"
+      - "core/server.js"
       - ".github/workflows/x10-unified.yml"
   pull_request:
     paths:
-      - "x10/**"
-      - "sandbox/**"
-      - "core/x10-router.js"
-      - "docker-compose.yml"
+      - "core/x10/**"
+      - "core/server.js"
       - ".github/workflows/x10-unified.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
-  static:
+  x10:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: core
     steps:
       - uses: actions/checkout@v4
-      - name: Python syntax
-        run: python -m py_compile x10/*.py sandbox/*.py
-      - name: Node syntax
-        run: node --check core/x10-router.js
-      - name: Compose validation
-        run: touch core/.env && docker compose config -q
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: core/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: X10 syntax
+        run: |
+          node --check x10/fsm.js
+          node --check x10/store.js
+          node --check x10/policy.js
+          node --check x10/kill-switch.js
+          node --check x10/proof.js
+          node --check x10/sandbox.js
+          node --check x10/orchestrator.js
+          node --check x10/index.js
+      - name: X10 tests
+        run: node --test x10/x10.test.js
