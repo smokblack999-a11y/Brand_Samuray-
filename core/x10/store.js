@@ -18,7 +18,9 @@ function createIncident(input){
   const incident={incident_id:incidentId,event_id:String(input.event_id||id("evt")),repository:String(input.repository||""),commit_sha:String(input.commit_sha||""),failure_fingerprint:String(input.failure_fingerprint||""),state:"DETECTED",risk:String(input.risk||"HIGH"),attempt:Number(input.attempt||1),version:0,policy:{autonomous_execution:false,production_mutation:false,merge:"HUMAN_REQUIRED"},proposal:null,sandbox:null,critics:{},proof:null,created_at:now(),updated_at:now()};
   if(!incident.repository||!incident.commit_sha||!incident.failure_fingerprint) throw new Error("INCIDENT_REQUIRED_FIELDS");
   state.incidents[incidentId]=incident;
-  state.ledger.push({ledger_id:id("led"),incident_id:incidentId,from_state:null,to_state:"DETECTED",actor:"IncidentStore",reason:"incident_created",created_at:incident.created_at,version:0});
+  const first={ledger_id:id("led"),incident_id:incidentId,from_state:null,to_state:"DETECTED",actor:"IncidentStore",reason:"incident_created",created_at:incident.created_at,version:0,previous_hash:null};
+  first.entry_hash=crypto.createHash("sha256").update(JSON.stringify(first)).digest("hex");
+  state.ledger.push(first);
   write(state); return clone(incident);
 }
 function getIncident(id){ const s=read(); return s.incidents[id]?clone(s.incidents[id]):null; }
@@ -33,7 +35,8 @@ function transition(incidentId,expectedState,toState,actor,reason,payload={}){
   if(payload.critics) inc.critics=clone(payload.critics);
   if(payload.proof) inc.proof=clone(payload.proof);
   if(payload.attempt!==undefined) inc.attempt=Number(payload.attempt);
-  const previous_hash=s.ledger.length?s.ledger[s.ledger.length-1].entry_hash||null:null;
+  const previous=s.ledger.filter(x=>x.incident_id===incidentId).at(-1);
+  const previous_hash=previous?.entry_hash||null;
   const entry={ledger_id:id("led"),incident_id:incidentId,from_state:from,to_state:toState,actor,reason,created_at:inc.updated_at,version:inc.version,previous_hash};
   entry.entry_hash=crypto.createHash("sha256").update(JSON.stringify(entry)).digest("hex");
   s.ledger.push(entry); write(s); return {ok:true,incident:clone(inc),ledger:clone(entry)};
