@@ -1,0 +1,30 @@
+name: X10 Control Plane CI
+
+on:
+  push:
+    branches:
+      - x10-unified-control-plane
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  x10:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: core
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: core/package-lock.json
+      - run: npm ci
+      - run: node --test x10.test.js
+      - run: node --check x10/control-plane.js
+      - run: node --check x10/store.js
+      - run: node --check x10/sandbox.js
+      - run: node --check x10/orchestrator.js
+      - run: node --check server.js
