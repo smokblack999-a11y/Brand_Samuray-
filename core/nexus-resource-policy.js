@@ -95,7 +95,7 @@ function scanDiff(diff) {
     .filter(([, re]) => re.test(added))
     .map(([name]) => name);
 
-  if (String(diff || "").includes("${{") && String(diff || "").includes("github.event")) {
+  if (/^\+\s*(?:run|script)\s*:.*\$\{\{[\s\S]*github\.event\./im.test(added)) {
     findings.push("workflow_command_injection");
   }
   return {
@@ -113,7 +113,7 @@ function evaluate({ resource, fromState, toState, files, diff, actor = "x10think
   const target = resource || "unknown";
   const classification = classifyFiles(files);
   const scan = scanDiff(diff);
-  if (classification.categories.includes("github_actions") && String(diff || "").includes("github.event")) {
+  if (classification.categories.includes("github_actions") && /^\+\s*(?:run|script)\s*:.*\$\{\{[\s\S]*github\.event\./im.test(scan.addedLines)) {
     scan.findings.push("workflow_command_injection");
     scan.dangerous = true;
   }
