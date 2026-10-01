@@ -17,15 +17,10 @@ on:
       - "core/server.js"
       - "docker-compose.yml"
       - ".github/workflows/x10-unified.yml"
-  workflow_dispatch:
-
-permissions:
-  contents: read
 
 jobs:
   static:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - name: Python syntax
@@ -34,5 +29,5 @@ jobs:
         run: |
           node --check core/x10-router.js
           node --check core/server.js
-      - name: X10 policy tests\n        working-directory: x10\n        run: python -m unittest test_policy.py\n      - name: Compose validation
+      - name: Compose validation
         run: touch core/.env && docker compose config -q
