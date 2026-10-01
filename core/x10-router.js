@@ -54,6 +54,18 @@ router.post("/resume", async (req, res) => {
   }
 });
 
+router.post("/github/workflow_run", async (req, res) => {
+  try {
+    const r = await call("/v1/github/workflow_run", {
+      method: "POST",
+      body: JSON.stringify(req.body || {})
+    });
+    return res.status(r.status).json(r.body);
+  } catch {
+    return res.status(503).json({ ok:false, error:"x10_unavailable" });
+  }
+});
+
 router.post("/incidents", async (req, res) => {
   try {
     const r = await call("/v1/incidents", { method:"POST", body:JSON.stringify(req.body || {}) });
