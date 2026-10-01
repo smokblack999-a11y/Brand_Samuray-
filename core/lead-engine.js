@@ -3,7 +3,7 @@
 function scoreLead(text) {
   const value = String(text || "").trim();
   const lower = value.toLowerCase();
-  let score = 10;
+  let score = 22;
   const signals = [];
 
   const strong = ["купить", "заказать", "цена", "стоимость", "сколько стоит", "оплат", "записать", "забронировать", "доставка", "сегодня", "сейчас"];
@@ -15,6 +15,8 @@ function scoreLead(text) {
   for (const word of noise) if (lower === word) score -= 5;
   if (/\d/.test(value)) score += 5;
   if (value.length > 80) score += 5;
+
+  if (signals.some(s => ["купить", "заказать", "оплат", "забронировать"].includes(s)) && signals.length >= 2) score += 10;
 
   score = Math.max(0, Math.min(100, score));
   const intent = score >= 70 ? "hot" : score >= 40 ? "warm" : "cold";

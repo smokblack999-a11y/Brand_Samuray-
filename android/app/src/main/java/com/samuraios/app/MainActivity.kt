@@ -17,6 +17,7 @@ import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
@@ -40,6 +41,7 @@ import kotlin.concurrent.thread
 
 class MainActivity : ComponentActivity() {
     private val coreUrl = BuildConfig.CORE_BASE_URL.trimEnd('/')
+    private val coreApiKey = BuildConfig.CORE_API_KEY.trim()
     private val permissionRequest = 100
     private lateinit var previewView: PreviewView
     private lateinit var statusText: TextView
@@ -53,6 +55,14 @@ class MainActivity : ComponentActivity() {
     private var cameraExecutor: ExecutorService? = null
     private val mainHandler = Handler(Looper.getMainLooper())
     private val locationClient by lazy { LocationServices.getFusedLocationProviderClient(this) }
+    private val galleryPicker = registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri == null) return@registerForActivityResult
+        runCatching {
+            selectedPhoto = Vault.importPhoto(this, uri)
+            refreshGallery()
+            outputText.text = "Выбрано из галереи: ${selectedPhoto?.name}"
+        }.onFailure { showToast("Не удалось импортировать фото: ${it.message}") }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -67,7 +77,8 @@ class MainActivity : ComponentActivity() {
 
     private fun hasPermissions(): Boolean =
         ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED &&
-        ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
+         ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED)
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
@@ -82,7 +93,8 @@ class MainActivity : ComponentActivity() {
         previewView = PreviewView(this).apply { scaleType = PreviewView.ScaleType.FILL_CENTER }
         root.addView(previewView, LinearLayout.LayoutParams(-1, 520))
         root.addView(Button(this).apply { text = "СНЯТЬ ФОТО + GPS"; setOnClickListener { capturePhoto() } })
-        root.addView(TextView(this).apply { text = "Проектная галерея — приватное хранилище"; textSize = 18f; setTextColor(Color.WHITE); setPadding(0, 18, 0, 8) })
+        root.addView(Button(this).apply { text = "ИМПОРТИРОВАТЬ ИЗ ГАЛЕРЕИ"; setOnClickListener { galleryPicker.launch("image/*") } })
+        root.addView(TextView(this).apply { text = "Галерея SamuraiOS — приватная копия"; textSize = 18f; setTextColor(Color.WHITE); setPadding(0, 18, 0, 8) })
         galleryContainer = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         root.addView(galleryContainer)
         root.addView(TextView(this).apply { text = "Telegram"; textSize = 20f; setTextColor(Color.WHITE); setPadding(0, 24, 0, 8) })
@@ -176,10 +188,18 @@ class MainActivity : ComponentActivity() {
             try {
                 val bytes = photo.readBytes(); val base64 = Base64.encodeToString(bytes, Base64.NO_WRAP); val meta = Vault.metadata(photo)
                 val caption = if (meta != null) "SamuraiOS | ${meta.optDouble("latitude", Double.NaN)}, ${meta.optDouble("longitude", Double.NaN)} | ±${meta.optDouble("accuracyMeters", 0.0)}m" else "SamuraiOS | ${photo.name}"
-                val json = "{\"chatId\":\"${jsonEscape(chatId)}\",\"fileName\":\"${jsonEscape(photo.name)}\",\"caption\":\"${jsonEscape(caption)}\",\"base64\":\"$base64\"}"
+                val latitude = meta?.takeIf { !it.isNull("latitude") }?.optDouble("latitude")
+                val longitude = meta?.takeIf { !it.isNull("longitude") }?.optDouble("longitude")
+                val json = "{\"chatId\":\"${jsonEscape(chatId)}\",\"fileName\":\"${jsonEscape(photo.name)}\",\"caption\":\"${jsonEscape(caption)}\",\"base64\":\"$base64\",\"latitude\":" + (latitude?.toString() ?: "null") + ",\"longitude\":" + (longitude?.toString() ?: "null") + "}"
                 apiPost("/api/telegram/send-photo", json) { result -> mainHandler.post { outputText.text = result } }
             } catch (e: Exception) { mainHandler.post { outputText.text = "ERROR: ${e.javaClass.simpleName}: ${e.message}" } }
         }
+    }
+
+    private fun apiHeaders(connection: HttpURLConnection) {
+        connection.setRequestProperty("Accept", "application/json")
+        connection.setRequestProperty("X-Request-ID", UUID.randomUUID().toString())
+        if (coreApiKey.isNotEmpty()) connection.setRequestProperty("X-API-Key", coreApiKey)
     }
 
     private fun apiGet(path: String, callback: (String) -> Unit) {
@@ -188,8 +208,7 @@ class MainActivity : ComponentActivity() {
             try {
                 connection = (URL(coreUrl + path).openConnection() as HttpURLConnection).apply {
                     requestMethod = "GET"; connectTimeout = 5000; readTimeout = 10000; useCaches = false
-                    setRequestProperty("Accept", "application/json")
-                    setRequestProperty("X-Request-ID", UUID.randomUUID().toString())
+                    apiHeaders(this)
                 }
                 val code = connection.responseCode; val stream = if (code in 200..299) connection.inputStream else connection.errorStream; val body = stream?.bufferedReader()?.use { it.readText() } ?: ""
                 callback(if (code in 200..299) body else "ERROR: HTTP $code\n$body")
@@ -203,8 +222,8 @@ class MainActivity : ComponentActivity() {
             try {
                 connection = (URL(coreUrl + path).openConnection() as HttpURLConnection).apply {
                     requestMethod = "POST"; connectTimeout = 5000; readTimeout = 30000; useCaches = false; doOutput = true
-                    setRequestProperty("Content-Type", "application/json; charset=UTF-8"); setRequestProperty("Accept", "application/json")
-                    setRequestProperty("X-Request-ID", UUID.randomUUID().toString())
+                    setRequestProperty("Content-Type", "application/json; charset=UTF-8")
+                    apiHeaders(this)
                 }
                 connection.outputStream.use { output: OutputStream -> output.write(json.toByteArray(Charsets.UTF_8)); output.flush() }
                 val code = connection.responseCode; val stream = if (code in 200..299) connection.inputStream else connection.errorStream; val body = stream?.bufferedReader()?.use { it.readText() } ?: ""

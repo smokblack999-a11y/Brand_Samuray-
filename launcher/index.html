@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#050505">
+<meta name="description" content="SAMURAI® / NEXUS / X10THINC command launcher">
+<title>SAMURAI® Command Launcher</title>
+<style>
+:root{--bg:#050505;--panel:#0c0c0c;--line:#2a2418;--gold:#d8a83e;--gold2:#ffd66b;--cyan:#00d9ff;--purple:#c477ff;--green:#50e890;--muted:#8d8a82;--text:#f4f0e7}
+*{box-sizing:border-box}html,body{margin:0;background:var(--bg);color:var(--text);font-family:Arial,sans-serif}button{font:inherit}
+body{min-height:100vh;background:radial-gradient(circle at 50% 0,rgba(216,168,62,.10),transparent 38%),#050505}
+.app{width:min(1180px,calc(100% - 28px));margin:auto;padding:24px 0 50px}
+.top{display:flex;align-items:center;justify-content:space-between;gap:18px;padding:14px 0 22px;border-bottom:1px solid var(--line)}
+.brand{display:flex;align-items:center;gap:12px}.mark{width:42px;height:42px;display:grid;place-items:center;border:1px solid var(--gold);color:var(--gold2);font-weight:900}.brand b{display:block;letter-spacing:.14em;color:var(--gold2)}.brand small{display:block;margin-top:3px;color:var(--muted);font:8px monospace;letter-spacing:.18em}
+.health{display:flex;align-items:center;gap:8px;color:var(--muted);font:9px monospace;letter-spacing:.12em}.dot{width:7px;height:7px;border-radius:50%;background:var(--green)}
+.hero{padding:62px 0 42px;max-width:780px}.kicker{color:var(--gold);font:10px monospace;letter-spacing:.28em}.hero h1{margin:14px 0 18px;font-size:clamp(48px,8vw,92px);line-height:.84;letter-spacing:-.045em}.hero h1 span{color:transparent;-webkit-text-stroke:1px var(--gold)}.hero p{max-width:650px;color:#aaa79e;line-height:1.6;font-size:14px}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}.card{min-height:250px;padding:20px;position:relative;text-align:left;background:linear-gradient(145deg,#111,#070707);border:1px solid #202020;border-radius:10px;color:var(--text);cursor:pointer;transition:.2s}.card:hover{transform:translateY(-4px);border-color:var(--gold)}.card:focus-visible{outline:2px solid var(--gold2);outline-offset:3px}.card.nexus:hover{border-color:var(--cyan)}.card.x10:hover{border-color:var(--purple)}
+.meta{display:flex;justify-content:space-between;font:9px monospace;color:#666;letter-spacing:.12em}.state{color:var(--green)}.icon{width:60px;height:60px;display:grid;place-items:center;margin:34px 0 22px;border:1px solid rgba(216,168,62,.35);color:var(--gold2);font-size:30px;font-weight:900}.nexus .icon{color:var(--cyan);border-color:rgba(0,217,255,.35)}.x10 .icon{color:var(--purple);border-color:rgba(196,119,255,.35)}.card h2{margin:0 0 6px;font-size:26px;letter-spacing:.05em}.card p{margin:0;color:#777;font:11px monospace}.launch{position:absolute;right:20px;bottom:20px;color:#777;font:10px monospace;letter-spacing:.16em}.card:hover .launch{color:#fff}
+.panel{margin-top:12px;border:1px solid #181818;background:#090909}.panel-head{display:flex;justify-content:space-between;padding:14px 16px;border-bottom:1px solid #181818;color:#777;font:9px monospace;letter-spacing:.18em}.metrics{display:grid;grid-template-columns:repeat(4,1fr)}.metric{padding:18px 16px;border-right:1px solid #181818}.metric:last-child{border:0}.metric small{display:block;color:#555;font:8px monospace;letter-spacing:.16em}.metric b{display:block;margin-top:7px;font:15px monospace}.ok{color:var(--green)}
+.log{margin-top:12px;padding:14px 16px;border:1px solid #181818;background:#080808;font:10px/1.7 monospace;color:#777;min-height:52px}.log strong{color:var(--gold2)}
+.toast{position:fixed;left:50%;bottom:24px;transform:translate(-50%,20px);opacity:0;padding:11px 16px;border:1px solid #5c4720;background:#080808;color:var(--gold2);font:10px monospace;letter-spacing:.08em;pointer-events:none;transition:.2s}.toast.show{opacity:1;transform:translate(-50%,0)}
+@media(max-width:820px){.grid{grid-template-columns:1fr}.card{min-height:205px}.hero{padding-top:44px}.metrics{grid-template-columns:repeat(2,1fr)}.metric:nth-child(2){border-right:0}.metric:nth-child(-n+2){border-bottom:1px solid #181818}.metric:nth-child(3){border-right:1px solid #181818}}
+@media(max-width:480px){.app{width:calc(100% - 20px);padding-top:12px}.health{display:none}.hero h1{font-size:52px}.hero p{font-size:13px}.card{min-height:185px;padding:16px}.icon{margin:22px 0 16px}.metrics{grid-template-columns:1fr 1fr}.metric{padding:15px 12px}}
+@media(prefers-reduced-motion:reduce){.card,.toast{transition:none}}
+</style>
+</head>
+<body>
+<main class="app" id="samurai-launcher">
+<header class="top">
+<div class="brand"><div class="mark">S</div><div><b>SAMURAI®</b><small>NEURAL COMMAND INTERFACE</small></div></div>
+<div class="health"><i class="dot"></i><span>HOST ROUTER UNBOUND</span></div>
+</header>
+<section class="hero">
+<div class="kicker">X10THINC // COMMAND LAYER</div>
+<h1>CONTROL<br><span>THE STACK</span></h1>
+<p>One launcher for the SAMURAI® workspace, NEXUS orchestration and X10THINC reasoning layer. Launch events are explicit and can be bound to the real application router without fake backend endpoints.</p>
+</section>
+<section class="grid" aria-label="Module launcher">
+<button class="card samurai" type="button" data-module="SAMURAI"><div class="meta"><span>01</span><span class="state">READY</span></div><div class="icon">S</div><h2>SAMURAI®</h2><p>AI Workspace OS / Leads / Terminal / Telegram</p><span class="launch">LAUNCH →</span></button>
+<button class="card nexus" type="button" data-module="NEXUS"><div class="meta"><span>02</span><span class="state">READY</span></div><div class="icon">N</div><h2>NEXUS</h2><p>Infrastructure orchestration / recovery runtime</p><span class="launch">LAUNCH →</span></button>
+<button class="card x10" type="button" data-module="X10THINC"><div class="meta"><span>03</span><span class="state">READY</span></div><div class="icon">X</div><h2>X10THINC</h2><p>Reasoning / evidence / autonomous control layer</p><span class="launch">LAUNCH →</span></button>
+</section>
+<section class="panel">
+<div class="panel-head"><span>RUNTIME TELEMETRY</span><span id="runtime">LOCAL UI</span></div>
+<div class="metrics"><div class="metric"><small>LAUNCHER</small><b class="ok">READY</b></div><div class="metric"><small>ROUTER</small><b>UNBOUND</b></div><div class="metric"><small>EVENTS</small><b>EVENT BUS</b></div><div class="metric"><small>CI SIGNAL</small><b>EXTERNAL</b></div></div>
+</section>
+<div class="log" id="log" aria-live="polite"><strong>BOOT</strong> — launcher initialized; awaiting module command.</div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+</main>
+<script>
+(()=>{const root=document.getElementById("samurai-launcher");if(!root||root.dataset.ready)return;root.dataset.ready="1";const toast=root.querySelector("#toast"),log=root.querySelector("#log");
+const routes={SAMURAI:"/workspace",NEXUS:"/nexus",X10THINC:"/x10think"};
+function notify(m){toast.textContent=m;toast.classList.add("show");clearTimeout(notify.t);notify.t=setTimeout(()=>toast.classList.remove("show"),1800)}
+function launch(name,card){const route=routes[name];if(!route)return;const payload={module:name,route,timestamp:new Date().toISOString()};card.classList.add("launching");const state=card.querySelector(".state"),action=card.querySelector(".launch");if(state)state.textContent="BOOTING";if(action)action.textContent="BOOT →";window.dispatchEvent(new CustomEvent("samurai:launch",{detail:payload}));window.dispatchEvent(new CustomEvent(name.toLowerCase()+":open",{detail:payload}));if(typeof window.SAMURAI_ROUTER==="function"){Promise.resolve(window.SAMURAI_ROUTER(route,payload)).catch(e=>{console.error(e);notify(name+" ROUTER ERROR")}).finally(()=>finish())}else{log.innerHTML="<strong>"+name+"</strong> — launch event dispatched; route "+route+" is ready for host router binding.";notify(name+" EVENT READY");setTimeout(finish,450)}function finish(){card.classList.remove("launching");if(state)state.textContent="ONLINE";if(action)action.textContent="OPEN →"}}
+root.querySelectorAll("[data-module]").forEach(card=>{card.addEventListener("click",()=>launch(card.dataset.module,card));card.addEventListener("keydown",e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();launch(card.dataset.module,card)}})});
+window.SAMURAI_LAUNCH=(name)=>{const card=root.querySelector('[data-module="'+name+'"]');if(card)launch(name,card)};
+})();
+</script>
+</body>
+</html>

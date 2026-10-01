@@ -7,6 +7,7 @@ const cors = require("cors");
 const { scoreLead } = require("./lead-engine");
 const { generateReply, checkOpenAI } = require("./openai");
 const { sendBusinessMessage } = require("./business-bot");
+const telegramCamera = require("./telegram-camera");
 const { saveLead, claimEvent, updateLead, listLeads, stats } = require("./store");
 const { createRateLimiter } = require("./rate-limit");
 const dualAI = require("./dual-ai/engine");
@@ -31,7 +32,7 @@ if (process.env.NODE_ENV === "production") {
 app.disable("x-powered-by");
 app.set("trust proxy", process.env.TRUST_PROXY === "true" ? 1 : false);
 app.use(cors(CORS_ORIGIN ? { origin: CORS_ORIGIN } : { origin: false }));
-app.use(express.json({ limit: "256kb" }));
+app.use(express.json({ limit: "16mb" }));
 
 function errorBody(code, message, requestId) {
   return { ok: false, error: { code, message, requestId } };
@@ -47,6 +48,7 @@ function requireApiKey(req, res, next) {
   if (safeEqual(API_KEY, req.get("X-API-Key"))) return next();
   return res.status(401).json(errorBody("UNAUTHORIZED", "Unauthorized", req.requestId));
 }
+function telegramUser() { return require("./telegram"); }
 function requireWebhookSecret(req, res, next) {
   if (!WEBHOOK_SECRET) return res.status(503).json(errorBody("WEBHOOK_AUTH_NOT_CONFIGURED", "Webhook authentication is not configured", req.requestId));
   if (safeEqual(WEBHOOK_SECRET, req.get("X-Telegram-Bot-Api-Secret-Token"))) return next();
@@ -83,7 +85,7 @@ app.get("/ready", (req, res) => {
   }
 });
 app.get("/health/openai", requireApiKey, async (req, res) => {
-  if (!process.env.OPENAI_API_KEY) return res.status(503).json(errorBody("OPENAI_NOT_CONFIGURED", "OpenAI is not configured", req.requestId));
+  if (!process.env.OPENAI_API_KEY) return res.status(503).json({ ...errorBody("OPENAI_NOT_CONFIGURED", "OpenAI is not configured", req.requestId), configured: false });
   try {
     await checkOpenAI();
     return res.json({ ok: true, service: "openai", configured: true, requestId: req.requestId });
@@ -178,6 +180,68 @@ app.post("/api/lead/analyze", requireApiKey, leadRateLimit, async (req, res) => 
     const code = error.code || (upstream ? "UPSTREAM_UNAVAILABLE" : "INTERNAL_ERROR");
     const message = status === 500 ? "Internal server error" : status === 503 ? "Upstream service unavailable" : error.message;
     res.status(status).json(errorBody(code, message, req.requestId));
+  }
+});
+
+app.get("/api/telegram/me", requireApiKey, async (req, res) => {
+  try {
+    const result = await telegramCamera.getMe();
+    return res.json({ ok: true, telegram: result, requestId: req.requestId });
+  } catch (error) {
+    return res.status(503).json(errorBody(error.code || "TELEGRAM_UNAVAILABLE", "Telegram unavailable", req.requestId));
+  }
+});
+
+app.get("/api/telegram/dialogs", requireApiKey, async (req, res) => {
+  try {
+    const result = await telegramUser().getDialogs(req.query.limit);
+    return res.json({ ok: true, dialogs: result, requestId: req.requestId });
+  } catch (error) {
+    return res.status(503).json(errorBody(error.code || "TELEGRAM_USER_UNAVAILABLE", "Telegram user session unavailable", req.requestId));
+  }
+});
+
+app.get("/api/telegram/messages", requireApiKey, async (req, res) => {
+  try {
+    const chatId = String(req.query.chatId || "").trim();
+    if (!chatId) return res.status(400).json(errorBody("INVALID_CHAT_ID", "chatId is required", req.requestId));
+    const result = await telegramUser().getMessages(chatId, req.query.limit);
+    return res.json({ ok: true, messages: result, requestId: req.requestId });
+  } catch (error) {
+    return res.status(503).json(errorBody(error.code || "TELEGRAM_USER_UNAVAILABLE", "Telegram user session unavailable", req.requestId));
+  }
+});
+
+app.post("/api/telegram/send", requireApiKey, async (req, res) => {
+  try {
+    const chatId = String(req.body?.chatId || "").trim();
+    const message = String(req.body?.message || "").trim();
+    if (!chatId || !message) return res.status(400).json(errorBody("INVALID_TELEGRAM_MESSAGE", "chatId and message are required", req.requestId));
+    const result = await telegramCamera.sendMessage({ chatId, message });
+    return res.json({ ok: true, result, requestId: req.requestId });
+  } catch (error) {
+    return res.status(502).json(errorBody(error.code || "TELEGRAM_SEND_FAILED", "Telegram send failed", req.requestId));
+  }
+});
+
+app.post("/api/telegram/send-photo", requireApiKey, async (req, res) => {
+  try {
+    const { chatId, fileName, caption, base64, latitude, longitude } = req.body || {};
+    if (!String(chatId || "").trim() || !String(base64 || "").trim()) {
+      return res.status(400).json(errorBody("INVALID_TELEGRAM_PHOTO", "chatId and base64 photo are required", req.requestId));
+    }
+    const result = await telegramCamera.sendPhoto({
+      chatId: String(chatId).trim(),
+      fileName,
+      caption,
+      base64: String(base64),
+      latitude,
+      longitude,
+    });
+    return res.json({ ok: true, result, locationSent: latitude != null && longitude != null, requestId: req.requestId });
+  } catch (error) {
+    const status = error.code === "TELEGRAM_NOT_CONFIGURED" ? 503 : 502;
+    return res.status(status).json(errorBody(error.code || "TELEGRAM_PHOTO_FAILED", status === 503 ? "Telegram is not configured" : "Telegram photo send failed", req.requestId));
   }
 });
 
