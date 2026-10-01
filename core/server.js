@@ -10,7 +10,7 @@ const { sendBusinessMessage } = require("./business-bot");
 const telegramCamera = require("./telegram-camera");
 const { saveLead, claimEvent, updateLead, listLeads, stats } = require("./store");
 const { createRateLimiter } = require("./rate-limit");
-const dualAI = require("./dual-ai/engine");
+const dualAI = require("./dual-ai/engine");\nconst x10 = require("./x10");
 const x10Router = require("./x10-router");
 
 const app = express();
@@ -100,7 +100,49 @@ app.use("/api/x10", requireApiKey, x10Router);
 app.get("/api/leads", requireApiKey, (req, res) => res.json({ ok: true, leads: listLeads(req.query.limit), requestId: req.requestId }));
 app.get("/api/stats", requireApiKey, (req, res) => res.json({ ok: true, stats: stats(), requestId: req.requestId }));
 
-app.get("/api/dual-ai/config", requireApiKey, (req, res) => res.json({ ok: true, config: dualAI.config(), requestId: req.requestId }));
+
+app.get("/api/x10/status", requireApiKey, (_req, res) => {
+  return res.json({ ok: true, x10: { autonomy: x10.kill.status(), states: x10.fsm.STATES } });
+});
+
+app.get("/api/x10/incidents", requireApiKey, (req, res) => {
+  return res.json({ ok: true, incidents: x10.store.listIncidents(req.query.limit), requestId: req.requestId });
+});
+
+app.get("/api/x10/incidents/:id", requireApiKey, (req, res) => {
+  const incident = x10.store.getIncident(req.params.id);
+  if (!incident) return res.status(404).json(errorBody("INCIDENT_NOT_FOUND", "Incident not found", req.requestId));
+  return res.json({ ok: true, incident, requestId: req.requestId });
+});
+
+app.get("/api/x10/incidents/:id/ledger", requireApiKey, (req, res) => {
+  const incident = x10.store.getIncident(req.params.id);
+  if (!incident) return res.status(404).json(errorBody("INCIDENT_NOT_FOUND", "Incident not found", req.requestId));
+  return res.json({ ok: true, ledger: x10.store.ledger(req.params.id), requestId: req.requestId });
+});
+
+app.post("/api/x10/kill", requireApiKey, (req, res) => {
+  return res.json({ ok: true, control: x10.kill.kill(String(req.body?.reason || "api_emergency_stop")), requestId: req.requestId });
+});
+
+app.post("/api/x10/resume", requireApiKey, (req, res) => {
+  return res.json({ ok: true, control: x10.kill.resume(), requestId: req.requestId });
+});
+
+app.post("/api/x10/recover", requireApiKey, async (req, res) => {
+  if (process.env.X10_ALLOW_HOST_SANDBOX !== "true") {
+    return res.status(409).json(errorBody("SANDBOX_RUNTIME_NOT_ENABLED", "X10 host sandbox is disabled; configure an isolated runner before execution", req.requestId));
+  }
+  try {
+    const result = await x10.orchestrator.recover(req.body || {});
+    const status = result.ok === false ? 409 : 200;
+    return res.status(status).json({ ok: status === 200, ...result, requestId: req.requestId });
+  } catch (error) {
+    const status = error.code === "AUTONOMY_KILLED" ? 423 : error.code === "INCIDENT_REQUIRED_FIELDS" ? 400 : 500;
+    return res.status(status).json(errorBody(error.code || "X10_RECOVERY_FAILED", status === 500 ? "X10 recovery failed" : error.message, req.requestId));
+  }
+});
+\napp.get("/api/dual-ai/config", requireApiKey, (req, res) => res.json({ ok: true, config: dualAI.config(), requestId: req.requestId }));
 
 app.get("/api/dual-ai/sessions", requireApiKey, (req, res) => res.json({ ok: true, sessions: dualAI.list(), requestId: req.requestId }));
 
