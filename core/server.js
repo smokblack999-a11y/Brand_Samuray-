@@ -11,6 +11,7 @@ const telegramCamera = require("./telegram-camera");
 const { saveLead, claimEvent, updateLead, listLeads, stats } = require("./store");
 const { createRateLimiter } = require("./rate-limit");
 const dualAI = require("./dual-ai/engine");
+const x10Router = require("./x10-router");
 
 const app = express();
 const PORT = Number(process.env.PORT || 8787);
@@ -94,6 +95,8 @@ app.get("/health/openai", requireApiKey, async (req, res) => {
     return res.status(503).json(errorBody("OPENAI_UNAVAILABLE", "OpenAI service is unavailable", req.requestId));
   }
 });
+app.use("/api/x10", requireApiKey, x10Router);
+
 app.get("/api/leads", requireApiKey, (req, res) => res.json({ ok: true, leads: listLeads(req.query.limit), requestId: req.requestId }));
 app.get("/api/stats", requireApiKey, (req, res) => res.json({ ok: true, stats: stats(), requestId: req.requestId }));
 
