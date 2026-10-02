@@ -22,7 +22,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Route failed workflow to SamuraiOS X10
+      - name: Create X10 Incident
+        id: incident
         env:
           RECOVERY_URL: ${{ secrets.X10THINK_RECOVERY_URL }}
           RECOVERY_API_KEY: ${{ secrets.X10THINK_RECOVERY_API_KEY }}
@@ -33,8 +34,64 @@ jobs:
           test -n "${RECOVERY_API_KEY:-}" || { echo "X10THINK_RECOVERY_API_KEY is not configured"; exit 1; }
 
           endpoint="${RECOVERY_URL}/api/x10/github/workflow_run"
-
           code="$(curl -sS -o /tmp/x10.json -w '%{http_code}'             --connect-timeout 5 --max-time 20             -X POST "${endpoint}"             -H "Content-Type: application/json"             -H "X-API-Key: ${RECOVERY_API_KEY}"             --data "${PAYLOAD}")"
 
           cat /tmp/x10.json
+          test "${code}" -ge 200 -a "${code}" -lt 300
+
+          incident_id="$(jq -r '.incident_id // empty' /tmp/x10.json)"
+          if [ -n "${incident_id}" ]; then
+            echo "incident_id=${incident_id}" >> "${GITHUB_OUTPUT}"
+          fi
+
+      - name: Ask existing Recovery service for candidate
+        if: steps.incident.outputs.incident_id != ''
+        env:
+          RECOVERY_URL: ${{ secrets.X10THINK_RECOVERY_URL }}
+          RECOVERY_API_KEY: ${{ secrets.X10THINK_RECOVERY_API_KEY }}
+          PAYLOAD: ${{ toJSON(github.event) }}
+        run: |
+          set -euo pipefail
+          code="$(curl -sS -o /tmp/recovery.json -w '%{http_code}'             --connect-timeout 5 --max-time 45             -X POST "${RECOVERY_URL}/api/recovery/github"             -H "Content-Type: application/json"             -H "X-API-Key: ${RECOVERY_API_KEY}"             --data "${PAYLOAD}")"
+
+          cat /tmp/recovery.json
+          test "${code}" -ge 200 -a "${code}" -lt 300
+
+      - name: Attach candidate only when a real diff exists
+        if: steps.incident.outputs.incident_id != ''
+        env:
+          RECOVERY_URL: ${{ secrets.X10THINK_RECOVERY_URL }}
+          RECOVERY_API_KEY: ${{ secrets.X10THINK_RECOVERY_API_KEY }}
+          INCIDENT_ID: ${{ steps.incident.outputs.incident_id }}
+        run: |
+          set -euo pipefail
+          if ! jq -e '.proposal.diff // empty' /tmp/recovery.json >/dev/null; then
+            echo "No candidate diff returned; leaving incident at PROPOSER_REQUIRED."
+            exit 0
+          fi
+
+          proposal="$(jq -c '.proposal' /tmp/recovery.json)"
+          jq -n --argjson proposal "${proposal}" '{proposal:$proposal,actor:"NEXUSRecoveryRouter"}' > /tmp/proposal.json
+
+          code="$(curl -sS -o /tmp/attach.json -w '%{http_code}'             --connect-timeout 5 --max-time 20             -X POST "${RECOVERY_URL}/api/x10/incidents/${INCIDENT_ID}/proposal"             -H "Content-Type: application/json"             -H "X-API-Key: ${RECOVERY_API_KEY}"             --data @/tmp/proposal.json)"
+
+          cat /tmp/attach.json
+          test "${code}" -ge 200 -a "${code}" -lt 300
+
+      - name: Run X10 only after a real candidate exists
+        if: steps.incident.outputs.incident_id != '' && success()
+        env:
+          RECOVERY_URL: ${{ secrets.X10THINK_RECOVERY_URL }}
+          RECOVERY_API_KEY: ${{ secrets.X10THINK_RECOVERY_API_KEY }}
+          INCIDENT_ID: ${{ steps.incident.outputs.incident_id }}
+        run: |
+          set -euo pipefail
+          if ! jq -e '.proposal.diff // empty' /tmp/recovery.json >/dev/null; then
+            echo "No candidate; X10 execution intentionally not started."
+            exit 0
+          fi
+
+          code="$(curl -sS -o /tmp/run.json -w '%{http_code}'             --connect-timeout 5 --max-time 90             -X POST "${RECOVERY_URL}/api/x10/incidents/${INCIDENT_ID}/run"             -H "X-API-Key: ${RECOVERY_API_KEY}")"
+
+          cat /tmp/run.json
           test "${code}" -ge 200 -a "${code}" -lt 300
