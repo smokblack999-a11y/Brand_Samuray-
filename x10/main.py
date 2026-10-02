@@ -224,6 +224,34 @@ async def get_incident(incident_id: str):
         proofs = await conn.fetch("SELECT proof_receipt_id,run_id,proof_hash,created_at FROM x10_proof_receipts WHERE incident_id=$1 ORDER BY created_at", incident_id)
     return {"ok": True, "incident": dict(row), "ledger":[dict(x) for x in ledger], "proofs":[dict(x) for x in proofs]}
 
+
+class ProposalIn(BaseModel):
+    proposal: dict
+    actor: str = Field(default="AIProposer", min_length=1, max_length=128)
+
+@app.post("/v1/incidents/{incident_id}/proposal")
+async def attach_proposal(incident_id: str, body: ProposalIn):
+    diff = str(body.proposal.get("diff") or "")
+    if not diff.strip():
+        raise HTTPException(400, "proposal_diff_required")
+
+    async with pool.acquire() as conn:
+        inc = await conn.fetchrow(
+            "SELECT state,data FROM x10_incidents WHERE incident_id=$1 FOR UPDATE",
+            incident_id
+        )
+        if not inc:
+            raise HTTPException(404, "incident_not_found")
+        if inc["state"] != "DETECTED":
+            raise HTTPException(409, f"incident_state={inc['state']}")
+        data = dict(inc["data"] or {})
+        data["proposal"] = body.proposal
+        await conn.execute(
+            "UPDATE x10_incidents SET data=$2::jsonb,updated_at=now() WHERE incident_id=$1",
+            incident_id, json.dumps(data)
+        )
+    return {"ok": True, "incident_id": incident_id, "proposal_attached": True}
+
 @app.post("/v1/incidents/{incident_id}/run")
 async def run_incident(incident_id: str):
     async with pool.acquire() as conn:
