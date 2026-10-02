@@ -14,6 +14,7 @@ const { ingestMessageMedia } = require("./media-ingest");
 const { requireWebAppAuth } = require("./webapp-auth");
 const { emitHamylionEvent } = require("./hamylion-adapter");
 const dualAI = require("./dual-ai/engine");
+const { checkDraft } = require("./kill-critic");
 
 const app = express();
 const PORT = Number(process.env.PORT || 8787);
@@ -101,6 +102,13 @@ app.get("/health/openai", requireApiKey, async (req, res) => {
 });
 app.get("/api/leads", requireApiKey, (req, res) => res.json({ ok: true, leads: listLeads(req.query.limit), requestId: req.requestId }));
 app.get("/api/stats", requireApiKey, (req, res) => res.json({ ok: true, stats: stats(), requestId: req.requestId }));
+
+app.post("/api/kill-critic/check", requireApiKey, (req, res) => {
+  const draft = String(req.body?.draft || "").trim();
+  if (!draft) return res.status(400).json(errorBody("DRAFT_REQUIRED", "draft is required", req.requestId));
+  const result = checkDraft({ draft, facts: req.body?.facts || {}, approved: req.body?.approved === true });
+  return res.json({ ok: true, result, requestId: req.requestId });
+});
 
 function readRawBody(req, maxBytes) {
   return new Promise((resolve, reject) => {
@@ -359,7 +367,13 @@ app.post("/api/telegram/webhook", requireWebhookSecret, async (req, res) => {
         }))
       );
 
-      if (result.reply && String(process.env.AUTO_REPLY).toLowerCase() === "true") {
+      const critic = result.reply ? checkDraft({ draft: result.reply, facts: {}, approved: false }) : null;
+      if (critic && critic.decision !== "AUTO_ALLOWED") {
+        updateLead(claim.item.id, { status: "review", killCritic: critic });
+        console.log(JSON.stringify({ event: "kill_critic_blocked", leadId: saved.id, findings: critic.findings, requestId: req.requestId }));
+      }
+
+      if (result.reply && critic?.decision === "AUTO_ALLOWED" && String(process.env.AUTO_REPLY).toLowerCase() === "true") {
         await sendBusinessMessage({
           businessConnectionId: message.business_connection_id,
           chatId: message.chat.id,
