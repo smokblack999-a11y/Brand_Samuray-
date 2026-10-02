@@ -83,7 +83,7 @@ function stats() {
     completed: rows.filter(x => x.status === "completed").length,
     hot: rows.filter(x => x.intent === "hot").length,
     warm: rows.filter(x => x.intent === "warm").length,
-    cold: rows.filter(x => x.intent === "cold").length,
+    cold: rows.filter(x => x.intent === "cold").length,\n    withMedia: rows.filter(x => x.media).length,\n    withLocation: rows.filter(x => x.location).length,
     avgScore: rows.length
       ? Math.round(rows.reduce((a, x) => a + Number(x.score || 0), 0) / rows.length)
       : 0

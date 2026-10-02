@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <title>X10THINC Capture</title>
+  <link rel="stylesheet" href="/mini-app/styles.css">
+</head>
+<body>
+  <main class="app">
+    <header>
+      <div>
+        <strong>X10THINC</strong>
+        <span>Capture</span>
+      </div>
+      <span id="authState" class="badge">Telegram</span>
+    </header>
+
+    <section class="card">
+      <h1>Фото и координаты</h1>
+      <p>Работает как Telegram Mini App. Доступ к камере, галерее и GPS запрашивается только устройством.</p>
+
+      <div class="grid">
+        <button id="cameraButton">Камера</button>
+        <button id="galleryButton">Галерея</button>
+        <button id="locationButton" class="wide">Отправить координаты</button>
+      </div>
+
+      <input id="cameraInput" type="file" accept="image/*,video/*" capture="environment" hidden>
+      <input id="galleryInput" type="file" accept="image/*,video/*" hidden>
+
+      <div id="preview" class="preview"></div>
+      <div id="status" class="status">Готово.</div>
+    </section>
+  </main>
+
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <script src="/mini-app/app.js"></script>
+</body>
+</html>
