@@ -1,14 +1,85 @@
 services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-samuraios}
+      POSTGRES_USER: ${POSTGRES_USER:-samurai}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me-now}
+    volumes:
+      - samurai-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-samurai} -d ${POSTGRES_DB:-samuraios}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server","--appendonly","yes","--appendfsync","everysec"]
+    volumes:
+      - samurai-redis:/data
+    healthcheck:
+      test: ["CMD","redis-cli","ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  sandbox:
+    build:
+      context: ./sandbox
+    restart: unless-stopped
+    environment:
+      SANDBOX_WORKSPACE_ROOT: /workspaces
+      SANDBOX_TIMEOUT_SECONDS: ${SANDBOX_TIMEOUT_SECONDS:-300}
+    volumes:
+      - x10-workspaces:/workspaces
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD","python","-c","import urllib.request; urllib.request.urlopen('http://127.0.0.1:8891/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  x10:
+    build:
+      context: ./x10
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-samurai}:${POSTGRES_PASSWORD:-change-me-now}@postgres:5432/${POSTGRES_DB:-samuraios}
+      SANDBOX_URL: http://sandbox:8891
+      X10_MAX_ATTEMPTS: ${X10_MAX_ATTEMPTS:-3}
+    volumes:
+      - x10-workspaces:/workspaces
+    depends_on:
+      postgres:
+        condition: service_healthy
+      sandbox:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD","python","-c","import urllib.request; urllib.request.urlopen('http://127.0.0.1:8890/ready', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
   core:
     build:
       context: ./core
     restart: unless-stopped
     env_file:
       - ./core/.env
+    environment:
+      X10_URL: http://x10:8890
     ports:
       - "8787:8787"
     volumes:
       - samurai-data:/app/data
+      - x10-workspaces:/workspaces
+    depends_on:
+      x10:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:8787/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
       interval: 30s
@@ -18,3 +89,6 @@ services:
 
 volumes:
   samurai-data:
+  samurai-postgres:
+  samurai-redis:
+  x10-workspaces:

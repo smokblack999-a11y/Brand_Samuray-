@@ -1,0 +1,33 @@
+name: SamuraiOS X10 Unified
+
+on:
+  push:
+    paths:
+      - "x10/**"
+      - "sandbox/**"
+      - "core/x10-router.js"
+      - "core/server.js"
+      - "docker-compose.yml"
+      - ".github/workflows/x10-unified.yml"
+  pull_request:
+    paths:
+      - "x10/**"
+      - "sandbox/**"
+      - "core/x10-router.js"
+      - "core/server.js"
+      - "docker-compose.yml"
+      - ".github/workflows/x10-unified.yml"
+
+jobs:
+  static:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Python syntax
+        run: python -m py_compile x10/*.py sandbox/*.py
+      - name: Node syntax
+        run: |
+          node --check core/x10-router.js
+          node --check core/server.js
+      - name: Compose validation
+        run: touch core/.env && docker compose config -q
