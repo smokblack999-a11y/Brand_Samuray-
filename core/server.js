@@ -15,6 +15,7 @@ const dualAI = require("./dual-ai/engine");
 const revenueRuntime = require("./x27-runtime");
 const revenueIngest = require("./revenue-ingest");
 const { analyzeLeadLoss } = require("./x28-revenue-rca");
+const { policy: revenueRolloutPolicy } = require("./revenue-rollout-policy");
 
 const app = express();
 const PORT = Number(process.env.PORT || 8787);
@@ -434,9 +435,10 @@ app.post("/api/telegram/webhook", requireWebhookSecret, async (req, res) => {
            killCritic = { verdict: "FAIL", confidence: 1, issues: ["critic_unavailable"], required_changes: [], evidence_gaps: [criticError.message] };
          }
        }
-       const sendAllowed = Boolean(result.reply && autoReply && !REVENUE_SHADOW_MODE && (!revenueGate || (allowedByRevenue && killCritic.verdict === "PASS")));
+       const rollout = revenueRolloutPolicy({ reply: result.reply, autoReply, shadowMode: REVENUE_SHADOW_MODE, revenueGate, allowedByRevenue, criticVerdict: killCritic.verdict });
+       const sendAllowed = rollout.send;
        revenueRuntime.recordExecution("telegram:" + message.business_connection_id, {
-         executionId, decisionId: revenueDecision.record.decisionId, action, status: sendAllowed ? "SENT" : (REVENUE_SHADOW_MODE ? "SHADOWED" : "BLOCKED"),
+         executionId, decisionId: revenueDecision.record.decisionId, action, status: rollout.status,
          channel: "telegram_business", chatId: message.chat.id, criticVerdict: killCritic.verdict,
          revenueGate, shadowMode: REVENUE_SHADOW_MODE
        });
