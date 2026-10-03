@@ -34,11 +34,12 @@ async function checkOpenAI() {
   }
 }
 
-async function generateReply({ business, customerMessage, lead }) {
+async function generateReplyWithUsage({ business, customerMessage, lead }) {
   const client = getClient();
+  const model = process.env.OPENAI_MODEL || "gpt-5.6-luna";
   try {
     const response = await client.responses.create({
-      model: process.env.OPENAI_MODEL || "gpt-5.6-luna",
+      model,
       instructions: [
         "Ты AI-оператор бизнеса в Telegram.",
         "Отвечай кратко, естественно и по делу.",
@@ -50,14 +51,23 @@ async function generateReply({ business, customerMessage, lead }) {
       ].join("\n"),
       input: customerMessage
     });
-
     const text = String(response.output_text || "").trim();
     if (!text) throw new Error("OpenAI returned an empty reply");
-    return text.slice(0, 4096);
+    return {
+      text: text.slice(0, 4096),
+      usage: response.usage || null,
+      provider: "openai",
+      model
+    };
   } catch (error) {
     if (error?.message === "OpenAI returned an empty reply") throw error;
     throw publicOpenAIError(error);
   }
 }
 
-module.exports = { generateReply, checkOpenAI };
+async function generateReply(args) {
+  const result = await generateReplyWithUsage(args);
+  return result.text;
+}
+
+module.exports = { generateReply, generateReplyWithUsage, checkOpenAI };

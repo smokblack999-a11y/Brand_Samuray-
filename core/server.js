@@ -5,17 +5,21 @@ const path = require("path");
 const express = require("express");
 const cors = require("cors");
 const { scoreLead } = require("./lead-engine");
-const { generateReply, checkOpenAI } = require("./openai");
+const { generateReplyWithUsage, checkOpenAI } = require("./openai");
+const { estimateKZT, ratesFromEnv } = require("./cost-model");
 const { sendBusinessMessage } = require("./business-bot");
 const telegramCamera = require("./telegram-camera");
 const { saveLead, claimEvent, updateLead, listLeads, stats } = require("./store");
 const { createRateLimiter } = require("./rate-limit");
 const dualAI = require("./dual-ai/engine");
+const revenueRuntime = require("./x27-runtime");
+const { analyzeLeadLoss } = require("./x28-revenue-rca");
 
 const app = express();
 const PORT = Number(process.env.PORT || 8787);
 const API_KEY = String(process.env.CORE_API_KEY || "").trim();
 const WEBHOOK_SECRET = String(process.env.TELEGRAM_WEBHOOK_SECRET || "").trim();
+const STRICT_TENANT_AUTH = String(process.env.STRICT_TENANT_AUTH || "false").toLowerCase() === "true";
 const MAX_MESSAGE_CHARS = Math.max(100, Math.min(Number(process.env.MAX_MESSAGE_CHARS || 4000), 10000));
 const CORS_ORIGIN = String(process.env.CORS_ORIGIN || "").trim();
 const REQUEST_TIMEOUT_MS = Math.max(5000, Number(process.env.REQUEST_TIMEOUT_MS || 30000));
@@ -43,10 +47,28 @@ function safeEqual(expected, actual) {
   const b = Buffer.from(String(actual || ""));
   return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
+function tenantBinding(req) {
+  const raw = String(process.env.TENANT_API_KEYS_JSON || "").trim();
+  if (!raw) return null;
+  try {
+    const bindings = JSON.parse(raw);
+    if (!bindings || typeof bindings !== "object" || Array.isArray(bindings)) return null;
+    const supplied = String(req.get("X-API-Key") || "");
+    for (const [tenantId, key] of Object.entries(bindings)) {
+      if (safeEqual(key, supplied)) return String(tenantId).slice(0, 128);
+    }
+    return null;
+  } catch (_error) { return null; }
+}
 function requireApiKey(req, res, next) {
-  if (!API_KEY) return res.status(503).json(errorBody("AUTH_NOT_CONFIGURED", "API authentication is not configured", req.requestId));
-  if (safeEqual(API_KEY, req.get("X-API-Key"))) return next();
-  return res.status(401).json(errorBody("UNAUTHORIZED", "Unauthorized", req.requestId));
+  if (!API_KEY && !process.env.TENANT_API_KEYS_JSON) return res.status(503).json(errorBody("AUTH_NOT_CONFIGURED", "API authentication is not configured", req.requestId));
+  const supplied = req.get("X-API-Key");
+  const validGlobal = API_KEY && safeEqual(API_KEY, supplied);
+  const boundTenant = tenantBinding(req);
+  if (!validGlobal && !boundTenant) return res.status(401).json(errorBody("UNAUTHORIZED", "Unauthorized", req.requestId));
+  if (STRICT_TENANT_AUTH && !boundTenant) return res.status(403).json(errorBody("TENANT_BINDING_REQUIRED", "Tenant-bound API key required", req.requestId));
+  req.tenantId = boundTenant || null;
+  return next();
 }
 function telegramUser() { return require("./telegram"); }
 function requireWebhookSecret(req, res, next) {
@@ -59,6 +81,10 @@ function requestId(req, res, next) {
   req.requestId = id;
   res.setHeader("X-Request-Id", id);
   next();
+}
+function revenueTenantId(req) {
+  if (req.tenantId) return req.tenantId;
+  return String(req.get("X-Tenant-Id") || process.env.TENANT_ID || "default").trim().slice(0, 128) || "default";
 }
 
 app.use(requestId);
@@ -74,7 +100,7 @@ const leadRateLimit = createRateLimiter({ windowMs: LEAD_RATE_LIMIT_WINDOW_MS, m
 const dualRateLimit = createRateLimiter({ windowMs: Math.max(1000, Number(process.env.DUAL_AI_RATE_LIMIT_WINDOW_MS || 60000)), max: Math.max(1, Number(process.env.DUAL_AI_RATE_LIMIT_MAX || 10)) });
 app.use("/dual-ai", express.static(path.join(__dirname, "dual-ai", "public"), { index: "index.html" }));
 
-app.get("/health", (_req, res) => res.json({ ok: true, service: "SamuraiOS Core", version: "2.7.0" }));
+app.get("/health", (_req, res) => res.json({ ok: true, service: "SamuraiOS Core", version: "2.8.0", revenueEngine: "x27" }));
 app.get("/ready", (req, res) => {
   try {
     const current = stats();
@@ -97,6 +123,78 @@ app.get("/health/openai", requireApiKey, async (req, res) => {
 app.get("/api/leads", requireApiKey, (req, res) => res.json({ ok: true, leads: listLeads(req.query.limit), requestId: req.requestId }));
 app.get("/api/stats", requireApiKey, (req, res) => res.json({ ok: true, stats: stats(), requestId: req.requestId }));
 
+app.get("/api/revenue/genome", requireApiKey, (req, res) => {
+  try {
+    const genome = require("./revenue-genome").buildGenome(revenueRuntime.list(revenueTenantId(req), "LEARNING"));
+    return res.json({ ok: true, genome, requestId: req.requestId });
+  } catch (error) { return res.status(500).json(errorBody(error.code || "REVENUE_GENOME_FAILED", "Revenue genome failed", req.requestId)); }
+});
+
+app.get("/api/revenue/control-plane", requireApiKey, (req, res) => {
+  try {
+    const tenantId = revenueTenantId(req);
+    const records = revenueRuntime.list(tenantId);
+    const summary = revenueRuntime.summary(tenantId);
+    const integrity = revenueRuntime.integrity(tenantId);
+    const genome = require("./revenue-genome").buildGenome(records.filter(x => x.type === "LEARNING"));
+    const controlPlane = require("./revenue-control-plane").buildControlPlane({ summary, records, integrity, genome });
+    return res.json({ ok: true, controlPlane, requestId: req.requestId });
+  } catch (error) { return res.status(500).json(errorBody(error.code || "REVENUE_CONTROL_PLANE_FAILED", "Revenue control plane failed", req.requestId)); }
+});
+
+app.get("/api/revenue/summary", requireApiKey, (req, res) => {
+  try { return res.json({ ok: true, summary: revenueRuntime.summary(revenueTenantId(req)), requestId: req.requestId }); }
+  catch (error) { return res.status(500).json(errorBody(error.code || "REVENUE_SUMMARY_FAILED", "Revenue summary failed", req.requestId)); }
+});
+app.post("/api/revenue/experiment/assign", requireApiKey, leadRateLimit, (req, res) => {
+  try { const { assignVariant } = require("./experiment-engine"); return res.json({ ok: true, assignment: assignVariant(req.body?.experiment || req.body || {}, req.body?.entityId), requestId: req.requestId }); }
+  catch (error) { return res.status(400).json(errorBody(error.code || "EXPERIMENT_ASSIGN_FAILED", error.message || "Experiment assignment failed", req.requestId)); }
+});
+
+app.post("/api/revenue/experiment/analyze", requireApiKey, leadRateLimit, (req, res) => {
+  try { const { analyzeExperiment } = require("./experiment-engine"); return res.json({ ok: true, analysis: analyzeExperiment(req.body?.records || []), requestId: req.requestId }); }
+  catch (error) { return res.status(400).json(errorBody(error.code || "EXPERIMENT_ANALYZE_FAILED", error.message || "Experiment analysis failed", req.requestId)); }
+});
+
+app.post("/api/revenue/rca", requireApiKey, leadRateLimit, (req, res) => {
+  try {
+    const body = req.body || {};
+    const result = analyzeLeadLoss(body.events || [], body);
+    return res.json({ ok: true, rca: result, requestId: req.requestId });
+  } catch (error) {
+    return res.status(400).json(errorBody(error.code || "REVENUE_RCA_FAILED", "Revenue RCA failed", req.requestId));
+  }
+});
+
+app.get("/api/revenue/integrity", requireApiKey, (req, res) => {
+  try { return res.json({ ok: true, integrity: revenueRuntime.integrity(revenueTenantId(req)), requestId: req.requestId }); }
+  catch (error) { return res.status(500).json(errorBody(error.code || "REVENUE_INTEGRITY_FAILED", "Revenue integrity check failed", req.requestId)); }
+});
+
+app.post("/api/revenue/cost", requireApiKey, leadRateLimit, (req, res) => {
+  try {
+    const tenantId = revenueTenantId(req);
+    const body = req.body || {};
+    const record = require("./revenue-ledger").appendCost(Object.assign({}, body, { tenantId })).record;
+    return res.status(201).json({ ok: true, cost: record, requestId: req.requestId });
+  } catch (error) {
+    const status = /required/.test(String(error.message || "")) ? 400 : 500;
+    return res.status(status).json(errorBody(error.code || "REVENUE_COST_FAILED", status === 400 ? error.message : "Revenue cost failed", req.requestId));
+  }
+});
+
+app.get("/api/revenue/ledger", requireApiKey, (req, res) => {
+  try { const type = req.query.type ? String(req.query.type).toUpperCase() : undefined; return res.json({ ok: true, records: revenueRuntime.list(revenueTenantId(req), type), requestId: req.requestId }); }
+  catch (error) { return res.status(500).json(errorBody(error.code || "REVENUE_LEDGER_FAILED", "Revenue ledger read failed", req.requestId)); }
+});
+app.post("/api/revenue/decision", requireApiKey, leadRateLimit, (req, res) => {
+  try { const result = revenueRuntime.decide(revenueTenantId(req), req.body || {}); return res.status(201).json({ ok: true, ...result, requestId: req.requestId }); }
+  catch (error) { const status = /required/.test(String(error.message || "")) ? 400 : 500; return res.status(status).json(errorBody(error.code || "REVENUE_DECISION_FAILED", status === 400 ? error.message : "Revenue decision failed", req.requestId)); }
+});
+app.post("/api/revenue/outcome", requireApiKey, leadRateLimit, (req, res) => {
+  try { const result = revenueRuntime.recordOutcome(revenueTenantId(req), req.body || {}); return res.status(result.inserted ? 201 : 200).json({ ok: true, ...result, requestId: req.requestId }); }
+  catch (error) { const status = /required|Unsupported outcome/.test(String(error.message || "")) ? 400 : 500; return res.status(status).json(errorBody(error.code || "REVENUE_OUTCOME_FAILED", status === 400 ? error.message : "Revenue outcome failed", req.requestId)); }
+});
 app.get("/api/dual-ai/config", requireApiKey, (req, res) => res.json({ ok: true, config: dualAI.config(), requestId: req.requestId }));
 
 app.get("/api/dual-ai/sessions", requireApiKey, (req, res) => res.json({ ok: true, sessions: dualAI.list(), requestId: req.requestId }));
@@ -163,8 +261,15 @@ async function analyze(message, business) {
     throw error;
   }
   const lead = scoreLead(text);
-  const reply = process.env.OPENAI_API_KEY ? await generateReply({ business: business || process.env.BUSINESS_NAME, customerMessage: text, lead }) : null;
-  return { lead, reply };
+  let reply = null;
+  let aiTelemetry = null;
+  if (process.env.OPENAI_API_KEY) {
+    const generated = await generateReplyWithUsage({ business: business || process.env.BUSINESS_NAME, customerMessage: text, lead });
+    reply = generated.text;
+    const pricing = estimateKZT({ usage: generated.usage, rates: ratesFromEnv() });
+    aiTelemetry = Object.assign({ provider: generated.provider, model: generated.model }, pricing);
+  }
+  return { lead, reply, aiTelemetry };
 }
 
 app.post("/api/lead/analyze", requireApiKey, leadRateLimit, async (req, res) => {
@@ -262,11 +367,45 @@ app.post("/api/telegram/webhook", requireWebhookSecret, async (req, res) => {
       return;
     }
     try {
-      const result = await analyze(message.text, process.env.BUSINESS_NAME);
-      const saved = updateLead(claim.item.id, { ...result.lead, reply: result.reply, status: "completed" });
-      console.log(JSON.stringify({ event: "lead", id: saved.id, chatId: message.chat.id, score: result.lead.score, intent: result.lead.intent, requestId: req.requestId }));
-      if (result.reply && String(process.env.AUTO_REPLY).toLowerCase() === "true") await sendBusinessMessage({ businessConnectionId: message.business_connection_id, chatId: message.chat.id, text: result.reply });
-    } catch (error) {
+             const result = await analyze(message.text, process.env.BUSINESS_NAME);
+       const revenueDecision = revenueRuntime.decide("telegram:" + message.business_connection_id, {
+         leadScore: result.lead.score,
+         intent: result.lead.intent,
+         dealValue: Number(process.env.DEFAULT_DEAL_VALUE_KZT || 200000),
+         grossMargin: Number(process.env.DEFAULT_GROSS_MARGIN || 0.30),
+         occurredAt: message.date ? new Date(Number(message.date) * 1000).toISOString() : new Date().toISOString(),
+         responseSlaBreached: false,
+         triggerRelevance: result.lead.intent === "hot" ? 0.8 : result.lead.intent === "warm" ? 0.5 : 0.2,
+         contactAllowed: true,
+         customerOptedOut: false
+       });
+       const saved = updateLead(claim.item.id, { ...result.lead, reply: result.reply, revenueDecision: revenueDecision.record, status: "completed" });
+       if (result.aiTelemetry) revenueRuntime.recordExecutionCost("telegram:" + message.business_connection_id, revenueDecision.record.decisionId, eventKey + ":ai", result.aiTelemetry);
+       console.log(JSON.stringify({ event: "lead", id: saved.id, chatId: message.chat.id, score: result.lead.score, intent: result.lead.intent, action: revenueDecision.record.action, requestId: req.requestId }));
+       const autoReply = String(process.env.AUTO_REPLY).toLowerCase() === "true";
+       const revenueGate = String(process.env.REVENUE_AUTO_GATE || "false").toLowerCase() === "true";
+       const action = revenueDecision.record.action || revenueDecision.record.recommendedAction;
+       const allowedByRevenue = ["RESPOND", "FOLLOW_UP", "REACTIVATE"].includes(action);
+       let killCritic = { verdict: revenueGate ? "FAIL" : "BYPASS", confidence: revenueGate ? 0 : 1, issues: [], required_changes: [], evidence_gaps: [] };
+       if (result.reply && autoReply && revenueGate && allowedByRevenue) {
+         try {
+           killCritic = await require("./dual-ai/critic").review({
+             task: "Reply to a Telegram customer using only verified business facts. Do not invent prices, availability, discounts, delivery times or completed actions.",
+             answer: result.reply,
+             provider: process.env.DUAL_AI_B_PROVIDER || process.env.DUAL_AI_A_PROVIDER || "openai",
+             model: process.env.DUAL_AI_B_MODEL || process.env.DUAL_AI_A_MODEL || process.env.OPENAI_MODEL || "gpt-5"
+           });
+         } catch (criticError) {
+           killCritic = { verdict: "FAIL", confidence: 1, issues: ["critic_unavailable"], required_changes: [], evidence_gaps: [criticError.message] };
+         }
+       }
+       updateLead(claim.item.id, { killCritic });
+       if (result.reply && autoReply && (!revenueGate || (allowedByRevenue && killCritic.verdict === "PASS"))) {
+         await sendBusinessMessage({ businessConnectionId: message.business_connection_id, chatId: message.chat.id, text: result.reply });
+       }
+         await sendBusinessMessage({ businessConnectionId: message.business_connection_id, chatId: message.chat.id, text: result.reply });
+       }
+       } catch (error) {
       updateLead(claim.item.id, { status: "failed", error: error.message });
       throw error;
     }
@@ -277,7 +416,7 @@ app.post("/api/telegram/webhook", requireWebhookSecret, async (req, res) => {
 
 app.use((req, res) => res.status(404).json(errorBody("NOT_FOUND", "Endpoint not found", req.requestId)));
 
-const server = app.listen(PORT, "0.0.0.0", () => console.log(`SamuraiOS Core 2.7.0 listening on :${PORT}`));
+const server = app.listen(PORT, "0.0.0.0", () => console.log(`SamuraiOS Core 2.8.0 listening on :${PORT}`));
 server.requestTimeout = REQUEST_TIMEOUT_MS;
 server.headersTimeout = REQUEST_TIMEOUT_MS + 5000;
 
