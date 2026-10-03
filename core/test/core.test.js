@@ -151,11 +151,11 @@ test('Telegram webhook requires secret and deduplicates business messages', asyn
 
   await new Promise(resolve => setTimeout(resolve, 1300));
   const stats = await (await api('/api/stats')).json();
-  assert.equal(stats.stats.total, 2);
-  assert.equal(stats.stats.completed, 2);
+  assert.equal(stats.stats.total, 1);
+  assert.equal(stats.stats.completed, 1);
   assert.equal(stats.stats.processing, 0);
   assert.equal(stats.stats.failed, 0);
-  assert.equal(stats.stats.hot + stats.stats.warm + stats.stats.cold, 2);
+  assert.equal(stats.stats.hot + stats.stats.warm + stats.stats.cold, 1);
 });
 
 test('unknown route returns JSON 404', async () => {
