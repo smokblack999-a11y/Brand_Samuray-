@@ -201,6 +201,28 @@ test('X27 revenue loop persists decision, attributes outcome and deduplicates ou
   assert.equal(integrity.integrity.ok, true);
   assert.equal(integrity.integrity.records, 4);
 });
+test('X28 revenue RCA exposes hypothesis, evidence and monetary risk', async () => {
+  const r = await api('/api/revenue/rca', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'X-Tenant-Id': 'pilot-rca' },
+    body: JSON.stringify({
+      responseSlaMinutes: 15,
+      dealValue: 800000,
+      baselineConversionProbability: 0.25,
+      grossMargin: 0.25,
+      events: [
+        { type: 'customer.message', ts: '2026-10-03T10:00:00Z', payload: { text: 'Сколько стоит?' } },
+        { type: 'manager.response', ts: '2026-10-03T10:45:00Z', payload: { text: 'Цена 800000' } }
+      ]
+    })
+  });
+  assert.equal(r.status, 200);
+  const body = await r.json();
+  assert.equal(body.ok, true);
+  assert.equal(body.rca.primaryHypothesis, 'RESPONSE_DELAY');
+  assert.equal(body.rca.expectedGrossProfitAtRiskKZT, 50000);
+  assert.equal(body.rca.causalityStatus, 'HYPOTHESIS_ONLY');
+});
 test('unknown route returns JSON 404', async () => {
   const r = await fetch(`http://127.0.0.1:${port}/does-not-exist`);
   assert.equal(r.status, 404);
