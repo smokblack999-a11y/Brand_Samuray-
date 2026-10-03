@@ -12,6 +12,7 @@ const { saveLead, claimEvent, updateLead, listLeads, stats } = require("./store"
 const { createRateLimiter } = require("./rate-limit");
 const dualAI = require("./dual-ai/engine");
 const revenueRuntime = require("./x27-runtime");
+const { analyzeLeadLoss } = require("./x28-revenue-rca");
 
 const app = express();
 const PORT = Number(process.env.PORT || 8787);
@@ -105,6 +106,16 @@ app.get("/api/revenue/summary", requireApiKey, (req, res) => {
   try { return res.json({ ok: true, summary: revenueRuntime.summary(revenueTenantId(req)), requestId: req.requestId }); }
   catch (error) { return res.status(500).json(errorBody(error.code || "REVENUE_SUMMARY_FAILED", "Revenue summary failed", req.requestId)); }
 });
+app.post("/api/revenue/rca", requireApiKey, leadRateLimit, (req, res) => {
+  try {
+    const body = req.body || {};
+    const result = analyzeLeadLoss(body.events || [], body);
+    return res.json({ ok: true, rca: result, requestId: req.requestId });
+  } catch (error) {
+    return res.status(400).json(errorBody(error.code || "REVENUE_RCA_FAILED", "Revenue RCA failed", req.requestId));
+  }
+});
+
 app.get("/api/revenue/integrity", requireApiKey, (req, res) => {
   try { return res.json({ ok: true, integrity: revenueRuntime.integrity(revenueTenantId(req)), requestId: req.requestId }); }
   catch (error) { return res.status(500).json(errorBody(error.code || "REVENUE_INTEGRITY_FAILED", "Revenue integrity check failed", req.requestId)); }
