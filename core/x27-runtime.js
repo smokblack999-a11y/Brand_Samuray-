@@ -4,6 +4,7 @@ const {chooseNextAction}=require("./revenue-engine");
 const {normalizeOutcome,evaluateAttribution}=require("./x27-outcome-engine");
 const {buildLearningRecord}=require("./x27-attribution-engine");
 const {buildActionStats}=require("./probability-calibrator");
+const {constrainDecision}=require("./budget-governor");
 function tenant(id){const v=String(id||"").trim();if(!v)throw new Error("tenantId is required");return v.slice(0,128);}
 function historicalStats(t){return buildActionStats(ledger.list(t,"LEARNING"));}
 function decide(tenantId,input){const t=tenant(tenantId);const d=chooseNextAction(Object.assign({},input||{},{historicalStats:historicalStats(t)}));d.tenantId=t;return ledger.appendDecision(d);}
