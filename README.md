@@ -151,6 +151,19 @@ X32 `autonomous-revenue-loop.js` models the lifecycle from discovery through aud
 
 When the critic is unavailable, the candidate is blocked rather than sent.
 
+### Shadow-mode rollout
+
+Use `REVENUE_SHADOW_MODE=true` before autonomous sending. Samurai computes the revenue decision, runs cost telemetry, records `EXECUTION.status=SHADOWED`, and does not send the customer message.
+
+Recommended promotion sequence:
+
+1. Shadow mode: collect decisions and real business outcomes.
+2. Compare predicted incremental profit with realized attributable gross profit.
+3. Calibrate action probabilities and verify ledger integrity.
+4. Enable `REVENUE_AUTO_GATE=true` while keeping a conservative budget.
+5. Only after Kill Critic PASS + Revenue Gate approval should automatic sending be enabled.
+6. Disable shadow mode only after duplicate delivery, refund and opt-out paths are tested.
+
 ### Production gate
 
 Before horizontal scaling, switch authoritative storage to PostgreSQL, install and lock the `pg` dependency, run the schema, configure strict tenant-bound API keys, and test duplicate delivery/restart/refund paths under load.
