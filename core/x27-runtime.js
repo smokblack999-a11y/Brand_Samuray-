@@ -26,4 +26,4 @@ function recordOutcome(tenantId,input){
 function summary(tenantId){return ledger.summary(tenant(tenantId));}
 function list(tenantId,type){return ledger.list(tenant(tenantId),type);}
 function integrity(tenantId){return ledger.integrity(tenant(tenantId));}
-module.exports={tenant,decide,recordOutcome,summary,list,integrity,historicalStats};
+module.exports={tenant,decide,recordOutcome,summary,list,integrity,historicalStats,monthlyCostKZT};
