@@ -19,6 +19,7 @@ const app = express();
 const PORT = Number(process.env.PORT || 8787);
 const API_KEY = String(process.env.CORE_API_KEY || "").trim();
 const WEBHOOK_SECRET = String(process.env.TELEGRAM_WEBHOOK_SECRET || "").trim();
+const STRICT_TENANT_AUTH = String(process.env.STRICT_TENANT_AUTH || "false").toLowerCase() === "true";
 const MAX_MESSAGE_CHARS = Math.max(100, Math.min(Number(process.env.MAX_MESSAGE_CHARS || 4000), 10000));
 const CORS_ORIGIN = String(process.env.CORS_ORIGIN || "").trim();
 const REQUEST_TIMEOUT_MS = Math.max(5000, Number(process.env.REQUEST_TIMEOUT_MS || 30000));
@@ -46,10 +47,28 @@ function safeEqual(expected, actual) {
   const b = Buffer.from(String(actual || ""));
   return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
+function tenantBinding(req) {
+  const raw = String(process.env.TENANT_API_KEYS_JSON || "").trim();
+  if (!raw) return null;
+  try {
+    const bindings = JSON.parse(raw);
+    if (!bindings || typeof bindings !== "object" || Array.isArray(bindings)) return null;
+    const supplied = String(req.get("X-API-Key") || "");
+    for (const [tenantId, key] of Object.entries(bindings)) {
+      if (safeEqual(key, supplied)) return String(tenantId).slice(0, 128);
+    }
+    return null;
+  } catch (_error) { return null; }
+}
 function requireApiKey(req, res, next) {
-  if (!API_KEY) return res.status(503).json(errorBody("AUTH_NOT_CONFIGURED", "API authentication is not configured", req.requestId));
-  if (safeEqual(API_KEY, req.get("X-API-Key"))) return next();
-  return res.status(401).json(errorBody("UNAUTHORIZED", "Unauthorized", req.requestId));
+  if (!API_KEY && !process.env.TENANT_API_KEYS_JSON) return res.status(503).json(errorBody("AUTH_NOT_CONFIGURED", "API authentication is not configured", req.requestId));
+  const supplied = req.get("X-API-Key");
+  const validGlobal = API_KEY && safeEqual(API_KEY, supplied);
+  const boundTenant = tenantBinding(req);
+  if (!validGlobal && !boundTenant) return res.status(401).json(errorBody("UNAUTHORIZED", "Unauthorized", req.requestId));
+  if (STRICT_TENANT_AUTH && !boundTenant) return res.status(403).json(errorBody("TENANT_BINDING_REQUIRED", "Tenant-bound API key required", req.requestId));
+  req.tenantId = boundTenant || null;
+  return next();
 }
 function telegramUser() { return require("./telegram"); }
 function requireWebhookSecret(req, res, next) {
@@ -64,6 +83,7 @@ function requestId(req, res, next) {
   next();
 }
 function revenueTenantId(req) {
+  if (req.tenantId) return req.tenantId;
   return String(req.get("X-Tenant-Id") || process.env.TENANT_ID || "default").trim().slice(0, 128) || "default";
 }
 
