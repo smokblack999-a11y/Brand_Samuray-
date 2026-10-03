@@ -16,6 +16,7 @@ const revenueRuntime = require("./x27-runtime");
 const revenueIngest = require("./revenue-ingest");
 const { analyzeLeadLoss } = require("./x28-revenue-rca");
 const { policy: revenueRolloutPolicy } = require("./revenue-rollout-policy");
+const autonomousRevenueLoop = require("./autonomous-revenue-loop");
 
 const app = express();
 const PORT = Number(process.env.PORT || 8787);
@@ -194,6 +195,50 @@ app.get("/api/revenue/ledger", requireApiKey, (req, res) => {
   try { const type = req.query.type ? String(req.query.type).toUpperCase() : undefined; return res.json({ ok: true, records: revenueRuntime.list(revenueTenantId(req), type), requestId: req.requestId }); }
   catch (error) { return res.status(500).json(errorBody(error.code || "REVENUE_LEDGER_FAILED", "Revenue ledger read failed", req.requestId)); }
 });
+app.post("/api/revenue/loop/evaluate", requireApiKey, leadRateLimit, (req, res) => {
+  try {
+    const result = autonomousRevenueLoop.evaluateLead(Object.assign({}, req.body || {}, {
+      tenantId: revenueTenantId(req)
+    }));
+    return res.status(201).json({ ok: true, ...result, requestId: req.requestId });
+  } catch (error) {
+    const status = /required|must be|is required|INVALID/i.test(String(error.message || "")) ? 400 : 500;
+    return res.status(status).json(errorBody(error.code || "REVENUE_LOOP_EVALUATE_FAILED", status === 400 ? error.message : "Revenue loop evaluation failed", req.requestId));
+  }
+});
+
+app.post("/api/revenue/loop/execution", requireApiKey, leadRateLimit, (req, res) => {
+  try {
+    const result = autonomousRevenueLoop.recordExecution(Object.assign({}, req.body || {}, {
+      tenantId: revenueTenantId(req)
+    }));
+    return res.status(result.inserted ? 201 : 200).json({ ok: true, ...result, requestId: req.requestId });
+  } catch (error) {
+    const status = /required|must be|is required/i.test(String(error.message || "")) ? 400 : 500;
+    return res.status(status).json(errorBody(error.code || "REVENUE_LOOP_EXECUTION_FAILED", status === 400 ? error.message : "Revenue loop execution failed", req.requestId));
+  }
+});
+
+app.post("/api/revenue/loop/outcome", requireApiKey, leadRateLimit, (req, res) => {
+  try {
+    const result = autonomousRevenueLoop.recordOutcome(Object.assign({}, req.body || {}, {
+      tenantId: revenueTenantId(req)
+    }));
+    return res.status(result.inserted ? 201 : 200).json({ ok: true, ...result, requestId: req.requestId });
+  } catch (error) {
+    const status = /required|must be|invalid|unsupported/i.test(String(error.message || "")) ? 400 : 500;
+    return res.status(status).json(errorBody(error.code || "REVENUE_LOOP_OUTCOME_FAILED", status === 400 ? error.message : "Revenue loop outcome failed", req.requestId));
+  }
+});
+
+app.get("/api/revenue/loop/snapshot", requireApiKey, (req, res) => {
+  try {
+    return res.json({ ok: true, ...autonomousRevenueLoop.snapshot(revenueTenantId(req)), requestId: req.requestId });
+  } catch (error) {
+    return res.status(500).json(errorBody(error.code || "REVENUE_LOOP_SNAPSHOT_FAILED", "Revenue loop snapshot failed", req.requestId));
+  }
+});
+
 app.post("/api/revenue/decision", requireApiKey, leadRateLimit, (req, res) => {
   try { const result = revenueRuntime.decide(revenueTenantId(req), req.body || {}); return res.status(201).json({ ok: true, ...result, requestId: req.requestId }); }
   catch (error) { const status = /required/.test(String(error.message || "")) ? 400 : 500; return res.status(status).json(errorBody(error.code || "REVENUE_DECISION_FAILED", status === 400 ? error.message : "Revenue decision failed", req.requestId)); }
