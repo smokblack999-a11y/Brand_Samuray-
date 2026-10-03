@@ -66,7 +66,7 @@ function appendLearning(learning) {
   if (!learning || !learning.tenantId) throw new Error("tenantId is required");
   const rows = read();
   const duplicate = learning.decisionId
-    ? rows.find(x => x.type === "LEARNING" && x.tenantId === learning.tenantId && x.decisionId === learning.decisionId)
+    ? rows.find(x => x.type === "LEARNING" && x.tenantId === learning.tenantId && x.decisionId === learning.decisionId && (learning.sourceEventId ? x.sourceEventId === learning.sourceEventId : !x.sourceEventId))
     : null;
   if (duplicate) return { inserted: false, record: duplicate };
   const record = sealRecord(Object.assign({ type: "LEARNING", createdAt: new Date().toISOString() }, learning), lastTenantHash(rows, learning.tenantId));
