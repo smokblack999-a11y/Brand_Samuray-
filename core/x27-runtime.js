@@ -17,10 +17,12 @@ function recordOutcome(tenantId,input){
   const attribution=evaluateAttribution(o,baseline,raw.attributionPolicy||\"ASSISTED\");
   const storedOutcome=Object.assign({},o,attribution);
   const saved=ledger.appendOutcome(storedOutcome); if(!saved.inserted) return {inserted:false,outcome:saved.record,attribution:null,learning:null};
+  let costRecord=null; if(Number(raw.actualCostKZT||0)>0){ costRecord=ledger.appendCost({tenantId:t,costId:String(raw.costId||o.eventId+":execution"),decisionId:o.actionId||null,provider:raw.provider||null,model:raw.model||null,amountKZT:Number(raw.actualCostKZT||0),inputTokens:Number(raw.inputTokens||0),outputTokens:Number(raw.outputTokens||0),currency:raw.currency||"KZT"}).record; }
   let learning=null;
   if(decision){ learning=Object.assign({},buildLearningRecord(Object.assign({},decision,{expectedIncrementalProfit:decision.expectedIncrementalProfit!=null?decision.expectedIncrementalProfit:decision.expectedValue}),Object.assign({},attribution,{status:o.status}),Number(raw.actualCostKZT||0)),{tenantId:t}); learning=ledger.appendLearning(learning).record; }
-  return {inserted:true,outcome:saved.record,attribution,learning};
+  return {inserted:true,outcome:saved.record,attribution,learning,cost:costRecord};
 }
 function summary(tenantId){return ledger.summary(tenant(tenantId));}
 function list(tenantId,type){return ledger.list(tenant(tenantId),type);}
-module.exports={tenant,decide,recordOutcome,summary,list,historicalStats};
+function integrity(tenantId){return ledger.integrity(tenant(tenantId));}
+module.exports={tenant,decide,recordOutcome,summary,list,integrity,historicalStats};
