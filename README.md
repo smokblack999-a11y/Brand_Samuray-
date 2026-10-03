@@ -112,3 +112,20 @@ npm run set-webhook
 5. Есть измеримый результат: время ответа, количество лидов и конверсии.
 
 Следующий этап после прохождения gate: persistent storage → lead pipeline → dashboard → onboarding → billing.
+
+
+## IESC — Industrial Embedded Security Engine
+
+`iesc/` is a standalone Go security gate that combines sensor validation, normalized RISC-V IOMMU configuration analysis, and an authenticated append-only WAL.
+
+Pipeline: `sensor → IOMMU → security decision → HMAC WAL → CI`
+
+Current MVP guarantees:
+- deterministic PASS/FAIL exit code;
+- HMAC-SHA256 tamper detection for WAL records;
+- crash/partial-tail recovery with truncation at the last valid record;
+- monotonic WAL sequence enforcement;
+- unit tests, `go vet`, and race detection in GitHub Actions;
+- no CGO or external Go dependencies.
+
+The MVP deliberately does not claim arbitrary DTB parsing, complete ROS2/DDS anti-spoofing, or regulatory compliance. Those require separate evidence and integration tests.
