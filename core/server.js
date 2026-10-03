@@ -11,6 +11,7 @@ const telegramCamera = require("./telegram-camera");
 const { saveLead, claimEvent, updateLead, listLeads, stats } = require("./store");
 const { createRateLimiter } = require("./rate-limit");
 const dualAI = require("./dual-ai/engine");
+const x10 = require("./x10");
 
 const app = express();
 const PORT = Number(process.env.PORT || 8787);
@@ -273,6 +274,65 @@ app.post("/api/telegram/webhook", requireWebhookSecret, async (req, res) => {
   } catch (error) {
     console.error(JSON.stringify({ event: "business_webhook_error", requestId: req.requestId, error: error.message }));
   }
+});
+
+
+app.get("/api/x10/status", requireApiKey, (req, res) => {
+  return res.json({ ok: true, x10: { killSwitch: x10.store.isKilled(), states: x10.control.STATES, policy: "x10-policy-v1" }, requestId: req.requestId });
+});
+app.get("/api/x10/incidents", requireApiKey, (req, res) => {
+  return res.json({ ok: true, incidents: x10.store.listIncidents(), requestId: req.requestId });
+});
+app.get("/api/x10/incidents/:id", requireApiKey, (req, res) => {
+  const incident = x10.store.getIncident(req.params.id);
+  if (!incident) return res.status(404).json(errorBody("INCIDENT_NOT_FOUND", "Incident not found", req.requestId));
+  return res.json({ ok: true, incident, ledger: x10.store.ledger(req.params.id), requestId: req.requestId });
+});
+app.post("/api/x10/incidents", requireApiKey, (req, res) => {
+  try {
+    return res.status(201).json({ ok: true, incident: x10.orchestrator.create(req.body || {}), requestId: req.requestId });
+  } catch (error) {
+    return res.status(400).json(errorBody(error.message, "Invalid X10 incident", req.requestId));
+  }
+});
+app.post("/api/x10/incidents/:id/proposal", requireApiKey, (req, res) => {
+  try {
+    return res.json({ ok: true, incident: x10.orchestrator.attachProposal(req.params.id, req.body || {}), requestId: req.requestId });
+  } catch (error) {
+    return res.status(error.message === "incident_not_found" ? 404 : 409).json(errorBody(error.message, "Proposal rejected", req.requestId));
+  }
+});
+app.post("/api/x10/incidents/:id/authorize-sandbox", requireApiKey, (req, res) => {
+  try {
+    const result = x10.orchestrator.authorizeSandbox(req.params.id);
+    return res.status(result.decision === "ALLOW" ? 200 : 409).json({ ok: result.decision === "ALLOW", ...result, requestId: req.requestId });
+  } catch (error) {
+    return res.status(error.message === "incident_not_found" ? 404 : 409).json(errorBody(error.message, "Sandbox authorization failed", req.requestId));
+  }
+});
+app.post("/api/x10/incidents/:id/critics", requireApiKey, (req, res) => {
+  try {
+    const result = x10.orchestrator.evaluateCritics(req.params.id, req.body || {});
+    return res.status(result.decision === "ALLOW" ? 200 : 409).json({ ok: result.decision === "ALLOW", ...result, requestId: req.requestId });
+  } catch (error) {
+    return res.status(error.message === "incident_not_found" ? 404 : 409).json(errorBody(error.message, "Critic evaluation failed", req.requestId));
+  }
+});
+app.post("/api/x10/incidents/:id/proof/finalize", requireApiKey, (req, res) => {
+  try {
+    const result = x10.orchestrator.finalizeProof(req.params.id);
+    return res.status(result.decision === "ALLOW" ? 200 : 409).json({ ok: result.decision === "ALLOW", ...result, requestId: req.requestId });
+  } catch (error) {
+    return res.status(error.message === "incident_not_found" ? 404 : 409).json(errorBody(error.message, "Proof finalization failed", req.requestId));
+  }
+});
+app.post("/api/x10/kill", requireApiKey, (req, res) => {
+  const result = x10.store.setKillSwitch(true, "API", String(req.body?.reason || "manual"));
+  return res.json({ ok: true, killSwitch: result, requestId: req.requestId });
+});
+app.post("/api/x10/resume", requireApiKey, (req, res) => {
+  const result = x10.store.setKillSwitch(false, "API", String(req.body?.reason || "manual_resume"));
+  return res.json({ ok: true, killSwitch: result, requestId: req.requestId });
 });
 
 app.use((req, res) => res.status(404).json(errorBody("NOT_FOUND", "Endpoint not found", req.requestId)));
