@@ -131,6 +131,30 @@ The current runtime ledger is file-backed for a single Core process. `core/reven
 
 X26 starts with a deterministic heuristic probability. Observed learning records are blended into future action probabilities with a conservative Bayesian-style prior so sparse samples do not dominate early decisions.
 
+### X29–X32 layers
+
+X29 `experiment-engine.js` supports deterministic variant assignment, explicit holdouts, Wilson intervals and outcome analysis.
+
+X30 `revenue-genome.js` groups realized outcomes by segment and action so future decisions can use observed patterns.
+
+X31 `revenue-black-box.js` creates a SHA-256 hash chain. The integrity endpoint detects accidental or unauthorized record modification inside the ledger.
+
+X32 `autonomous-revenue-loop.js` models the lifecycle from discovery through audit, decision, execution, outcome, attribution and learning.
+
+### Autonomous send gate
+
+`REVENUE_AUTO_GATE=true` adds two independent conditions before a Telegram AI reply can be sent automatically:
+
+`Revenue Gate → allowed economic action`
+
+`Kill Critic → PASS`
+
+When the critic is unavailable, the candidate is blocked rather than sent.
+
+### Production gate
+
+Before horizontal scaling, switch authoritative storage to PostgreSQL, install and lock the `pg` dependency, run the schema, configure strict tenant-bound API keys, and test duplicate delivery/restart/refund paths under load.
+
 ### Evidence
 
 X31 adds SHA-256 hash chaining to decision/outcome/cost/learning records. This makes accidental modification detectable through `GET /api/revenue/integrity`; it is not a cryptographic signature or an external immutable audit service.
