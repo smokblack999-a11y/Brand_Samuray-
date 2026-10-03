@@ -11,6 +11,7 @@ const telegramCamera = require("./telegram-camera");
 const { saveLead, claimEvent, updateLead, listLeads, stats } = require("./store");
 const { createRateLimiter } = require("./rate-limit");
 const dualAI = require("./dual-ai/engine");
+const revenueRuntime = require("./x27-runtime");
 
 const app = express();
 const PORT = Number(process.env.PORT || 8787);
@@ -60,6 +61,9 @@ function requestId(req, res, next) {
   res.setHeader("X-Request-Id", id);
   next();
 }
+function revenueTenantId(req) {
+  return String(req.get("X-Tenant-Id") || process.env.TENANT_ID || "default").trim().slice(0, 128) || "default";
+}
 
 app.use(requestId);
 app.use((req, res, next) => {
@@ -74,7 +78,7 @@ const leadRateLimit = createRateLimiter({ windowMs: LEAD_RATE_LIMIT_WINDOW_MS, m
 const dualRateLimit = createRateLimiter({ windowMs: Math.max(1000, Number(process.env.DUAL_AI_RATE_LIMIT_WINDOW_MS || 60000)), max: Math.max(1, Number(process.env.DUAL_AI_RATE_LIMIT_MAX || 10)) });
 app.use("/dual-ai", express.static(path.join(__dirname, "dual-ai", "public"), { index: "index.html" }));
 
-app.get("/health", (_req, res) => res.json({ ok: true, service: "SamuraiOS Core", version: "2.7.0" }));
+app.get("/health", (_req, res) => res.json({ ok: true, service: "SamuraiOS Core", version: "2.8.0", revenueEngine: "x27" }));
 app.get("/ready", (req, res) => {
   try {
     const current = stats();
@@ -97,6 +101,22 @@ app.get("/health/openai", requireApiKey, async (req, res) => {
 app.get("/api/leads", requireApiKey, (req, res) => res.json({ ok: true, leads: listLeads(req.query.limit), requestId: req.requestId }));
 app.get("/api/stats", requireApiKey, (req, res) => res.json({ ok: true, stats: stats(), requestId: req.requestId }));
 
+app.get("/api/revenue/summary", requireApiKey, (req, res) => {
+  try { return res.json({ ok: true, summary: revenueRuntime.summary(revenueTenantId(req)), requestId: req.requestId }); }
+  catch (error) { return res.status(500).json(errorBody(error.code || "REVENUE_SUMMARY_FAILED", "Revenue summary failed", req.requestId)); }
+});
+app.get("/api/revenue/ledger", requireApiKey, (req, res) => {
+  try { const type = req.query.type ? String(req.query.type).toUpperCase() : undefined; return res.json({ ok: true, records: revenueRuntime.list(revenueTenantId(req), type), requestId: req.requestId }); }
+  catch (error) { return res.status(500).json(errorBody(error.code || "REVENUE_LEDGER_FAILED", "Revenue ledger read failed", req.requestId)); }
+});
+app.post("/api/revenue/decision", requireApiKey, leadRateLimit, (req, res) => {
+  try { const result = revenueRuntime.decide(revenueTenantId(req), req.body || {}); return res.status(201).json({ ok: true, ...result, requestId: req.requestId }); }
+  catch (error) { const status = /required/.test(String(error.message || "")) ? 400 : 500; return res.status(status).json(errorBody(error.code || "REVENUE_DECISION_FAILED", status === 400 ? error.message : "Revenue decision failed", req.requestId)); }
+});
+app.post("/api/revenue/outcome", requireApiKey, leadRateLimit, (req, res) => {
+  try { const result = revenueRuntime.recordOutcome(revenueTenantId(req), req.body || {}); return res.status(result.inserted ? 201 : 200).json({ ok: true, ...result, requestId: req.requestId }); }
+  catch (error) { const status = /required|Unsupported outcome/.test(String(error.message || "")) ? 400 : 500; return res.status(status).json(errorBody(error.code || "REVENUE_OUTCOME_FAILED", status === 400 ? error.message : "Revenue outcome failed", req.requestId)); }
+});
 app.get("/api/dual-ai/config", requireApiKey, (req, res) => res.json({ ok: true, config: dualAI.config(), requestId: req.requestId }));
 
 app.get("/api/dual-ai/sessions", requireApiKey, (req, res) => res.json({ ok: true, sessions: dualAI.list(), requestId: req.requestId }));
@@ -277,7 +297,7 @@ app.post("/api/telegram/webhook", requireWebhookSecret, async (req, res) => {
 
 app.use((req, res) => res.status(404).json(errorBody("NOT_FOUND", "Endpoint not found", req.requestId)));
 
-const server = app.listen(PORT, "0.0.0.0", () => console.log(`SamuraiOS Core 2.7.0 listening on :${PORT}`));
+const server = app.listen(PORT, "0.0.0.0", () => console.log(`SamuraiOS Core 2.8.0 listening on :${PORT}`));
 server.requestTimeout = REQUEST_TIMEOUT_MS;
 server.headersTimeout = REQUEST_TIMEOUT_MS + 5000;
 
