@@ -195,12 +195,23 @@ app.post("/api/revenue/decision", requireApiKey, leadRateLimit, (req, res) => {
 app.post("/api/revenue/webhook/:provider", leadRateLimit, (req, res) => {
   try {
     const provider = String(req.params.provider || "external").trim().slice(0, 64);
-    const secret = String(process.env["REVENUE_WEBHOOK_SECRET_" + provider.toUpperCase()] || process.env.REVENUE_WEBHOOK_SECRET || "").trim();
+    const tenantId = String(req.body?.tenantId || "").trim();
+    if (!tenantId) return res.status(400).json(errorBody("TENANT_REQUIRED", "tenantId is required", req.requestId));
+    let secret = "";
+    const secretMapRaw = String(process.env.REVENUE_WEBHOOK_SECRETS_JSON || "").trim();
+    if (secretMapRaw) {
+      try {
+        const map = JSON.parse(secretMapRaw);
+        secret = String(map[tenantId] || "");
+      } catch (_error) {
+        return res.status(503).json(errorBody("REVENUE_WEBHOOK_CONFIG_INVALID", "Revenue webhook configuration is invalid", req.requestId));
+      }
+    } else {
+      secret = String(process.env["REVENUE_WEBHOOK_SECRET_" + provider.toUpperCase()] || process.env.REVENUE_WEBHOOK_SECRET || "").trim();
+    }
     if (!secret) return res.status(503).json(errorBody("REVENUE_WEBHOOK_NOT_CONFIGURED", "Revenue webhook secret is not configured", req.requestId));
     if (!revenueIngest.verifySignature(secret, req.body || {}, req.get("X-Samurai-Signature"))) return res.status(401).json(errorBody("INVALID_REVENUE_SIGNATURE", "Invalid revenue webhook signature", req.requestId));
     const event = revenueIngest.normalizeExternalEvent(Object.assign({}, req.body || {}, { provider }));
-    const tenantId = String(req.body?.tenantId || "").trim();
-    if (!tenantId) return res.status(400).json(errorBody("TENANT_REQUIRED", "tenantId is required", req.requestId));
     const result = revenueRuntime.recordOutcome(tenantId, event);
     return res.status(result.inserted ? 201 : 200).json({ ok: true, ...result, requestId: req.requestId });
   } catch (error) {
