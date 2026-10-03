@@ -8,6 +8,12 @@ const {constrainDecision}=require("./budget-governor");
 function tenant(id){const v=String(id||"").trim();if(!v)throw new Error("tenantId is required");return v.slice(0,128);}
 function historicalStats(t){return buildActionStats(ledger.list(t,"LEARNING"));}
 function decide(tenantId,input){const t=tenant(tenantId);const d=chooseNextAction(Object.assign({},input||{},{historicalStats:historicalStats(t)}));d.tenantId=t;return ledger.appendDecision(d);}
+function recordExecution(tenantId,input){
+  const t=tenant(tenantId); const x=Object.assign({},input||{}, {tenantId:t});
+  if(!x.executionId) throw new Error("executionId is required");
+  if(!x.decisionId) throw new Error("decisionId is required");
+  return ledger.appendExecution(x);
+}
 function recordExecutionCost(tenantId,decisionId,executionId,telemetry){const t=tenant(tenantId);const x=telemetry||{};const amount=Number(x.amountKZT||0);return ledger.appendCost({tenantId:t,costId:String(executionId||Date.now()),decisionId:decisionId||null,provider:x.provider||null,model:x.model||null,amountKZT:amount,inputTokens:Number(x.inputTokens||0),outputTokens:Number(x.outputTokens||0),cachedTokens:Number(x.cachedTokens||0),currency:x.currency||"KZT",costConfidence:x.confidence||"UNPRICED"});}
 function recordOutcome(tenantId,input){
   const t=tenant(tenantId); const raw=Object.assign({},input||{}); const eventId=String(raw.eventId||"").trim(); if(!eventId) throw new Error("eventId is required");
@@ -29,4 +35,4 @@ function recordOutcome(tenantId,input){
 function summary(tenantId){return ledger.summary(tenant(tenantId));}
 function list(tenantId,type){return ledger.list(tenant(tenantId),type);}
 function integrity(tenantId){return ledger.integrity(tenant(tenantId));}
-module.exports={tenant,decide,recordOutcome,recordExecutionCost,summary,list,integrity,historicalStats,monthlyCostKZT};
+module.exports={tenant,decide,recordExecution,recordExecutionCost,summary,list,integrity,historicalStats,monthlyCostKZT};
