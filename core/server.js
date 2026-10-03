@@ -105,6 +105,23 @@ app.get("/api/revenue/summary", requireApiKey, (req, res) => {
   try { return res.json({ ok: true, summary: revenueRuntime.summary(revenueTenantId(req)), requestId: req.requestId }); }
   catch (error) { return res.status(500).json(errorBody(error.code || "REVENUE_SUMMARY_FAILED", "Revenue summary failed", req.requestId)); }
 });
+app.get("/api/revenue/integrity", requireApiKey, (req, res) => {
+  try { return res.json({ ok: true, integrity: revenueRuntime.integrity(revenueTenantId(req)), requestId: req.requestId }); }
+  catch (error) { return res.status(500).json(errorBody(error.code || "REVENUE_INTEGRITY_FAILED", "Revenue integrity check failed", req.requestId)); }
+});
+
+app.post("/api/revenue/cost", requireApiKey, leadRateLimit, (req, res) => {
+  try {
+    const tenantId = revenueTenantId(req);
+    const body = req.body || {};
+    const record = require("./revenue-ledger").appendCost(Object.assign({}, body, { tenantId })).record;
+    return res.status(201).json({ ok: true, cost: record, requestId: req.requestId });
+  } catch (error) {
+    const status = /required/.test(String(error.message || "")) ? 400 : 500;
+    return res.status(status).json(errorBody(error.code || "REVENUE_COST_FAILED", status === 400 ? error.message : "Revenue cost failed", req.requestId));
+  }
+});
+
 app.get("/api/revenue/ledger", requireApiKey, (req, res) => {
   try { const type = req.query.type ? String(req.query.type).toUpperCase() : undefined; return res.json({ ok: true, records: revenueRuntime.list(revenueTenantId(req), type), requestId: req.requestId }); }
   catch (error) { return res.status(500).json(errorBody(error.code || "REVENUE_LEDGER_FAILED", "Revenue ledger read failed", req.requestId)); }
