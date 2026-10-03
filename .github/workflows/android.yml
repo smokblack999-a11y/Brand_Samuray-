@@ -22,8 +22,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if git grep -nE 'sk-(proj|svcacct)-[A-Za-z0-9_-]{20,}'; then
+          if git grep -nE 'sk-(proj|svcacct)-[A-Za-z0-9_-]{20,}|ghp_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|-----BEGIN (RSA|EC|OPENSSH|PRIVATE) KEY-----'; then
             echo "Potential OpenAI API key found in tracked files"
+            exit 1
+          fi
+          if git grep -nE "CORE_API_KEY|BuildConfig\.CORE_API_KEY|X-API-Key" -- android; then
+            echo "Administrative Core credential reference found in Android source"
             exit 1
           fi
           echo "Secret scan: PASS"

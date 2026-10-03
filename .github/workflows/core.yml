@@ -43,7 +43,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if git grep -nE 'sk-(proj|svcacct)-[A-Za-z0-9_-]{20,}' -- ':!core/node_modules' ':!*.log'; then
+          if git grep -nE 'sk-(proj|svcacct)-[A-Za-z0-9_-]{20,}|ghp_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|-----BEGIN (RSA|EC|OPENSSH|PRIVATE) KEY-----' -- ':!core/node_modules' ':!*.log'; then
             echo "Potential OpenAI API key found in tracked files"
             exit 1
           fi
@@ -56,6 +56,10 @@ jobs:
           node --check openai.js
           node --check business-bot.js
           node --check store.js
+          node --check mobile-auth.js
+          node --check job-queue.js
+          node --check scripts/backup-data.js
+          node --check scripts/restore-check.js
           node --check lead-engine.js
           node --check scripts/set-webhook.js
           node --check scripts/verify-config.js

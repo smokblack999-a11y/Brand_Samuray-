@@ -8,7 +8,9 @@
     "start": "node server.js",
     "test": "node --test",
     "verify-config": "node scripts/verify-config.js",
-    "set-webhook": "node scripts/set-webhook.js"
+    "set-webhook": "node scripts/set-webhook.js",
+    "backup": "node scripts/backup-data.js",
+    "restore-check": "node scripts/restore-check.js"
   },
   "dependencies": {
     "cors": "^2.8.6",

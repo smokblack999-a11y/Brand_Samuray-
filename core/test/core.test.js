@@ -9,6 +9,7 @@ const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'samurai-core-'));
 const port = 18000 + Math.floor(Math.random() * 1000);
 const API_KEY = 'test-core-api-key-123456';
 const WEBHOOK_SECRET = 'test-webhook-secret-123456';
+const MOBILE_ENROLLMENT_SECRET = 'test-mobile-enrollment-secret-123456';
 
 let child;
 
@@ -30,6 +31,7 @@ test.before(async () => {
       OPENAI_API_KEY: '',
       CORE_API_KEY: API_KEY,
       TELEGRAM_WEBHOOK_SECRET: WEBHOOK_SECRET,
+      MOBILE_ENROLLMENT_SECRET,
       MAX_MESSAGE_CHARS: '4000'
     },
     stdio: ['ignore', 'pipe', 'pipe']
@@ -65,6 +67,31 @@ test('readiness endpoint verifies critical configuration', async () => {
   const body = await r.json();
   assert.equal(body.ok, true);
   assert.equal(body.ready, true);
+});
+
+test('mobile enrollment issues a device token and rejects invalid pairing', async () => {
+  const denied = await fetch(`http://127.0.0.1:${port}/api/mobile/enroll`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ secret: 'wrong-secret', deviceName: 'test' })
+  });
+  assert.equal(denied.status, 401);
+
+  const enrolled = await fetch(`http://127.0.0.1:${port}/api/mobile/enroll`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ secret: MOBILE_ENROLLMENT_SECRET, deviceName: 'test' })
+  });
+  assert.equal(enrolled.status, 201);
+  const body = await enrolled.json();
+  assert.equal(body.ok, true);
+  assert.ok(body.token);
+  assert.ok(body.expiresAt > Date.now());
+
+  const mobile = await fetch(`http://127.0.0.1:${port}/api/telegram/me`, {
+    headers: { Authorization: `Bearer ${body.token}` }
+  });
+  assert.equal(mobile.status, 503);
 });
 
 test('protected API rejects missing key', async () => {
@@ -147,7 +174,7 @@ test('Telegram webhook requires secret and deduplicates business messages', asyn
   });
   assert.equal(second.status, 200);
 
-  await new Promise(resolve => setTimeout(resolve, 100));
+  await new Promise(resolve => setTimeout(resolve, 1300));
   const stats = await (await api('/api/stats')).json();
   assert.equal(stats.stats.total, 2);
   assert.equal(stats.stats.completed, 2);

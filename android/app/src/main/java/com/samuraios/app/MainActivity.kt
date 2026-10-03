@@ -41,7 +41,8 @@ import kotlin.concurrent.thread
 
 class MainActivity : ComponentActivity() {
     private val coreUrl = BuildConfig.CORE_BASE_URL.trimEnd('/')
-    private val coreApiKey = BuildConfig.CORE_API_KEY.trim()
+    private var mobileToken: String? = null
+    private lateinit var enrollmentSecretInput: EditText
     private val permissionRequest = 100
     private lateinit var previewView: PreviewView
     private lateinit var statusText: TextView
@@ -70,6 +71,7 @@ class MainActivity : ComponentActivity() {
         buildUi()
         if (hasPermissions()) startCamera() else ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.CAMERA, Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION), permissionRequest)
         refreshGallery()
+        mobileToken = MobileTokenStore.load(this)
         checkCoreStatus()
     }
 
@@ -90,6 +92,9 @@ class MainActivity : ComponentActivity() {
         val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(24, 24, 24, 24); setBackgroundColor(Color.rgb(5, 8, 17)) }
         statusText = TextView(this).apply { text = "SamuraiOS: запуск..."; textSize = 20f; setTextColor(Color.rgb(0, 255, 136)); setPadding(0, 0, 0, 12) }
         root.addView(statusText)
+        enrollmentSecretInput = EditText(this).apply { hint = "Pairing secret (только при первой настройке)"; setSingleLine(true); setTextColor(Color.WHITE); setHintTextColor(Color.GRAY) }
+        root.addView(enrollmentSecretInput, LinearLayout.LayoutParams(-1, -2))
+        root.addView(Button(this).apply { text = "ПОДКЛЮЧИТЬ УСТРОЙСТВО"; setOnClickListener { enrollMobileDevice() } })
         previewView = PreviewView(this).apply { scaleType = PreviewView.ScaleType.FILL_CENTER }
         root.addView(previewView, LinearLayout.LayoutParams(-1, 520))
         root.addView(Button(this).apply { text = "СНЯТЬ ФОТО + GPS"; setOnClickListener { capturePhoto() } })
@@ -164,6 +169,25 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun enrollMobileDevice() {
+        val secret = enrollmentSecretInput.text.toString().trim()
+        if (secret.isEmpty()) { showToast("Введите pairing secret"); return }
+        val payload = "{\"secret\":\"" + jsonEscape(secret) + "\",\"deviceName\":\"SamuraiOS Android\"}"
+        apiPost("/api/mobile/enroll", payload) { result ->
+            mainHandler.post {
+                try {
+                    val token = org.json.JSONObject(result).optString("token", "")
+                    if (token.isBlank()) throw IllegalStateException("Сервер не вернул token")
+                    MobileTokenStore.save(this, token)
+                    mobileToken = token
+                    enrollmentSecretInput.setText("")
+                    statusText.text = "SamuraiOS: DEVICE PAIRED"
+                    outputText.text = "Устройство подключено. Pairing secret больше не хранится."
+                } catch (_: Exception) { outputText.text = result }
+            }
+        }
+    }
+
     private fun checkCoreStatus() = apiGet("/health") { result -> mainHandler.post { if (result.startsWith("ERROR:")) statusText.text = "Core: OFFLINE" else statusText.text = "Camera/Gallery + Core ONLINE"; outputText.text = result } }
     private fun loadMe() = apiGet("/api/telegram/me") { result -> mainHandler.post { outputText.text = result } }
     private fun loadDialogs() = apiGet("/api/telegram/dialogs?limit=20") { result -> mainHandler.post { outputText.text = result } }
@@ -199,7 +223,7 @@ class MainActivity : ComponentActivity() {
     private fun apiHeaders(connection: HttpURLConnection) {
         connection.setRequestProperty("Accept", "application/json")
         connection.setRequestProperty("X-Request-ID", UUID.randomUUID().toString())
-        if (coreApiKey.isNotEmpty()) connection.setRequestProperty("X-API-Key", coreApiKey)
+        mobileToken?.takeIf { it.isNotBlank() }?.let { connection.setRequestProperty("Authorization", "Bearer $it") }
     }
 
     private fun apiGet(path: String, callback: (String) -> Unit) {

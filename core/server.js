@@ -10,6 +10,8 @@ const { sendBusinessMessage } = require("./business-bot");
 const telegramCamera = require("./telegram-camera");
 const { saveLead, claimEvent, updateLead, listLeads, stats } = require("./store");
 const { createRateLimiter } = require("./rate-limit");
+const mobileAuth = require("./mobile-auth");
+const jobQueue = require("./job-queue");
 const dualAI = require("./dual-ai/engine");
 
 const app = express();
@@ -21,11 +23,14 @@ const CORS_ORIGIN = String(process.env.CORS_ORIGIN || "").trim();
 const REQUEST_TIMEOUT_MS = Math.max(5000, Number(process.env.REQUEST_TIMEOUT_MS || 30000));
 const LEAD_RATE_LIMIT_WINDOW_MS = Math.max(1000, Number(process.env.LEAD_RATE_LIMIT_WINDOW_MS || 60000));
 const LEAD_RATE_LIMIT_MAX = Math.max(1, Number(process.env.LEAD_RATE_LIMIT_MAX || 20));
+const MOBILE_ENROLL_RATE_LIMIT_MAX = Math.max(1, Number(process.env.MOBILE_ENROLL_RATE_LIMIT_MAX || 5));
+const METRICS_TOKEN = String(process.env.METRICS_TOKEN || "").trim();
 
 if (process.env.NODE_ENV === "production") {
   const missing = [];
   if (!API_KEY) missing.push("CORE_API_KEY");
   if (!WEBHOOK_SECRET) missing.push("TELEGRAM_WEBHOOK_SECRET");
+  if (!process.env.MOBILE_ENROLLMENT_SECRET) missing.push("MOBILE_ENROLLMENT_SECRET");
   if (missing.length) throw new Error(`Production startup blocked: missing ${missing.join(", ")}`);
 }
 
@@ -42,6 +47,12 @@ function safeEqual(expected, actual) {
   const a = Buffer.from(String(expected || ""));
   const b = Buffer.from(String(actual || ""));
   return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+function requireMobileAuth(req, res, next) {
+  const header = String(req.get("Authorization") || "");
+  const token = header.startsWith("Bearer ") ? header.slice(7).trim() : "";
+  if (mobileAuth.verify(token)) return next();
+  return res.status(401).json(errorBody("UNAUTHORIZED", "Mobile authentication required", req.requestId));
 }
 function requireApiKey(req, res, next) {
   if (!API_KEY) return res.status(503).json(errorBody("AUTH_NOT_CONFIGURED", "API authentication is not configured", req.requestId));
@@ -71,6 +82,7 @@ app.use((req, res, next) => {
 });
 
 const leadRateLimit = createRateLimiter({ windowMs: LEAD_RATE_LIMIT_WINDOW_MS, max: LEAD_RATE_LIMIT_MAX });
+const mobileEnrollRateLimit = createRateLimiter({ windowMs: 60000, max: MOBILE_ENROLL_RATE_LIMIT_MAX });
 const dualRateLimit = createRateLimiter({ windowMs: Math.max(1000, Number(process.env.DUAL_AI_RATE_LIMIT_WINDOW_MS || 60000)), max: Math.max(1, Number(process.env.DUAL_AI_RATE_LIMIT_MAX || 10)) });
 app.use("/dual-ai", express.static(path.join(__dirname, "dual-ai", "public"), { index: "index.html" }));
 
@@ -78,12 +90,40 @@ app.get("/health", (_req, res) => res.json({ ok: true, service: "SamuraiOS Core"
 app.get("/ready", (req, res) => {
   try {
     const current = stats();
-    const ready = Boolean(API_KEY && WEBHOOK_SECRET && current && Number.isFinite(current.total));
+    const queue = jobQueue.stats();
+    const ready = Boolean(API_KEY && WEBHOOK_SECRET && process.env.MOBILE_ENROLLMENT_SECRET && current && Number.isFinite(current.total) && queue.dead < Number(process.env.MAX_DEAD_QUEUE_JOBS || 10));
     return res.status(ready ? 200 : 503).json({ ok: ready, service: "SamuraiOS Core", ready, requestId: req.requestId });
   } catch (_error) {
     return res.status(503).json(errorBody("NOT_READY", "Service is not ready", req.requestId));
   }
 });
+app.post("/api/mobile/enroll", mobileEnrollRateLimit, (req, res) => {
+  try {
+    const result = mobileAuth.enroll(req.body?.secret, req.body?.deviceName || "android");
+    return res.status(201).json({ ok: true, ...result, requestId: req.requestId });
+  } catch (error) {
+    const status = error.code === "INVALID_ENROLLMENT_SECRET" ? 401 : error.code === "MOBILE_DEVICE_LIMIT" ? 429 : 503;
+    return res.status(status).json(errorBody(error.code || "MOBILE_ENROLL_FAILED", status === 503 ? "Mobile enrollment unavailable" : error.message, req.requestId));
+  }
+});
+
+app.get("/metrics", (req, res) => {
+  if (process.env.NODE_ENV === "production" && (!METRICS_TOKEN || !safeEqual(METRICS_TOKEN, req.get("X-Metrics-Token")))) return res.status(404).end();
+  const s = stats(); const q = jobQueue.stats();
+  res.type("text/plain").send([
+    "# TYPE samurai_uptime_seconds gauge",
+    `samurai_uptime_seconds ${process.uptime()}`,
+    "# TYPE samurai_leads_total gauge",
+    `samurai_leads_total ${s.total}`,
+    `samurai_leads_processing ${s.processing}`,
+    `samurai_leads_failed ${s.failed}`,
+    `samurai_queue_pending ${q.pending}`,
+    `samurai_queue_processing ${q.processing}`,
+    `samurai_queue_dead ${q.dead}`,
+    `samurai_memory_rss_bytes ${process.memoryUsage().rss}`,
+  ].join("\n")+"\n");
+});
+
 app.get("/health/openai", requireApiKey, async (req, res) => {
   if (!process.env.OPENAI_API_KEY) return res.status(503).json({ ...errorBody("OPENAI_NOT_CONFIGURED", "OpenAI is not configured", req.requestId), configured: false });
   try {
@@ -183,7 +223,7 @@ app.post("/api/lead/analyze", requireApiKey, leadRateLimit, async (req, res) => 
   }
 });
 
-app.get("/api/telegram/me", requireApiKey, async (req, res) => {
+app.get("/api/telegram/me", requireMobileAuth, async (req, res) => {
   try {
     const result = await telegramCamera.getMe();
     return res.json({ ok: true, telegram: result, requestId: req.requestId });
@@ -192,7 +232,7 @@ app.get("/api/telegram/me", requireApiKey, async (req, res) => {
   }
 });
 
-app.get("/api/telegram/dialogs", requireApiKey, async (req, res) => {
+app.get("/api/telegram/dialogs", requireMobileAuth, async (req, res) => {
   try {
     const result = await telegramUser().getDialogs(req.query.limit);
     return res.json({ ok: true, dialogs: result, requestId: req.requestId });
@@ -201,7 +241,7 @@ app.get("/api/telegram/dialogs", requireApiKey, async (req, res) => {
   }
 });
 
-app.get("/api/telegram/messages", requireApiKey, async (req, res) => {
+app.get("/api/telegram/messages", requireMobileAuth, async (req, res) => {
   try {
     const chatId = String(req.query.chatId || "").trim();
     if (!chatId) return res.status(400).json(errorBody("INVALID_CHAT_ID", "chatId is required", req.requestId));
@@ -212,7 +252,7 @@ app.get("/api/telegram/messages", requireApiKey, async (req, res) => {
   }
 });
 
-app.post("/api/telegram/send", requireApiKey, async (req, res) => {
+app.post("/api/telegram/send", requireMobileAuth, async (req, res) => {
   try {
     const chatId = String(req.body?.chatId || "").trim();
     const message = String(req.body?.message || "").trim();
@@ -224,7 +264,7 @@ app.post("/api/telegram/send", requireApiKey, async (req, res) => {
   }
 });
 
-app.post("/api/telegram/send-photo", requireApiKey, async (req, res) => {
+app.post("/api/telegram/send-photo", requireMobileAuth, async (req, res) => {
   try {
     const { chatId, fileName, caption, base64, latitude, longitude } = req.body || {};
     if (!String(chatId || "").trim() || !String(base64 || "").trim()) {
@@ -246,34 +286,64 @@ app.post("/api/telegram/send-photo", requireApiKey, async (req, res) => {
 });
 
 app.post("/api/telegram/webhook", requireWebhookSecret, async (req, res) => {
-  res.sendStatus(200);
   try {
     const update = req.body || {};
     if (update.business_connection) {
-      console.log(JSON.stringify({ event: "business_connection", id: update.business_connection.id, requestId: req.requestId }));
-      return;
+      jobQueue.enqueue("telegram_business_connection", update);
+      return res.sendStatus(200);
     }
     const message = update.business_message;
-    if (!message?.text || !message.business_connection_id || !message.chat?.id || !Number.isInteger(message.message_id)) return;
+    if (!message?.text || !message.business_connection_id || !message.chat?.id || !Number.isInteger(message.message_id)) return res.sendStatus(200);
     const eventKey = `telegram:${message.business_connection_id}:${message.chat.id}:${message.message_id}`;
-    const claim = claimEvent(eventKey, { source: "telegram_business", businessConnectionId: message.business_connection_id, chatId: message.chat.id, messageId: message.message_id, customer: message.from?.id || null, message: message.text });
-    if (!claim.claimed) {
-      console.log(JSON.stringify({ event: "duplicate_telegram_event", eventKey, requestId: req.requestId }));
-      return;
-    }
-    try {
-      const result = await analyze(message.text, process.env.BUSINESS_NAME);
-      const saved = updateLead(claim.item.id, { ...result.lead, reply: result.reply, status: "completed" });
-      console.log(JSON.stringify({ event: "lead", id: saved.id, chatId: message.chat.id, score: result.lead.score, intent: result.lead.intent, requestId: req.requestId }));
-      if (result.reply && String(process.env.AUTO_REPLY).toLowerCase() === "true") await sendBusinessMessage({ businessConnectionId: message.business_connection_id, chatId: message.chat.id, text: result.reply });
-    } catch (error) {
-      updateLead(claim.item.id, { status: "failed", error: error.message });
-      throw error;
-    }
+    const queued = jobQueue.enqueue("telegram_business_message", { eventKey, message });
+    console.log(JSON.stringify({ event: "telegram_webhook_queued", jobId: queued.id, eventKey, requestId: req.requestId }));
+    return res.sendStatus(200);
   } catch (error) {
-    console.error(JSON.stringify({ event: "business_webhook_error", requestId: req.requestId, error: error.message }));
+    console.error(JSON.stringify({ event: "business_webhook_enqueue_failed", requestId: req.requestId, error: error.message }));
+    return res.status(503).json(errorBody("WEBHOOK_QUEUE_UNAVAILABLE", "Webhook could not be durably queued", req.requestId));
   }
 });
+
+let workerRunning = false;
+async function processQueueOnce() {
+  if (workerRunning) return;
+  workerRunning = true;
+  try {
+    jobQueue.recoverStale();
+    const job = jobQueue.claim();
+    if (!job) return;
+    try {
+      if (job.type === "telegram_business_connection") {
+        console.log(JSON.stringify({ event: "business_connection", id: job.payload?.business_connection?.id }));
+      } else if (job.type === "telegram_business_message") {
+        const { eventKey, message } = job.payload;
+        const claim = claimEvent(eventKey, { source: "telegram_business", businessConnectionId: message.business_connection_id, chatId: message.chat.id, messageId: message.message_id, customer: message.from?.id || null, message: message.text });
+        if (!claim.claimed) {
+          jobQueue.complete(job);
+          return;
+        }
+        try {
+          const result = await analyze(message.text, process.env.BUSINESS_NAME);
+          const saved = updateLead(claim.item.id, { ...result.lead, reply: result.reply, status: "completed" });
+          console.log(JSON.stringify({ event: "lead", id: saved.id, chatId: message.chat.id, score: result.lead.score, intent: result.lead.intent }));
+          if (result.reply && String(process.env.AUTO_REPLY).toLowerCase() === "true") await sendBusinessMessage({ businessConnectionId: message.business_connection_id, chatId: message.chat.id, text: result.reply });
+        } catch (error) {
+          updateLead(claim.item.id, { status: "failed", error: error.message });
+          throw error;
+        }
+      }
+      jobQueue.complete(job);
+    } catch (error) {
+      jobQueue.fail(job, error);
+      console.error(JSON.stringify({ event: "queue_job_failed", jobId: job.id, attempt: job.attempts, error: error.message }));
+    }
+  } finally {
+    workerRunning = false;
+  }
+}
+const queueTimer = setInterval(() => { processQueueOnce().catch(error => console.error(JSON.stringify({ event: "queue_worker_error", error: error.message }))); }, 1000);
+queueTimer.unref();
+
 
 app.use((req, res) => res.status(404).json(errorBody("NOT_FOUND", "Endpoint not found", req.requestId)));
 
@@ -289,4 +359,4 @@ function shutdown(signal) {
 process.once("SIGTERM", () => shutdown("SIGTERM"));
 process.once("SIGINT", () => shutdown("SIGINT"));
 
-module.exports = { app, server, analyze };
+module.exports = { app, server, analyze, processQueueOnce };
