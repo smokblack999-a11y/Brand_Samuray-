@@ -144,6 +144,10 @@ app.get("/api/revenue/control-plane", requireApiKey, (req, res) => {
   } catch (error) { return res.status(500).json(errorBody(error.code || "REVENUE_CONTROL_PLANE_FAILED", "Revenue control plane failed", req.requestId)); }
 });
 
+app.get("/api/revenue/executions", requireApiKey, (req, res) => {
+  try { return res.json({ ok: true, executions: revenueRuntime.list(revenueTenantId(req), "EXECUTION"), requestId: req.requestId }); }
+  catch (error) { return res.status(500).json(errorBody(error.code || "REVENUE_EXECUTIONS_FAILED", "Revenue executions failed", req.requestId)); }
+});
 app.get("/api/revenue/summary", requireApiKey, (req, res) => {
   try { return res.json({ ok: true, summary: revenueRuntime.summary(revenueTenantId(req)), requestId: req.requestId }); }
   catch (error) { return res.status(500).json(errorBody(error.code || "REVENUE_SUMMARY_FAILED", "Revenue summary failed", req.requestId)); }
