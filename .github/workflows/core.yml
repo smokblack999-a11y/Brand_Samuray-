@@ -71,6 +71,11 @@ jobs:
           node --check x27-outcome-engine.js
           node --check x27-attribution-engine.js
           node --check x27-runtime.js
+          node --check x28-revenue-rca.js
+          node --check revenue-genome.js
+          node --check budget-governor.js
+          node --check experiment-engine.js
+          node --check autonomous-revenue-loop.js
 
       - name: Unit tests
         run: npm test
