@@ -44,7 +44,7 @@ function appendOutcome(outcome) {
   const rows = read();
   const duplicate = rows.find(x => x.type === "OUTCOME" && x.tenantId === outcome.tenantId && x.eventId === outcome.eventId);
   if (duplicate) return { inserted: false, record: duplicate };
-  const record = sealRecord(Object.assign({ id: hashId("out", outcome.tenantId + ":" + outcome.eventId), type: "OUTCOME", createdAt: new Date().toISOString() }, outcome), lastTenantHash(rows, outcome.tenantId));
+  const record = sealRecord(Object.assign({}, outcome, { id: hashId("out", outcome.tenantId + ":" + outcome.eventId), type: "OUTCOME", createdAt: new Date().toISOString() }), lastTenantHash(rows, outcome.tenantId));
   rows.push(record);
   write(rows);
   return { inserted: true, record };
@@ -56,7 +56,7 @@ function appendDecision(decision) {
   const rows = read();
   const duplicate = rows.find(x => x.type === "DECISION" && x.tenantId === decision.tenantId && x.decisionId === decision.decisionId);
   if (duplicate) return { inserted: false, record: duplicate };
-  const record = sealRecord(Object.assign({ type: "DECISION", createdAt: new Date().toISOString() }, decision), lastTenantHash(rows, decision.tenantId));
+  const record = sealRecord(Object.assign({}, decision, { type: "DECISION", createdAt: new Date().toISOString() }), lastTenantHash(rows, decision.tenantId));
   rows.push(record);
   write(rows);
   return { inserted: true, record };
@@ -69,7 +69,7 @@ function appendLearning(learning) {
     ? rows.find(x => x.type === "LEARNING" && x.tenantId === learning.tenantId && x.decisionId === learning.decisionId && (learning.sourceEventId ? x.sourceEventId === learning.sourceEventId : !x.sourceEventId))
     : null;
   if (duplicate) return { inserted: false, record: duplicate };
-  const record = sealRecord(Object.assign({ type: "LEARNING", createdAt: new Date().toISOString() }, learning), lastTenantHash(rows, learning.tenantId));
+  const record = sealRecord(Object.assign({}, learning, { type: "LEARNING", createdAt: new Date().toISOString() }), lastTenantHash(rows, learning.tenantId));
   rows.push(record);
   write(rows);
   return { inserted: true, record };
@@ -82,7 +82,7 @@ function appendCost(cost) {
   const duplicate = rows.find(x => x.type === "COST" && x.tenantId === cost.tenantId && x.costId === cost.costId);
   if (duplicate) return { inserted: false, record: duplicate };
   const amountKZT = Math.max(0, Number(cost.amountKZT || 0));
-  const record = sealRecord(Object.assign({ type: "COST", createdAt: new Date().toISOString() }, cost, { amountKZT }), lastTenantHash(rows, cost.tenantId));
+  const record = sealRecord(Object.assign({}, cost, { type: "COST", createdAt: new Date().toISOString(), amountKZT }), lastTenantHash(rows, cost.tenantId));
   rows.push(record); write(rows); return { inserted: true, record };
 }
 
