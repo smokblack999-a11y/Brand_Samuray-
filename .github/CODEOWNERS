@@ -1,0 +1,5 @@
+# Security-sensitive automation is protected by CODEOWNERS.
+# Replace the placeholder with the GitHub account/team that owns the security gate.
+.github/workflows/repoowl-kill-critic.yml @smokblack999-a11y
+.github/workflows/repoowl-kill-critic-enforcement.yml @smokblack999-a11y
+.github/scripts/kill-critic-gate.js @smokblack999-a11y

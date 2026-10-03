@@ -1,0 +1,53 @@
+name: RepoOwl Kill Critic
+
+on:
+  pull_request:
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - ready_for_review
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: kill-critic-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  security-gate:
+    name: Kill Critic Security Gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout trusted scanner
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Run Kill Critic
+        id: critic
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          WORKFLOW_SHA: ${{ github.workflow_sha }}
+        run: node .github/scripts/kill-critic-gate.js
+
+      - name: Upload proof receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kill-critic-receipt
+          path: kill-critic-receipt.json
+          if-no-files-found: error
+          retention-days: 14
