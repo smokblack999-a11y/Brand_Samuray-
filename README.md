@@ -36,7 +36,11 @@ SamuraiOS Core превращает входящие Telegram Business сооб�
 - OpenAI Responses API integration
 - Модель по умолчанию: `gpt-5.6-luna`
 - Таймауты для OpenAI и Telegram API
-- Защита административных API через `X-API-Key`
+- Защита административных API через `X-API-Key` (ключ не входит в APK)
+- Android pairing через `MOBILE_ENROLLMENT_SECRET` и отзываемый device-token
+- Durable Telegram webhook queue с retry/backoff и dead-letter состоянием
+- `/metrics` для operational monitoring
+- Плановый backup `core/data` с проверкой архива через `npm run restore-check`
 - Безопасный режим по умолчанию: `AUTO_REPLY=false`
 - Health endpoint: `GET /health`
 - OpenAI readiness check: `GET /health/openai`
@@ -55,7 +59,7 @@ Telegram Bot API поддерживает `business_connection` и `business_mes
 - `.github/workflows/nexus-recovery-router.yml` — NEXUS workflow router
 - `.github/workflows/openai-secret-check.yml` — ручная/пуш-проверка OpenAI authentication
 
-Экспериментальный X20 failure-probe workflow удалён из `main`: он был предназначен только для искусственного падения CI.
+Экспериментальный X20 failure-probe workflow удалён из `main`: он был предназначен только для искусственного падения CI. Recovery router должен принимать только проверенный `workflow_run` payload и не рассматривать его как доверенное доказательство сам по себе.
 
 ## X10THINC Artifact Relay
 
