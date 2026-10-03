@@ -1,0 +1,7 @@
+# Copy to ~/x10-agent.env and chmod 600.
+X10_HUB_URL=https://YOUR-HUB.example.com
+X10_AGENT_ID=camera-01
+X10_AGENT_TOKEN=PASTE_TOKEN_FROM_AGENT_REGISTRATION
+X10_TARGET_PACKAGE=com.pas.webcam
+X10_INTERVAL=30
+X10_VERSION=0.1.0
