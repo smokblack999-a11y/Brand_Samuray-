@@ -16,7 +16,6 @@ android {
 
         def configuredCoreUrl = project.findProperty('CORE_BASE_URL') ?: 'https://core.example.invalid'
         buildConfigField 'String', 'CORE_BASE_URL', '"' + configuredCoreUrl.replace('"', '\\"') + '"'
-        buildConfigField 'String', 'CORE_API_KEY', '"' + configuredApiKey.replace('"', '\\"') + '"'
     }
 
     buildFeatures {
