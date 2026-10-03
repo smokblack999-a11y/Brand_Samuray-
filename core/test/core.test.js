@@ -69,6 +69,31 @@ test('readiness endpoint verifies critical configuration', async () => {
   assert.equal(body.ready, true);
 });
 
+test('mobile enrollment issues a device token and rejects invalid pairing', async () => {
+  const denied = await fetch(`http://127.0.0.1:${port}/api/mobile/enroll`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ secret: 'wrong-secret', deviceName: 'test' })
+  });
+  assert.equal(denied.status, 401);
+
+  const enrolled = await fetch(`http://127.0.0.1:${port}/api/mobile/enroll`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ secret: MOBILE_ENROLLMENT_SECRET, deviceName: 'test' })
+  });
+  assert.equal(enrolled.status, 201);
+  const body = await enrolled.json();
+  assert.equal(body.ok, true);
+  assert.ok(body.token);
+  assert.ok(body.expiresAt > Date.now());
+
+  const mobile = await fetch(`http://127.0.0.1:${port}/api/telegram/me`, {
+    headers: { Authorization: `Bearer ${body.token}` }
+  });
+  assert.equal(mobile.status, 503);
+});
+
 test('protected API rejects missing key', async () => {
   const r = await fetch(`http://127.0.0.1:${port}/api/stats`);
   assert.equal(r.status, 401);
