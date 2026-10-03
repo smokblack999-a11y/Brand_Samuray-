@@ -386,7 +386,23 @@ app.post("/api/telegram/webhook", requireWebhookSecret, async (req, res) => {
        const revenueGate = String(process.env.REVENUE_AUTO_GATE || "false").toLowerCase() === "true";
        const action = revenueDecision.record.action || revenueDecision.record.recommendedAction;
        const allowedByRevenue = ["RESPOND", "FOLLOW_UP", "REACTIVATE"].includes(action);
-       if (result.reply && autoReply && (!revenueGate || allowedByRevenue)) {
+       let killCritic = { verdict: revenueGate ? "FAIL" : "BYPASS", confidence: revenueGate ? 0 : 1, issues: [], required_changes: [], evidence_gaps: [] };
+       if (result.reply && autoReply && revenueGate && allowedByRevenue) {
+         try {
+           killCritic = await require("./dual-ai/critic").review({
+             task: "Reply to a Telegram customer using only verified business facts. Do not invent prices, availability, discounts, delivery times or completed actions.",
+             answer: result.reply,
+             provider: process.env.DUAL_AI_B_PROVIDER || process.env.DUAL_AI_A_PROVIDER || "openai",
+             model: process.env.DUAL_AI_B_MODEL || process.env.DUAL_AI_A_MODEL || process.env.OPENAI_MODEL || "gpt-5"
+           });
+         } catch (criticError) {
+           killCritic = { verdict: "FAIL", confidence: 1, issues: ["critic_unavailable"], required_changes: [], evidence_gaps: [criticError.message] };
+         }
+       }
+       updateLead(claim.item.id, { killCritic });
+       if (result.reply && autoReply && (!revenueGate || (allowedByRevenue && killCritic.verdict === "PASS"))) {
+         await sendBusinessMessage({ businessConnectionId: message.business_connection_id, chatId: message.chat.id, text: result.reply });
+       }
          await sendBusinessMessage({ businessConnectionId: message.business_connection_id, chatId: message.chat.id, text: result.reply });
        }
        } catch (error) {
