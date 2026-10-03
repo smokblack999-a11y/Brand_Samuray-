@@ -1,9 +1,124 @@
 "use strict";
-const crypto=require("node:crypto");
-const STATES=["DISCOVERED","AUDITED","DECISIONED","EXECUTED","OUTCOME_PENDING","ATTRIBUTED","LEARNED","EXPANDED","SUPPRESSED","FAILED"];
-const EDGES={DISCOVERED:["AUDITED","SUPPRESSED","FAILED"],AUDITED:["DECISIONED","SUPPRESSED","FAILED"],DECISIONED:["EXECUTED","SUPPRESSED","FAILED"],EXECUTED:["OUTCOME_PENDING","FAILED"],OUTCOME_PENDING:["ATTRIBUTED","FAILED"],ATTRIBUTED:["LEARNED","FAILED"],LEARNED:["EXPANDED","SUPPRESSED"],EXPANDED:[],SUPPRESSED:[],FAILED:[]};
-function fingerprint(input){return crypto.createHash("sha256").update(JSON.stringify(input)).digest("hex");}
-function createLoop(input={}){if(!input.tenantId)throw new Error("tenantId_required");if(!input.leadId)throw new Error("leadId_required");return {loopId:input.loopId||crypto.randomUUID(),tenantId:String(input.tenantId),leadId:String(input.leadId),state:"DISCOVERED",createdAt:new Date().toISOString(),fingerprint:fingerprint(input)};}
-function transition(loop,next,evidence={}){if(!loop||!EDGES[loop.state]||!EDGES[loop.state].includes(next))throw new Error("invalid_loop_transition:"+(loop&&loop.state)+"->"+next);return Object.assign({},loop,{state:next,evidence:Object.assign({},loop.evidence||{},evidence),transitionHash:fingerprint({loopId:loop.loopId,from:loop.state,to:next,evidence})});}
-function closeFromOutcome(loop,outcome){if(outcome&&String(outcome.status).toUpperCase()==="WON")return transition(loop,"ATTRIBUTED",{outcomeStatus:"WON"});if(outcome&&["LOST","REFUNDED","CANCELLED"].includes(String(outcome.status).toUpperCase()))return transition(loop,"LEARNED",{outcomeStatus:String(outcome.status).toUpperCase()});return transition(loop,"OUTCOME_PENDING",{outcomeStatus:"UNKNOWN"});}
-module.exports={STATES,EDGES,createLoop,transition,closeFromOutcome};
+
+const crypto = require("node:crypto");
+const revenueRuntime = require("./x27-runtime");
+const { constrainDecision } = require("./budget-governor");
+
+const FINAL_OUTCOMES = new Set(["WON", "LOST", "REFUNDED", "CANCELLED"]);
+
+function text(value, max = 4000) {
+  return String(value == null ? "" : value).trim().slice(0, max);
+}
+
+function positiveNumber(value, fallback = 0) {
+  const n = Number(value);
+  return Number.isFinite(n) && n >= 0 ? n : fallback;
+}
+
+function createCorrelationId(prefix = "rev") {
+  return prefix + "_" + crypto.randomUUID();
+}
+
+function evaluateLead(input = {}) {
+  const tenantId = text(input.tenantId, 128);
+  const leadId = text(input.leadId, 256);
+  const message = text(input.message);
+  if (!tenantId) throw Object.assign(new Error("tenantId is required"), { code: "TENANT_REQUIRED" });
+  if (!leadId) throw Object.assign(new Error("leadId is required"), { code: "LEAD_REQUIRED" });
+  if (!message) throw Object.assign(new Error("message is required"), { code: "MESSAGE_REQUIRED" });
+
+  const decision = revenueRuntime.decide(tenantId, {
+    leadScore: positiveNumber(input.leadScore),
+    intent: text(input.intent, 64) || "unknown",
+    dealValue: positiveNumber(input.dealValueKZT, 0),
+    grossMargin: positiveNumber(input.grossMarginRate, 0),
+    occurredAt: input.occurredAt || new Date().toISOString(),
+    responseSlaBreached: Boolean(input.responseSlaBreached),
+    triggerRelevance: positiveNumber(input.triggerRelevance, 0),
+    contactAllowed: input.contactAllowed !== false,
+    customerOptedOut: Boolean(input.customerOptedOut),
+    risk: positiveNumber(input.risk, 0),
+    leadId,
+    correlationId: text(input.correlationId, 256) || createCorrelationId("lead")
+  });
+
+  const constrained = constrainDecision(decision.record, {
+    tenantId,
+    dailyBudgetKZT: positiveNumber(input.dailyBudgetKZT, Number(process.env.REVENUE_DAILY_BUDGET_KZT || 0)),
+    spentKZT: positiveNumber(input.spentKZT, 0)
+  });
+
+  return {
+    correlationId: decision.record.correlationId || input.correlationId || null,
+    decision: decision.record,
+    constrained,
+    nextAction: constrained.action || constrained.recommendedAction || decision.record.action
+  };
+}
+
+function recordExecution(input = {}) {
+  const tenantId = text(input.tenantId, 128);
+  const decisionId = text(input.decisionId, 256);
+  const executionId = text(input.executionId, 256) || createCorrelationId("exec");
+  if (!tenantId || !decisionId) throw Object.assign(new Error("tenantId and decisionId are required"), { code: "EXECUTION_CONTEXT_REQUIRED" });
+
+  return revenueRuntime.recordExecution(tenantId, {
+    executionId,
+    decisionId,
+    action: text(input.action, 128),
+    status: text(input.status, 64) || "EXECUTED",
+    channel: text(input.channel, 64),
+    externalId: text(input.externalId, 256),
+    correlationId: text(input.correlationId, 256),
+    result: input.result || null
+  });
+}
+
+function recordOutcome(input = {}) {
+  const tenantId = text(input.tenantId, 128);
+  const eventId = text(input.eventId, 256);
+  if (!tenantId || !eventId) throw Object.assign(new Error("tenantId and eventId are required"), { code: "OUTCOME_CONTEXT_REQUIRED" });
+
+  const status = text(input.status, 32).toUpperCase();
+  if (!FINAL_OUTCOMES.has(status)) {
+    throw Object.assign(new Error("status must be WON, LOST, REFUNDED or CANCELLED"), { code: "INVALID_OUTCOME_STATUS" });
+  }
+
+  return revenueRuntime.recordOutcome(tenantId, {
+    eventId,
+    actionId: text(input.decisionId, 256),
+    status,
+    amountKZT: positiveNumber(input.amountKZT, 0),
+    attributableRevenueKZT: positiveNumber(input.attributableRevenueKZT, 0),
+    attributableGrossProfitKZT: positiveNumber(input.attributableGrossProfitKZT, 0),
+    grossMarginRate: positiveNumber(input.grossMarginRate, 0),
+    actualCostKZT: positiveNumber(input.actualCostKZT, 0),
+    baselineConversionProbability: positiveNumber(input.baselineConversionProbability, 0),
+    controlConversionProbability: positiveNumber(input.controlConversionProbability, 0),
+    treatmentConversionProbability: positiveNumber(input.treatmentConversionProbability, 0),
+    provider: text(input.provider, 64),
+    model: text(input.model, 128),
+    costId: text(input.costId, 256),
+    source: text(input.source, 64) || "autonomous-revenue-loop",
+    correlationId: text(input.correlationId, 256)
+  });
+}
+
+function snapshot(tenantId) {
+  return {
+    summary: revenueRuntime.summary(tenantId),
+    integrity: revenueRuntime.integrity(tenantId),
+    decisions: revenueRuntime.list(tenantId, "DECISION").slice(0, 20),
+    executions: revenueRuntime.list(tenantId, "EXECUTION").slice(0, 20),
+    outcomes: revenueRuntime.list(tenantId, "OUTCOME").slice(0, 20),
+    learning: revenueRuntime.list(tenantId, "LEARNING").slice(0, 20)
+  };
+}
+
+module.exports = {
+  evaluateLead,
+  recordExecution,
+  recordOutcome,
+  snapshot,
+  FINAL_OUTCOMES
+};
