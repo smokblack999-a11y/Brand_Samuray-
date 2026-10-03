@@ -15,7 +15,7 @@ function recordOutcome(tenantId,input){
   if(safe.grossMarginRate==null && decision && decision.grossMargin!=null) safe.grossMarginRate=decision.grossMargin;
   const o=normalizeOutcome(safe);
   const baseline=Number(raw.baselineConversionProbability!=null?raw.baselineConversionProbability:(decision&&decision.baselineConversionProbability)||0);
-  const attribution=evaluateAttribution(o,baseline,raw.attributionPolicy||"ASSISTED");
+  const attribution=evaluateAttribution(o,baseline,raw.attributionPolicy||"ASSISTED",{controlConversionProbability:raw.controlConversionProbability,treatmentConversionProbability:raw.treatmentConversionProbability});
   const storedOutcome=Object.assign({},o,attribution);
   const saved=ledger.appendOutcome(storedOutcome); if(!saved.inserted) return {inserted:false,outcome:saved.record,attribution:null,learning:null};
   let costRecord=null; if(Number(raw.actualCostKZT||0)>0){ costRecord=ledger.appendCost({tenantId:t,costId:String(raw.costId||o.eventId+":execution"),decisionId:o.actionId||null,provider:raw.provider||null,model:raw.model||null,amountKZT:Number(raw.actualCostKZT||0),inputTokens:Number(raw.inputTokens||0),outputTokens:Number(raw.outputTokens||0),currency:raw.currency||"KZT"}).record; }
