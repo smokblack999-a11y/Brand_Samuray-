@@ -5,7 +5,8 @@ const path = require("path");
 const express = require("express");
 const cors = require("cors");
 const { scoreLead } = require("./lead-engine");
-const { generateReply, checkOpenAI } = require("./openai");
+const { generateReplyWithUsage, checkOpenAI } = require("./openai");
+const { estimateKZT, ratesFromEnv } = require("./cost-model");
 const { sendBusinessMessage } = require("./business-bot");
 const telegramCamera = require("./telegram-camera");
 const { saveLead, claimEvent, updateLead, listLeads, stats } = require("./store");
@@ -228,8 +229,15 @@ async function analyze(message, business) {
     throw error;
   }
   const lead = scoreLead(text);
-  const reply = process.env.OPENAI_API_KEY ? await generateReply({ business: business || process.env.BUSINESS_NAME, customerMessage: text, lead }) : null;
-  return { lead, reply };
+  let reply = null;
+  let aiTelemetry = null;
+  if (process.env.OPENAI_API_KEY) {
+    const generated = await generateReplyWithUsage({ business: business || process.env.BUSINESS_NAME, customerMessage: text, lead });
+    reply = generated.text;
+    const pricing = estimateKZT({ usage: generated.usage, rates: ratesFromEnv() });
+    aiTelemetry = Object.assign({ provider: generated.provider, model: generated.model }, pricing);
+  }
+  return { lead, reply, aiTelemetry };
 }
 
 app.post("/api/lead/analyze", requireApiKey, leadRateLimit, async (req, res) => {
