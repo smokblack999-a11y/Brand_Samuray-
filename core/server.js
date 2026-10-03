@@ -102,6 +102,13 @@ app.get("/health/openai", requireApiKey, async (req, res) => {
 app.get("/api/leads", requireApiKey, (req, res) => res.json({ ok: true, leads: listLeads(req.query.limit), requestId: req.requestId }));
 app.get("/api/stats", requireApiKey, (req, res) => res.json({ ok: true, stats: stats(), requestId: req.requestId }));
 
+app.get("/api/revenue/genome", requireApiKey, (req, res) => {
+  try {
+    const genome = require("./revenue-genome").buildGenome(revenueRuntime.list(revenueTenantId(req), "LEARNING"));
+    return res.json({ ok: true, genome, requestId: req.requestId });
+  } catch (error) { return res.status(500).json(errorBody(error.code || "REVENUE_GENOME_FAILED", "Revenue genome failed", req.requestId)); }
+});
+
 app.get("/api/revenue/summary", requireApiKey, (req, res) => {
   try { return res.json({ ok: true, summary: revenueRuntime.summary(revenueTenantId(req)), requestId: req.requestId }); }
   catch (error) { return res.status(500).json(errorBody(error.code || "REVENUE_SUMMARY_FAILED", "Revenue summary failed", req.requestId)); }
