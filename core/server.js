@@ -110,6 +110,18 @@ app.get("/api/revenue/genome", requireApiKey, (req, res) => {
   } catch (error) { return res.status(500).json(errorBody(error.code || "REVENUE_GENOME_FAILED", "Revenue genome failed", req.requestId)); }
 });
 
+app.get("/api/revenue/control-plane", requireApiKey, (req, res) => {
+  try {
+    const tenantId = revenueTenantId(req);
+    const records = revenueRuntime.list(tenantId);
+    const summary = revenueRuntime.summary(tenantId);
+    const integrity = revenueRuntime.integrity(tenantId);
+    const genome = require("./revenue-genome").buildGenome(records.filter(x => x.type === "LEARNING"));
+    const controlPlane = require("./revenue-control-plane").buildControlPlane({ summary, records, integrity, genome });
+    return res.json({ ok: true, controlPlane, requestId: req.requestId });
+  } catch (error) { return res.status(500).json(errorBody(error.code || "REVENUE_CONTROL_PLANE_FAILED", "Revenue control plane failed", req.requestId)); }
+});
+
 app.get("/api/revenue/summary", requireApiKey, (req, res) => {
   try { return res.json({ ok: true, summary: revenueRuntime.summary(revenueTenantId(req)), requestId: req.requestId }); }
   catch (error) { return res.status(500).json(errorBody(error.code || "REVENUE_SUMMARY_FAILED", "Revenue summary failed", req.requestId)); }
