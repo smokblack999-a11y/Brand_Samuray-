@@ -45,7 +45,9 @@ function issue(deviceName = "android") {
   return { token, expiresAt: Date.now() + TOKEN_TTL_MS };
 }
 function enroll(secret, deviceName) {
-  if (!ENROLLMENT_SECRET || !crypto.timingSafeEqual(Buffer.from(ENROLLMENT_SECRET), Buffer.from(String(secret || "")))) {
+  const expected = Buffer.from(ENROLLMENT_SECRET);
+  const actual = Buffer.from(String(secret || ""));
+  if (!ENROLLMENT_SECRET || expected.length !== actual.length || !crypto.timingSafeEqual(expected, actual)) {
     const e = new Error("Invalid enrollment secret");
     e.code = "INVALID_ENROLLMENT_SECRET";
     throw e;
