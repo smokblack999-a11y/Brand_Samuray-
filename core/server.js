@@ -113,6 +113,16 @@ app.get("/api/revenue/summary", requireApiKey, (req, res) => {
   try { return res.json({ ok: true, summary: revenueRuntime.summary(revenueTenantId(req)), requestId: req.requestId }); }
   catch (error) { return res.status(500).json(errorBody(error.code || "REVENUE_SUMMARY_FAILED", "Revenue summary failed", req.requestId)); }
 });
+app.post("/api/revenue/experiment/assign", requireApiKey, leadRateLimit, (req, res) => {
+  try { const { assignVariant } = require("./experiment-engine"); return res.json({ ok: true, assignment: assignVariant(req.body?.experiment || req.body || {}, req.body?.entityId), requestId: req.requestId }); }
+  catch (error) { return res.status(400).json(errorBody(error.code || "EXPERIMENT_ASSIGN_FAILED", error.message || "Experiment assignment failed", req.requestId)); }
+});
+
+app.post("/api/revenue/experiment/analyze", requireApiKey, leadRateLimit, (req, res) => {
+  try { const { analyzeExperiment } = require("./experiment-engine"); return res.json({ ok: true, analysis: analyzeExperiment(req.body?.records || []), requestId: req.requestId }); }
+  catch (error) { return res.status(400).json(errorBody(error.code || "EXPERIMENT_ANALYZE_FAILED", error.message || "Experiment analysis failed", req.requestId)); }
+});
+
 app.post("/api/revenue/rca", requireApiKey, leadRateLimit, (req, res) => {
   try {
     const body = req.body || {};
