@@ -11,6 +11,7 @@ function normalizeOutcome(input) {
 
 function evaluateAttribution(outcome, baselineConversionProbability, policy) {
   const o = normalizeOutcome(outcome || {});
+  if (o.status === "REFUNDED" && o.revenueKZT > 0) return Object.assign({}, o, { attributionStatus: "REVERSAL", incrementalShare: 1, attributableRevenueKZT: -o.revenueKZT, attributableGrossProfitKZT: -o.realizedGrossProfitKZT, reason: "REVENUE_REVERSAL_EVENT" });
   if (o.status !== "WON" || o.revenueKZT <= 0) return Object.assign({}, o, { attributionStatus: "NONE", attributableRevenueKZT: 0, attributableGrossProfitKZT: 0 });
   const baseline = Math.min(1, Math.max(0, Number(baselineConversionProbability || 0)));
   const mode = String(policy || "ASSISTED").toUpperCase();
