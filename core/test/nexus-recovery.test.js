@@ -60,7 +60,7 @@ test("invalid patch is rejected before policy execution", () => {
     proposal: { diff: "not a unified diff" }
   });
   assert.equal(result.decision, "BLOCK");
-  assert.equal(result.reason, "PATCH_HUNK_REQUIRED");
+  assert.equal(result.reason, "PATCH_FILE_REQUIRED");
 });
 
 test("critical patch stays blocked until its policy gate evidence exists", () => {
