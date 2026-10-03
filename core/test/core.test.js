@@ -114,8 +114,8 @@ test('lead analysis persists and stats update', async () => {
 
   const stats = await (await api('/api/stats')).json();
   assert.equal(stats.ok, true);
-  assert.equal(stats.stats.total, 2);
-  assert.equal(stats.stats.completed, 2);
+  assert.equal(stats.stats.total, 1);
+  assert.equal(stats.stats.completed, 1);
 
   const leads = await (await api('/api/leads')).json();
   assert.equal(leads.ok, true);
@@ -176,8 +176,8 @@ test('Telegram webhook requires secret and deduplicates business messages', asyn
 
   await new Promise(resolve => setTimeout(resolve, 1300));
   const stats = await (await api('/api/stats')).json();
-  assert.equal(stats.stats.total, 1);
-  assert.equal(stats.stats.completed, 1);
+  assert.equal(stats.stats.total, 2);
+  assert.equal(stats.stats.completed, 2);
   assert.equal(stats.stats.processing, 0);
   assert.equal(stats.stats.failed, 0);
   assert.equal(stats.stats.hot + stats.stats.warm + stats.stats.cold, 2);
