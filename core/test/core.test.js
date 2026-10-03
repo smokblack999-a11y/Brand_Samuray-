@@ -195,6 +195,11 @@ test('X27 revenue loop persists decision, attributes outcome and deduplicates ou
   assert.equal(summary.summary.outcomes, 1);
   assert.equal(summary.summary.attributableGrossProfitKZT, 150000);
   assert.equal(summary.summary.actualCostKZT, 5000);
+
+  const integrity = await (await api('/api/revenue/integrity', { headers: { 'X-Tenant-Id': 'pilot-1' } })).json();
+  assert.equal(integrity.ok, true);
+  assert.equal(integrity.integrity.ok, true);
+  assert.equal(integrity.integrity.records, 3);
 });
 test('unknown route returns JSON 404', async () => {
   const r = await fetch(`http://127.0.0.1:${port}/does-not-exist`);
