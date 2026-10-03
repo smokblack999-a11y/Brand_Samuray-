@@ -76,7 +76,7 @@ function evaluateRecovery(input = {}) {
     return {
       decision: "BLOCK",
       state: "BLOCKED",
-      reason: candidate.reason
+      reason: candidate.reason === "PATCH_FILE_REQUIRED" ? "PATCH_HUNK_REQUIRED" : candidate.reason
     };
   }
 
@@ -91,6 +91,18 @@ function evaluateRecovery(input = {}) {
     return {
       ...evaluation,
       candidateAccepted: true
+    };
+  }
+
+  if (evaluation.criticality === "HIGH") {
+    return {
+      decision: "BLOCK",
+      state: "BLOCKED",
+      reason: "CRITICAL_PATH_REQUIRES_DOWNSTREAM_EVIDENCE",
+      criticality: "HIGH",
+      requiredChecks: evaluation.requiredChecks || [],
+      candidateAccepted: true,
+      evaluationHash: evaluation.evaluationHash
     };
   }
 
