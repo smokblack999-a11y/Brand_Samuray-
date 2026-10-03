@@ -13,6 +13,7 @@ const { saveLead, claimEvent, updateLead, listLeads, stats } = require("./store"
 const { createRateLimiter } = require("./rate-limit");
 const dualAI = require("./dual-ai/engine");
 const revenueRuntime = require("./x27-runtime");
+const revenueIngest = require("./revenue-ingest");
 const { analyzeLeadLoss } = require("./x28-revenue-rca");
 
 const app = express();
@@ -191,6 +192,23 @@ app.post("/api/revenue/decision", requireApiKey, leadRateLimit, (req, res) => {
   try { const result = revenueRuntime.decide(revenueTenantId(req), req.body || {}); return res.status(201).json({ ok: true, ...result, requestId: req.requestId }); }
   catch (error) { const status = /required/.test(String(error.message || "")) ? 400 : 500; return res.status(status).json(errorBody(error.code || "REVENUE_DECISION_FAILED", status === 400 ? error.message : "Revenue decision failed", req.requestId)); }
 });
+app.post("/api/revenue/webhook/:provider", leadRateLimit, (req, res) => {
+  try {
+    const provider = String(req.params.provider || "external").trim().slice(0, 64);
+    const secret = String(process.env["REVENUE_WEBHOOK_SECRET_" + provider.toUpperCase()] || process.env.REVENUE_WEBHOOK_SECRET || "").trim();
+    if (!secret) return res.status(503).json(errorBody("REVENUE_WEBHOOK_NOT_CONFIGURED", "Revenue webhook secret is not configured", req.requestId));
+    if (!revenueIngest.verifySignature(secret, req.body || {}, req.get("X-Samurai-Signature"))) return res.status(401).json(errorBody("INVALID_REVENUE_SIGNATURE", "Invalid revenue webhook signature", req.requestId));
+    const event = revenueIngest.normalizeExternalEvent(Object.assign({}, req.body || {}, { provider }));
+    const tenantId = String(req.body?.tenantId || "").trim();
+    if (!tenantId) return res.status(400).json(errorBody("TENANT_REQUIRED", "tenantId is required", req.requestId));
+    const result = revenueRuntime.recordOutcome(tenantId, event);
+    return res.status(result.inserted ? 201 : 200).json({ ok: true, ...result, requestId: req.requestId });
+  } catch (error) {
+    const status = /required|Unsupported outcome|amountKZT/.test(String(error.message || "")) ? 400 : 500;
+    return res.status(status).json(errorBody(error.code || "REVENUE_WEBHOOK_FAILED", status === 400 ? error.message : "Revenue webhook failed", req.requestId));
+  }
+});
+
 app.post("/api/revenue/outcome", requireApiKey, leadRateLimit, (req, res) => {
   try { const result = revenueRuntime.recordOutcome(revenueTenantId(req), req.body || {}); return res.status(result.inserted ? 201 : 200).json({ ok: true, ...result, requestId: req.requestId }); }
   catch (error) { const status = /required|Unsupported outcome/.test(String(error.message || "")) ? 400 : 500; return res.status(status).json(errorBody(error.code || "REVENUE_OUTCOME_FAILED", status === 400 ? error.message : "Revenue outcome failed", req.requestId)); }
