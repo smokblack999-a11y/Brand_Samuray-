@@ -20,15 +20,6 @@ object Vault {
         return File(directory(context), "samurai_${System.currentTimeMillis()}.jpg")
     }
 
-    fun importPhoto(context: Context, uri: Uri): File {
-        val file = createPhotoFile(context)
-        context.contentResolver.openInputStream(uri).use { input ->
-            requireNotNull(input) { "Не удалось открыть изображение" }
-            file.outputStream().use { output -> input.copyTo(output) }
-        }
-        return file
-    }
-
     fun metadataFile(photo: File): File = File(photo.parentFile, "${photo.nameWithoutExtension}.json")
 
     fun saveMetadata(photo: File, latitude: Double?, longitude: Double?, accuracy: Float?, timestamp: Long) {
