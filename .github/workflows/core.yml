@@ -83,6 +83,7 @@ jobs:
           node --check budget-governor.js
           node --check experiment-engine.js
           node --check autonomous-revenue-loop.js
+          node --check revenue-rollout-policy.js
 
       - name: Unit tests
         run: npm test
