@@ -82,17 +82,12 @@ function evaluateRepair(job, proposal = {}) {
     actor: proposal.actor || "x10think"
   });
 
+  let proposedJob = nextState(job, "REPAIR_PROPOSED", {critic: evaluation});
   if (evaluation.decision === "BLOCK") {
-    return {
-      job: nextState(job, "CRITIC_BLOCKED", {critic: evaluation}),
-      evaluation
-    };
+    return { job: nextState(proposedJob, "CRITIC_BLOCKED", {critic: evaluation}), evaluation };
   }
 
-  return {
-    job: nextState(job, "SANDBOX_REQUIRED", {critic: evaluation}),
-    evaluation
-  };
+  return { job: nextState(proposedJob, "SANDBOX_REQUIRED", {critic: evaluation}), evaluation };
 }
 
 function recordSandbox(job, result) {
