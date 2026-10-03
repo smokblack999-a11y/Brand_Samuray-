@@ -1,0 +1,35 @@
+name: X10THINK Agent Control Plane
+
+on:
+  workflow_run:
+    workflows:
+      - "SamuraiOS Core CI"
+      - "SamuraiOS Core X22 CI"
+      - "Build SamuraiOS APK"
+    types: [completed]
+
+permissions:
+  contents: read
+
+jobs:
+  route:
+    if: github.event.workflow_run.conclusion != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Route signed workflow event
+        env:
+          AGENT_CONTROL_URL: ${{ secrets.X10THINK_RECOVERY_URL }}
+          WEBHOOK_SECRET: ${{ secrets.GITHUB_WEBHOOK_SECRET }}
+          PAYLOAD: ${{ toJSON(github.event) }}
+        run: |
+          set -euo pipefail
+          test -n "${AGENT_CONTROL_URL:-}"
+          test -n "${WEBHOOK_SECRET:-}"
+
+          signature="sha256=$(printf '%s' "${PAYLOAD}" | openssl dgst -sha256 -hmac "${WEBHOOK_SECRET}" -hex | sed 's/^.* //')"
+
+          code="$(curl -sS -o /tmp/agent-control.json -w '%{http_code}'             --connect-timeout 5 --max-time 20             -X POST "${AGENT_CONTROL_URL}/api/agent-control/github/webhook"             -H "Content-Type: application/json"             -H "X-GitHub-Event: workflow_run"             -H "X-GitHub-Delivery: workflow-run-${{ github.event.workflow_run.id }}"             -H "X-Hub-Signature-256: ${signature}"             --data "${PAYLOAD}")"
+
+          cat /tmp/agent-control.json
+          test "${code}" -ge 200 -a "${code}" -lt 300

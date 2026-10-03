@@ -11,6 +11,7 @@ const telegramCamera = require("./telegram-camera");
 const { saveLead, claimEvent, updateLead, listLeads, stats } = require("./store");
 const { createRateLimiter } = require("./rate-limit");
 const dualAI = require("./dual-ai/engine");
+const agentControl = require("./agent-control");
 
 const app = express();
 const PORT = Number(process.env.PORT || 8787);
@@ -32,7 +33,7 @@ if (process.env.NODE_ENV === "production") {
 app.disable("x-powered-by");
 app.set("trust proxy", process.env.TRUST_PROXY === "true" ? 1 : false);
 app.use(cors(CORS_ORIGIN ? { origin: CORS_ORIGIN } : { origin: false }));
-app.use(express.json({ limit: "16mb" }));
+app.use(express.json({ limit: "16mb", verify: (req, _res, buf) => { req.rawBody = Buffer.from(buf); } }));
 
 function errorBody(code, message, requestId) {
   return { ok: false, error: { code, message, requestId } };
@@ -96,6 +97,47 @@ app.get("/health/openai", requireApiKey, async (req, res) => {
 });
 app.get("/api/leads", requireApiKey, (req, res) => res.json({ ok: true, leads: listLeads(req.query.limit), requestId: req.requestId }));
 app.get("/api/stats", requireApiKey, (req, res) => res.json({ ok: true, stats: stats(), requestId: req.requestId }));
+
+app.get("/api/agent-control/health", requireApiKey, (_req, res) => res.json(agentControl.health()));
+
+app.get("/api/agent-control/jobs", requireApiKey, (req, res) => {
+  return res.json({ ok: true, jobs: agentControl.listJobs(req.query.limit), requestId: req.requestId });
+});
+
+app.get("/api/agent-control/jobs/:id", requireApiKey, (req, res) => {
+  const job = agentControl.getJob(req.params.id);
+  if (!job) return res.status(404).json(errorBody("AGENT_JOB_NOT_FOUND", "Agent-control job not found", req.requestId));
+  return res.json({ ok: true, job, requestId: req.requestId });
+});
+
+app.post("/api/agent-control/jobs/:id/diagnose", requireApiKey, (req, res) => {
+  try {
+    const job = agentControl.diagnose(agentControl.getJob(req.params.id), req.body || {});
+    return res.json({ ok: true, job, requestId: req.requestId });
+  } catch (error) {
+    const status = error.code === "JOB_NOT_FOUND" ? 404 : 400;
+    return res.status(status).json(errorBody(error.code || "AGENT_DIAGNOSIS_FAILED", error.message, req.requestId));
+  }
+});
+
+app.post("/api/agent-control/github/webhook", (req, res) => {
+  const secret = String(process.env.AGENT_CONTROL_WEBHOOK_SECRET || process.env.GITHUB_WEBHOOK_SECRET || "").trim();
+  const signature = req.get("X-Hub-Signature-256");
+  if (!secret) return res.status(503).json(errorBody("AGENT_CONTROL_WEBHOOK_NOT_CONFIGURED", "Agent-control webhook secret is not configured", req.requestId));
+  if (!agentControl.verifyGithubSignature(req.rawBody || Buffer.from(""), signature, secret)) {
+    return res.status(401).json(errorBody("INVALID_GITHUB_SIGNATURE", "Invalid GitHub webhook signature", req.requestId));
+  }
+
+  const event = req.get("X-GitHub-Event");
+  if (event !== "workflow_run") return res.status(202).json({ ok: true, ignored: true, event, requestId: req.requestId });
+
+  try {
+    const result = agentControl.ingestWorkflowRun(req.body || {}, req.get("X-GitHub-Delivery"));
+    return res.status(result.duplicate ? 200 : 202).json({ ok: true, ...result, requestId: req.requestId });
+  } catch (error) {
+    return res.status(400).json(errorBody(error.code || "AGENT_WEBHOOK_REJECTED", error.message, req.requestId));
+  }
+});
 
 app.get("/api/dual-ai/config", requireApiKey, (req, res) => res.json({ ok: true, config: dualAI.config(), requestId: req.requestId }));
 
