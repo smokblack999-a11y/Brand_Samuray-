@@ -3,6 +3,7 @@
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
+const { sealRecord, verifyEvidenceChain } = require("./revenue-black-box");
 
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, "data");
 const FILE = path.join(DATA_DIR, "revenue-ledger.json");
@@ -28,6 +29,11 @@ function write(rows) {
   fs.renameSync(tmp, FILE);
 }
 
+function lastTenantHash(rows, tenantId) {
+  for (let i = rows.length - 1; i >= 0; i--) if (rows[i].tenantId === tenantId) return rows[i].recordHash || null;
+  return null;
+}
+
 function hashId(prefix, value) {
   return prefix + "-" + crypto.createHash("sha256").update(String(value)).digest("hex").slice(0, 24);
 }
@@ -38,11 +44,7 @@ function appendOutcome(outcome) {
   const rows = read();
   const duplicate = rows.find(x => x.type === "OUTCOME" && x.tenantId === outcome.tenantId && x.eventId === outcome.eventId);
   if (duplicate) return { inserted: false, record: duplicate };
-  const record = Object.assign({
-    id: hashId("out", outcome.tenantId + ":" + outcome.eventId),
-    type: "OUTCOME",
-    createdAt: new Date().toISOString()
-  }, outcome);
+  const record = sealRecord(Object.assign({ id: hashId("out", outcome.tenantId + ":" + outcome.eventId), type: "OUTCOME", createdAt: new Date().toISOString() }, outcome), lastTenantHash(rows, outcome.tenantId));
   rows.push(record);
   write(rows);
   return { inserted: true, record };
@@ -54,7 +56,7 @@ function appendDecision(decision) {
   const rows = read();
   const duplicate = rows.find(x => x.type === "DECISION" && x.tenantId === decision.tenantId && x.decisionId === decision.decisionId);
   if (duplicate) return { inserted: false, record: duplicate };
-  const record = Object.assign({ type: "DECISION", createdAt: new Date().toISOString() }, decision);
+  const record = sealRecord(Object.assign({ type: "DECISION", createdAt: new Date().toISOString() }, decision), lastTenantHash(rows, decision.tenantId));
   rows.push(record);
   write(rows);
   return { inserted: true, record };
@@ -67,10 +69,21 @@ function appendLearning(learning) {
     ? rows.find(x => x.type === "LEARNING" && x.tenantId === learning.tenantId && x.decisionId === learning.decisionId)
     : null;
   if (duplicate) return { inserted: false, record: duplicate };
-  const record = Object.assign({ type: "LEARNING", createdAt: new Date().toISOString() }, learning);
+  const record = sealRecord(Object.assign({ type: "LEARNING", createdAt: new Date().toISOString() }, learning), lastTenantHash(rows, learning.tenantId));
   rows.push(record);
   write(rows);
   return { inserted: true, record };
+}
+
+function appendCost(cost) {
+  if (!cost || !cost.tenantId) throw new Error("tenantId is required");
+  if (!cost.costId) throw new Error("costId is required");
+  const rows = read();
+  const duplicate = rows.find(x => x.type === "COST" && x.tenantId === cost.tenantId && x.costId === cost.costId);
+  if (duplicate) return { inserted: false, record: duplicate };
+  const amountKZT = Math.max(0, Number(cost.amountKZT || 0));
+  const record = sealRecord(Object.assign({ type: "COST", createdAt: new Date().toISOString() }, cost, { amountKZT }), lastTenantHash(rows, cost.tenantId));
+  rows.push(record); write(rows); return { inserted: true, record };
 }
 
 function list(tenantId, type) {
@@ -83,7 +96,8 @@ function summary(tenantId) {
   const learning = rows.filter(x => x.type === "LEARNING");
   const revenueKZT = outcomes.reduce((s, x) => s + Number(x.attributableRevenueKZT || 0), 0);
   const grossProfitKZT = outcomes.reduce((s, x) => s + Number(x.attributableGrossProfitKZT || 0), 0);
-  const costKZT = learning.reduce((s, x) => s + Number(x.actualCostKZT || 0), 0);
+  const costs = rows.filter(x => x.type === "COST");
+  const costKZT = costs.reduce((s, x) => s + Number(x.amountKZT || 0), 0);
   const won = outcomes.filter(x => x.status === "WON").length;
   return {
     tenantId: tenantId || null,
@@ -93,8 +107,11 @@ function summary(tenantId) {
     attributableGrossProfitKZT: Math.round(grossProfitKZT),
     actualCostKZT: Math.round(costKZT),
     economicMultiple: costKZT > 0 ? Number((grossProfitKZT / costKZT).toFixed(2)) : null,
-    learningRecords: learning.length
+    learningRecords: learning.length,
+    costRecords: costs.length
   };
 }
 
-module.exports = { appendOutcome, appendDecision, appendLearning, list, summary };
+function integrity(tenantId) { const rows = read().filter(x => !tenantId || x.tenantId === tenantId); return verifyEvidenceChain(rows); }
+
+module.exports = { appendOutcome, appendDecision, appendLearning, appendCost, list, summary, integrity };
