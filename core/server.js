@@ -21,6 +21,7 @@ const PORT = Number(process.env.PORT || 8787);
 const API_KEY = String(process.env.CORE_API_KEY || "").trim();
 const WEBHOOK_SECRET = String(process.env.TELEGRAM_WEBHOOK_SECRET || "").trim();
 const STRICT_TENANT_AUTH = String(process.env.STRICT_TENANT_AUTH || "false").toLowerCase() === "true";
+const REVENUE_SHADOW_MODE = String(process.env.REVENUE_SHADOW_MODE || "false").toLowerCase() === "true";
 const MAX_MESSAGE_CHARS = Math.max(100, Math.min(Number(process.env.MAX_MESSAGE_CHARS || 4000), 10000));
 const CORS_ORIGIN = String(process.env.CORS_ORIGIN || "").trim();
 const REQUEST_TIMEOUT_MS = Math.max(5000, Number(process.env.REQUEST_TIMEOUT_MS || 30000));
@@ -415,8 +416,9 @@ app.post("/api/telegram/webhook", requireWebhookSecret, async (req, res) => {
        const revenueGate = String(process.env.REVENUE_AUTO_GATE || "false").toLowerCase() === "true";
        const action = revenueDecision.record.action || revenueDecision.record.recommendedAction;
        const allowedByRevenue = ["RESPOND", "FOLLOW_UP", "REACTIVATE"].includes(action);
+       const executionId = eventKey + ":execution";
        let killCritic = { verdict: revenueGate ? "FAIL" : "BYPASS", confidence: revenueGate ? 0 : 1, issues: [], required_changes: [], evidence_gaps: [] };
-       if (result.reply && autoReply && revenueGate && allowedByRevenue) {
+       if (result.reply && autoReply && revenueGate && allowedByRevenue && !REVENUE_SHADOW_MODE) {
          try {
            killCritic = await require("./dual-ai/critic").review({
              task: "Reply to a Telegram customer using only verified business facts. Do not invent prices, availability, discounts, delivery times or completed actions.",
@@ -428,10 +430,14 @@ app.post("/api/telegram/webhook", requireWebhookSecret, async (req, res) => {
            killCritic = { verdict: "FAIL", confidence: 1, issues: ["critic_unavailable"], required_changes: [], evidence_gaps: [criticError.message] };
          }
        }
-       updateLead(claim.item.id, { killCritic });
-       if (result.reply && autoReply && (!revenueGate || (allowedByRevenue && killCritic.verdict === "PASS"))) {
-         await sendBusinessMessage({ businessConnectionId: message.business_connection_id, chatId: message.chat.id, text: result.reply });
-       }
+       const sendAllowed = Boolean(result.reply && autoReply && !REVENUE_SHADOW_MODE && (!revenueGate || (allowedByRevenue && killCritic.verdict === "PASS")));
+       revenueRuntime.recordExecution("telegram:" + message.business_connection_id, {
+         executionId, decisionId: revenueDecision.record.decisionId, action, status: sendAllowed ? "SENT" : (REVENUE_SHADOW_MODE ? "SHADOWED" : "BLOCKED"),
+         channel: "telegram_business", chatId: message.chat.id, criticVerdict: killCritic.verdict,
+         revenueGate, shadowMode: REVENUE_SHADOW_MODE
+       });
+       updateLead(claim.item.id, { killCritic, execution: { executionId, status: sendAllowed ? "SENT" : (REVENUE_SHADOW_MODE ? "SHADOWED" : "BLOCKED"), shadowMode: REVENUE_SHADOW_MODE } });
+       if (sendAllowed) {
          await sendBusinessMessage({ businessConnectionId: message.business_connection_id, chatId: message.chat.id, text: result.reply });
        }
        } catch (error) {
