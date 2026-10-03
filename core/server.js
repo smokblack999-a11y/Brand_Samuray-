@@ -327,11 +327,28 @@ app.post("/api/telegram/webhook", requireWebhookSecret, async (req, res) => {
       return;
     }
     try {
-      const result = await analyze(message.text, process.env.BUSINESS_NAME);
-      const saved = updateLead(claim.item.id, { ...result.lead, reply: result.reply, status: "completed" });
-      console.log(JSON.stringify({ event: "lead", id: saved.id, chatId: message.chat.id, score: result.lead.score, intent: result.lead.intent, requestId: req.requestId }));
-      if (result.reply && String(process.env.AUTO_REPLY).toLowerCase() === "true") await sendBusinessMessage({ businessConnectionId: message.business_connection_id, chatId: message.chat.id, text: result.reply });
-    } catch (error) {
+             const result = await analyze(message.text, process.env.BUSINESS_NAME);
+       const revenueDecision = revenueRuntime.decide("telegram:" + message.business_connection_id, {
+         leadScore: result.lead.score,
+         intent: result.lead.intent,
+         dealValue: Number(process.env.DEFAULT_DEAL_VALUE_KZT || 200000),
+         grossMargin: Number(process.env.DEFAULT_GROSS_MARGIN || 0.30),
+         occurredAt: message.date ? new Date(Number(message.date) * 1000).toISOString() : new Date().toISOString(),
+         responseSlaBreached: false,
+         triggerRelevance: result.lead.intent === "hot" ? 0.8 : result.lead.intent === "warm" ? 0.5 : 0.2,
+         contactAllowed: true,
+         customerOptedOut: false
+       });
+       const saved = updateLead(claim.item.id, { ...result.lead, reply: result.reply, revenueDecision: revenueDecision.record, status: "completed" });
+       console.log(JSON.stringify({ event: "lead", id: saved.id, chatId: message.chat.id, score: result.lead.score, intent: result.lead.intent, action: revenueDecision.record.action, requestId: req.requestId }));
+       const autoReply = String(process.env.AUTO_REPLY).toLowerCase() === "true";
+       const revenueGate = String(process.env.REVENUE_AUTO_GATE || "false").toLowerCase() === "true";
+       const action = revenueDecision.record.action || revenueDecision.record.recommendedAction;
+       const allowedByRevenue = ["RESPOND", "FOLLOW_UP", "REACTIVATE"].includes(action);
+       if (result.reply && autoReply && (!revenueGate || allowedByRevenue)) {
+         await sendBusinessMessage({ businessConnectionId: message.business_connection_id, chatId: message.chat.id, text: result.reply });
+       }
+       } catch (error) {
       updateLead(claim.item.id, { status: "failed", error: error.message });
       throw error;
     }
