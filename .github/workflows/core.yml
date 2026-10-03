@@ -67,6 +67,9 @@ jobs:
           node --check revenue-engine.js
           node --check revenue-ledger.js
           node --check revenue-black-box.js
+          node --check revenue-control-plane.js
+          node --check cost-model.js
+          node --check revenue-postgres.js
           node --check probability-calibrator.js
           node --check x27-outcome-engine.js
           node --check x27-attribution-engine.js
