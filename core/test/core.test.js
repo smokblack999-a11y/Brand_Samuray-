@@ -9,6 +9,7 @@ const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'samurai-core-'));
 const port = 18000 + Math.floor(Math.random() * 1000);
 const API_KEY = 'test-core-api-key-123456';
 const WEBHOOK_SECRET = 'test-webhook-secret-123456';
+const MOBILE_ENROLLMENT_SECRET = 'test-mobile-enrollment-secret-123456';
 
 let child;
 
@@ -30,6 +31,7 @@ test.before(async () => {
       OPENAI_API_KEY: '',
       CORE_API_KEY: API_KEY,
       TELEGRAM_WEBHOOK_SECRET: WEBHOOK_SECRET,
+      MOBILE_ENROLLMENT_SECRET,
       MAX_MESSAGE_CHARS: '4000'
     },
     stdio: ['ignore', 'pipe', 'pipe']
@@ -147,7 +149,7 @@ test('Telegram webhook requires secret and deduplicates business messages', asyn
   });
   assert.equal(second.status, 200);
 
-  await new Promise(resolve => setTimeout(resolve, 100));
+  await new Promise(resolve => setTimeout(resolve, 1300));
   const stats = await (await api('/api/stats')).json();
   assert.equal(stats.stats.total, 2);
   assert.equal(stats.stats.completed, 2);
