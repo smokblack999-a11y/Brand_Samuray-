@@ -42,11 +42,17 @@ function evaluateLead(input = {}) {
     correlationId: text(input.correlationId, 256) || createCorrelationId("lead")
   });
 
-  const constrained = constrainDecision(decision.record, {
-    tenantId,
-    dailyBudgetKZT: positiveNumber(input.dailyBudgetKZT, Number(process.env.REVENUE_DAILY_BUDGET_KZT || 0)),
-    spentKZT: positiveNumber(input.spentKZT, 0)
-  });
+  const monthlyBudgetKZT = positiveNumber(
+    input.monthlyBudgetKZT,
+    Number(process.env.REVENUE_MONTHLY_BUDGET_KZT || 0)
+  );
+  const constrained = monthlyBudgetKZT > 0
+    ? constrainDecision(decision.record, {
+        tenantId,
+        monthlyBudgetKZT,
+        usedKZT: positiveNumber(input.spentKZT, 0)
+      })
+    : decision.record;
 
   return {
     correlationId: decision.record.correlationId || input.correlationId || null,
