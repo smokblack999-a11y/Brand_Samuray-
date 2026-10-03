@@ -9,13 +9,13 @@ function tenant(id){const v=String(id||"").trim();if(!v)throw new Error("tenantI
 function historicalStats(t){return buildActionStats(ledger.list(t,"LEARNING"));}
 function decide(tenantId,input){const t=tenant(tenantId);const d=chooseNextAction(Object.assign({},input||{},{historicalStats:historicalStats(t)}));d.tenantId=t;return ledger.appendDecision(d);}
 function recordOutcome(tenantId,input){
-  const t=tenant(tenantId); const raw=Object.assign({},input||{}); const eventId=String(raw.eventId||\"\").trim(); if(!eventId) throw new Error(\"eventId is required\");
-  let decision=null; if(raw.actionId) decision=ledger.list(t,\"DECISION\").find(x=>x.decisionId===raw.actionId)||null;
+  const t=tenant(tenantId); const raw=Object.assign({},input||{}); const eventId=String(raw.eventId||"").trim(); if(!eventId) throw new Error("eventId is required");
+  let decision=null; if(raw.actionId) decision=ledger.list(t,"DECISION").find(x=>x.decisionId===raw.actionId)||null;
   const safe=Object.assign({},raw,{tenantId:t,eventId});
   if(safe.grossMarginRate==null && decision && decision.grossMargin!=null) safe.grossMarginRate=decision.grossMargin;
   const o=normalizeOutcome(safe);
   const baseline=Number(raw.baselineConversionProbability!=null?raw.baselineConversionProbability:(decision&&decision.baselineConversionProbability)||0);
-  const attribution=evaluateAttribution(o,baseline,raw.attributionPolicy||\"ASSISTED\");
+  const attribution=evaluateAttribution(o,baseline,raw.attributionPolicy||"ASSISTED");
   const storedOutcome=Object.assign({},o,attribution);
   const saved=ledger.appendOutcome(storedOutcome); if(!saved.inserted) return {inserted:false,outcome:saved.record,attribution:null,learning:null};
   let costRecord=null; if(Number(raw.actualCostKZT||0)>0){ costRecord=ledger.appendCost({tenantId:t,costId:String(raw.costId||o.eventId+":execution"),decisionId:o.actionId||null,provider:raw.provider||null,model:raw.model||null,amountKZT:Number(raw.actualCostKZT||0),inputTokens:Number(raw.inputTokens||0),outputTokens:Number(raw.outputTokens||0),currency:raw.currency||"KZT"}).record; }
