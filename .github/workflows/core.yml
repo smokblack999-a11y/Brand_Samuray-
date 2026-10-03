@@ -64,6 +64,12 @@ jobs:
           node --check dual-ai/critic.js
           node --check dual-ai/store.js
           node --check dual-ai/engine.js
+          node --check revenue-engine.js
+          node --check revenue-ledger.js
+          node --check probability-calibrator.js
+          node --check x27-outcome-engine.js
+          node --check x27-attribution-engine.js
+          node --check x27-runtime.js
 
       - name: Unit tests
         run: npm test
