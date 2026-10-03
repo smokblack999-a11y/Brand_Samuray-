@@ -348,6 +348,7 @@ app.post("/api/telegram/webhook", requireWebhookSecret, async (req, res) => {
          customerOptedOut: false
        });
        const saved = updateLead(claim.item.id, { ...result.lead, reply: result.reply, revenueDecision: revenueDecision.record, status: "completed" });
+       if (result.aiTelemetry) revenueRuntime.recordExecutionCost("telegram:" + message.business_connection_id, revenueDecision.record.decisionId, eventKey + ":ai", result.aiTelemetry);
        console.log(JSON.stringify({ event: "lead", id: saved.id, chatId: message.chat.id, score: result.lead.score, intent: result.lead.intent, action: revenueDecision.record.action, requestId: req.requestId }));
        const autoReply = String(process.env.AUTO_REPLY).toLowerCase() === "true";
        const revenueGate = String(process.env.REVENUE_AUTO_GATE || "false").toLowerCase() === "true";
