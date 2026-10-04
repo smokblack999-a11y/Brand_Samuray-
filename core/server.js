@@ -670,7 +670,17 @@ app.post("/api/telegram/webhook", requireWebhookSecret, async (req, res) => {
 
 app.use((req, res) => res.status(404).json(errorBody("NOT_FOUND", "Endpoint not found", req.requestId)));
 
-const server = app.listen(PORT, "0.0.0.0", () => console.log(`SamuraiOS Core 2.8.0 listening on :${PORT}`));
+const server = app.listen(PORT, "0.0.0.0", () => {
+  console.log(`SamuraiOS Core 2.8.0 listening on :${PORT}`);
+  try {
+    const discovery = apolloRevenue.startAutonomousDiscovery({
+      tenantId: String(process.env.TENANT_ID || "default").trim().slice(0, 128) || "default"
+    });
+    if (discovery.started) console.log(JSON.stringify({ event: "apollo_autodiscovery_started", ...discovery }));
+  } catch (error) {
+    console.error(JSON.stringify({ event: "apollo_autodiscovery_start_failed", error: error.message }));
+  }
+});
 server.requestTimeout = REQUEST_TIMEOUT_MS;
 server.headersTimeout = REQUEST_TIMEOUT_MS + 5000;
 
