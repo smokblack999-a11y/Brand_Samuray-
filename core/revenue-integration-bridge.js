@@ -22,7 +22,9 @@ function providerConfig() {
     stripe: Boolean(process.env.STRIPE_SECRET_KEY),
     hubspot: Boolean(process.env.HUBSPOT_ACCESS_TOKEN),
     posthog: Boolean(process.env.POSTHOG_API_KEY),
+    apollo: Boolean(process.env.APOLLO_API_KEY),
     apolloInbound: Boolean(process.env.APOLLO_INGEST_SECRET),
+    apolloAutodiscovery: envBool("APOLLO_AUTODISCOVERY_ENABLED", false),
     enabled: envBool("REVENUE_INTEGRATIONS_ENABLED", false)
   };
 }
