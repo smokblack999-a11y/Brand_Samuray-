@@ -24,7 +24,21 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: samurai
+          POSTGRES_PASSWORD: samurai_ci
+          POSTGRES_DB: samurai_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U samurai -d samurai_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     defaults:
       run:
         working-directory: core
@@ -85,9 +99,20 @@ jobs:
           node --check autonomous-revenue-loop.js
           node --check autonomous-revenue-orchestrator.js
           node --check revenue-rollout-policy.js
+          node --check x33-economic-consistency.js
+          node --check x33-economic-consistency.test.js
+          node --check x33-adversarial.test.js
 
       - name: Unit tests
         run: npm test
+
+      - name: Install X33 PostgreSQL test driver
+        run: npm install --no-save --package-lock=false pg@8.23.1
+
+      - name: X33 PostgreSQL adversarial tests
+        env:
+          DATABASE_URL: postgresql://samurai:samurai_ci@localhost:5432/samurai_ci
+        run: node --test x33-adversarial.test.js
 
   openai-smoke:
     if: github.event_name != 'pull_request'
