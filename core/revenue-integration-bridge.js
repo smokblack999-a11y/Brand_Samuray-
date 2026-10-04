@@ -92,7 +92,7 @@ async function syncHubSpotContact(lead = {}) {
   });
 }
 
-async function createStripeCheckout({ amountMinor, currency, productName, correlationId, tenantId }) {
+async function createStripeCheckout({ amountMinor, currency, productName, correlationId, tenantId, decisionId }) {
   if (!process.env.STRIPE_SECRET_KEY) return { skipped: true, reason: "STRIPE_NOT_CONFIGURED" };
   const amount = Number(amountMinor);
   if (!Number.isInteger(amount) || amount <= 0) {
@@ -114,6 +114,10 @@ async function createStripeCheckout({ amountMinor, currency, productName, correl
   form.set("cancel_url", cancelUrl);
   if (tenantId) form.set("metadata[tenant_id]", clean(tenantId, 128));
   if (correlationId) form.set("metadata[correlation_id]", clean(correlationId, 256));
+  if (decisionId) form.set("metadata[decision_id]", clean(decisionId, 256));
+  if (tenantId) form.set("payment_intent_data[metadata][tenant_id]", clean(tenantId, 128));
+  if (correlationId) form.set("payment_intent_data[metadata][correlation_id]", clean(correlationId, 256));
+  if (decisionId) form.set("payment_intent_data[metadata][decision_id]", clean(decisionId, 256));
 
   return requestJson("https://api.stripe.com/v1/checkout/sessions", {
     method: "POST",
