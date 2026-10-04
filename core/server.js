@@ -17,6 +17,7 @@ const revenueIngest = require("./revenue-ingest");
 const { analyzeLeadLoss } = require("./x28-revenue-rca");
 const { policy: revenueRolloutPolicy } = require("./revenue-rollout-policy");
 const autonomousRevenueLoop = require("./autonomous-revenue-loop");
+const revenueBridge = require("./revenue-integration-bridge");
 
 const app = express();
 const PORT = Number(process.env.PORT || 8787);
@@ -150,6 +151,56 @@ app.get("/api/revenue/executions", requireApiKey, (req, res) => {
   try { return res.json({ ok: true, executions: revenueRuntime.list(revenueTenantId(req), "EXECUTION"), requestId: req.requestId }); }
   catch (error) { return res.status(500).json(errorBody(error.code || "REVENUE_EXECUTIONS_FAILED", "Revenue executions failed", req.requestId)); }
 });
+app.get("/api/integrations/status", requireApiKey, (req, res) => {
+  return res.json({ ok: true, integrations: revenueBridge.providerConfig(), requestId: req.requestId });
+});
+
+app.post("/api/integrations/lead/sync", requireApiKey, leadRateLimit, async (req, res) => {
+  try {
+    const tenantId = revenueTenantId(req);
+    const result = await revenueBridge.syncLead({
+      lead: req.body?.lead || req.body || {},
+      tenantId,
+      correlationId: req.body?.correlationId || req.requestId
+    });
+    return res.status(200).json({ ok: true, ...result, requestId: req.requestId });
+  } catch (error) {
+    return res.status(502).json(errorBody(error.code || "REVENUE_LEAD_SYNC_FAILED", "Revenue lead sync failed", req.requestId));
+  }
+});
+
+app.post("/api/integrations/checkout", requireApiKey, leadRateLimit, async (req, res) => {
+  try {
+    const tenantId = revenueTenantId(req);
+    const session = await revenueBridge.createStripeCheckout({
+      amountMinor: req.body?.amountMinor,
+      currency: req.body?.currency,
+      productName: req.body?.productName,
+      correlationId: req.body?.correlationId || req.requestId,
+      tenantId
+    });
+    return res.status(201).json({ ok: true, session, requestId: req.requestId });
+  } catch (error) {
+    const status = /required|must be/i.test(String(error.message || "")) ? 400 : 502;
+    return res.status(status).json(errorBody(error.code || "STRIPE_CHECKOUT_FAILED", status === 400 ? error.message : "Stripe checkout failed", req.requestId));
+  }
+});
+
+app.post("/api/integrations/event", requireApiKey, leadRateLimit, async (req, res) => {
+  try {
+    const tenantId = revenueTenantId(req);
+    const result = await revenueBridge.recordRevenueEvent({
+      type: req.body?.type,
+      tenantId,
+      correlationId: req.body?.correlationId || req.requestId,
+      payload: req.body?.payload || {}
+    });
+    return res.status(200).json({ ok: true, ...result, requestId: req.requestId });
+  } catch (error) {
+    return res.status(502).json(errorBody(error.code || "POSTHOG_EVENT_FAILED", "Revenue event dispatch failed", req.requestId));
+  }
+});
+
 app.get("/api/revenue/summary", requireApiKey, (req, res) => {
   try { return res.json({ ok: true, summary: revenueRuntime.summary(revenueTenantId(req)), requestId: req.requestId }); }
   catch (error) { return res.status(500).json(errorBody(error.code || "REVENUE_SUMMARY_FAILED", "Revenue summary failed", req.requestId)); }
