@@ -66,6 +66,13 @@ async function capturePostHog({ event, distinctId, properties = {} }) {
   });
 }
 
+async function hubspotHeaders() {
+  return {
+    "Authorization": `Bearer ${process.env.HUBSPOT_ACCESS_TOKEN}`,
+    "Content-Type": "application/json"
+  };
+}
+
 async function syncHubSpotContact(lead = {}) {
   if (!process.env.HUBSPOT_ACCESS_TOKEN) return { skipped: true, reason: "HUBSPOT_NOT_CONFIGURED" };
   const properties = {};
@@ -79,20 +86,97 @@ async function syncHubSpotContact(lead = {}) {
   })) {
     if (value != null && String(value).trim()) properties[key] = clean(value, 512);
   }
-  if (!properties.email && !properties.company) {
-    throw Object.assign(new Error("email or company is required"), { code: "HUBSPOT_LEAD_IDENTITY_REQUIRED" });
+  if (!properties.email) {
+    return { skipped: true, reason: "HUBSPOT_EMAIL_REQUIRED" };
   }
+
+  const headers = await hubspotHeaders();
+  const search = await requestJson("https://api.hubapi.com/crm/v3/objects/contacts/search", {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      filterGroups: [{ filters: [{ propertyName: "email", operator: "EQ", value: properties.email }] }],
+      properties: Object.keys(properties),
+      limit: 1
+    })
+  });
+
+  const existing = Array.isArray(search?.results) && search.results.length ? search.results[0] : null;
+  if (existing?.id) {
+    return requestJson(`https://api.hubapi.com/crm/v3/objects/contacts/${encodeURIComponent(existing.id)}`, {
+      method: "PATCH",
+      headers,
+      body: JSON.stringify({ properties })
+    });
+  }
+
   return requestJson("https://api.hubapi.com/crm/v3/objects/contacts", {
     method: "POST",
-    headers: {
-      "Authorization": `Bearer ${process.env.HUBSPOT_ACCESS_TOKEN}`,
-      "Content-Type": "application/json"
-    },
+    headers,
     body: JSON.stringify({ properties })
   });
 }
 
-async function createStripeCheckout({ amountMinor, currency, productName, correlationId, tenantId, decisionId }) {
+async function syncHubSpotDeal({
+  dealName,
+  amountKZT,
+  closedAt,
+  tenantId,
+  correlationId,
+  decisionId
+} = {}) {
+  if (!process.env.HUBSPOT_ACCESS_TOKEN) return { skipped: true, reason: "HUBSPOT_NOT_CONFIGURED" };
+  const name = clean(dealName || "SamuraiOS Revenue", 250);
+  const amount = Number(amountKZT);
+  if (!name || !Number.isFinite(amount) || amount < 0) {
+    throw Object.assign(new Error("dealName and non-negative amountKZT are required"), { code: "HUBSPOT_DEAL_DATA_REQUIRED" });
+  }
+
+  const pipeline = clean(process.env.HUBSPOT_DEAL_PIPELINE || "default", 128);
+  const stage = clean(process.env.HUBSPOT_DEAL_STAGE_WON || "closedwon", 128);
+  const headers = await hubspotHeaders();
+  const properties = {
+    dealname: name,
+    amount: String(Math.round(amount)),
+    pipeline,
+    dealstage: stage,
+    closedate: closedAt || new Date().toISOString()
+  };
+
+  const search = await requestJson("https://api.hubapi.com/crm/v3/objects/deals/search", {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      filterGroups: [{ filters: [{ propertyName: "dealname", operator: "EQ", value: name }] }],
+      properties: ["dealname", "amount", "pipeline", "dealstage", "closedate"],
+      limit: 1
+    })
+  });
+
+  const existing = Array.isArray(search?.results) && search.results.length ? search.results[0] : null;
+  const result = existing?.id
+    ? await requestJson(`https://api.hubapi.com/crm/v3/objects/deals/${encodeURIComponent(existing.id)}`, {
+        method: "PATCH",
+        headers,
+        body: JSON.stringify({ properties })
+      })
+    : await requestJson("https://api.hubapi.com/crm/v3/objects/deals", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ properties })
+      });
+
+  return {
+    ...result,
+    _samurai: {
+      tenant_id: clean(tenantId, 128),
+      correlation_id: clean(correlationId, 256),
+      decision_id: clean(decisionId, 256)
+    }
+  };
+}
+
+async function createStripeCheckout({ amountMinor, currency, productName, customerEmail, correlationId, tenantId, decisionId }) {
   if (!process.env.STRIPE_SECRET_KEY) return { skipped: true, reason: "STRIPE_NOT_CONFIGURED" };
   const amount = Number(amountMinor);
   if (!Number.isInteger(amount) || amount <= 0) {
@@ -110,6 +194,7 @@ async function createStripeCheckout({ amountMinor, currency, productName, correl
   form.set("line_items[0][price_data][currency]", clean(currency || process.env.STRIPE_CURRENCY || "usd", 3).toLowerCase());
   form.set("line_items[0][price_data][unit_amount]", String(amount));
   form.set("line_items[0][price_data][product_data][name]", clean(productName || "SamuraiOS", 250));
+  if (customerEmail && /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(String(customerEmail))) form.set("customer_email", clean(customerEmail, 320));
   form.set("success_url", successUrl);
   form.set("cancel_url", cancelUrl);
   if (tenantId) form.set("metadata[tenant_id]", clean(tenantId, 128));
@@ -165,6 +250,7 @@ async function recordRevenueEvent({ type, tenantId, correlationId, payload = {} 
 module.exports = {
   providerConfig,
   syncLead,
+  syncHubSpotDeal,
   recordRevenueEvent,
   createStripeCheckout,
   capturePostHog
