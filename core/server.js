@@ -18,6 +18,7 @@ const { analyzeLeadLoss } = require("./x28-revenue-rca");
 const { policy: revenueRolloutPolicy } = require("./revenue-rollout-policy");
 const autonomousRevenueLoop = require("./autonomous-revenue-loop");
 const revenueBridge = require("./revenue-integration-bridge");
+const stripeWebhook = require("./stripe-webhook");
 
 const app = express();
 const PORT = Number(process.env.PORT || 8787);
@@ -41,7 +42,12 @@ if (process.env.NODE_ENV === "production") {
 app.disable("x-powered-by");
 app.set("trust proxy", process.env.TRUST_PROXY === "true" ? 1 : false);
 app.use(cors(CORS_ORIGIN ? { origin: CORS_ORIGIN } : { origin: false }));
-app.use(express.json({ limit: "16mb" }));
+app.use(express.json({
+  limit: "16mb",
+  verify: (req, _res, buf) => {
+    if (req.path === "/api/integrations/stripe/webhook") req.rawBody = Buffer.from(buf);
+  }
+}));
 
 function errorBody(code, message, requestId) {
   return { ok: false, error: { code, message, requestId } };
@@ -102,6 +108,10 @@ app.use((req, res, next) => {
 });
 
 const leadRateLimit = createRateLimiter({ windowMs: LEAD_RATE_LIMIT_WINDOW_MS, max: LEAD_RATE_LIMIT_MAX });
+const stripeWebhookRateLimit = createRateLimiter({
+  windowMs: Math.max(1000, Number(process.env.STRIPE_WEBHOOK_RATE_LIMIT_WINDOW_MS || 60000)),
+  max: Math.max(10, Number(process.env.STRIPE_WEBHOOK_RATE_LIMIT_MAX || 300))
+});
 const dualRateLimit = createRateLimiter({ windowMs: Math.max(1000, Number(process.env.DUAL_AI_RATE_LIMIT_WINDOW_MS || 60000)), max: Math.max(1, Number(process.env.DUAL_AI_RATE_LIMIT_MAX || 10)) });
 app.use("/dual-ai", express.static(path.join(__dirname, "dual-ai", "public"), { index: "index.html" }));
 
@@ -151,6 +161,69 @@ app.get("/api/revenue/executions", requireApiKey, (req, res) => {
   try { return res.json({ ok: true, executions: revenueRuntime.list(revenueTenantId(req), "EXECUTION"), requestId: req.requestId }); }
   catch (error) { return res.status(500).json(errorBody(error.code || "REVENUE_EXECUTIONS_FAILED", "Revenue executions failed", req.requestId)); }
 });
+app.post("/api/integrations/stripe/webhook", stripeWebhookRateLimit, async (req, res) => {
+  try {
+    const secret = String(process.env.STRIPE_WEBHOOK_SECRET || "").trim();
+    if (!secret) return res.status(503).json(errorBody("STRIPE_WEBHOOK_NOT_CONFIGURED", "Stripe webhook secret is not configured", req.requestId));
+
+    const valid = stripeWebhook.verifySignature(
+      req.rawBody,
+      req.get("Stripe-Signature"),
+      secret,
+      Math.max(0, Number(process.env.STRIPE_WEBHOOK_TOLERANCE_SEC || 300))
+    );
+    if (!valid) return res.status(401).json(errorBody("INVALID_STRIPE_SIGNATURE", "Invalid Stripe webhook signature", req.requestId));
+
+    const normalized = stripeWebhook.normalizeStripeEvent(req.body || {}, {
+      defaultTenantId: process.env.STRIPE_WEBHOOK_DEFAULT_TENANT_ID || process.env.TENANT_ID || "default",
+      grossMarginRate: Number(process.env.DEFAULT_GROSS_MARGIN || 0)
+    });
+    if (normalized.ignored) {
+      return res.status(200).json({ ok: true, ignored: true, reason: normalized.reason, eventId: normalized.eventId, eventType: normalized.eventType, requestId: req.requestId });
+    }
+
+    const result = revenueRuntime.recordOutcome(normalized.tenantId, normalized);
+
+    try {
+      await revenueBridge.recordRevenueEvent({
+        type: `revenue_stripe_${normalized.status.toLowerCase()}`,
+        tenantId: normalized.tenantId,
+        correlationId: normalized.correlationId || normalized.eventId,
+        payload: {
+          stripe_event_id: normalized.eventId,
+          stripe_event_type: normalized.eventType,
+          status: normalized.status,
+          revenue_kzt: normalized.revenueKZT,
+          currency: normalized.currency,
+          decision_id: normalized.actionId || null
+        }
+      });
+    } catch (analyticsError) {
+      console.error(JSON.stringify({
+        event: "stripe_posthog_dispatch_failed",
+        requestId: req.requestId,
+        stripeEventId: normalized.eventId,
+        error: analyticsError.message
+      }));
+    }
+
+    return res.status(result.inserted ? 201 : 200).json({
+      ok: true,
+      inserted: result.inserted,
+      eventId: normalized.eventId,
+      eventType: normalized.eventType,
+      outcome: result.outcome,
+      learning: result.learning || null,
+      requestId: req.requestId
+    });
+  } catch (error) {
+    const code = error.code || "STRIPE_WEBHOOK_FAILED";
+    const status = code === "STRIPE_FX_RATE_REQUIRED" ? 400 : (code === "STRIPE_WEBHOOK_NOT_CONFIGURED" ? 503 : 400);
+    console.error(JSON.stringify({ event: "stripe_webhook_error", requestId: req.requestId, code, error: error.message }));
+    return res.status(status).json(errorBody(code, status === 400 ? error.message : "Stripe webhook failed", req.requestId));
+  }
+});
+
 app.get("/api/integrations/status", requireApiKey, (req, res) => {
   return res.json({ ok: true, integrations: revenueBridge.providerConfig(), requestId: req.requestId });
 });
@@ -177,6 +250,7 @@ app.post("/api/integrations/checkout", requireApiKey, leadRateLimit, async (req,
       currency: req.body?.currency,
       productName: req.body?.productName,
       correlationId: req.body?.correlationId || req.requestId,
+      decisionId: req.body?.decisionId,
       tenantId
     });
     return res.status(201).json({ ok: true, session, requestId: req.requestId });
