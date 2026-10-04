@@ -272,11 +272,80 @@ async function discoverAndQualify({
   };
 }
 
+function parseFilters(raw) {
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+  } catch (_error) {
+    return {};
+  }
+}
+
+let autonomousTimer = null;
+let autonomousBusy = false;
+
+function startAutonomousDiscovery({ tenantId = "default" } = {}) {
+  if (String(process.env.APOLLO_AUTODISCOVERY_ENABLED || "false").toLowerCase() !== "true") {
+    return { enabled: false, started: false, reason: "APOLLO_AUTODISCOVERY_DISABLED" };
+  }
+
+  if (autonomousTimer) return { enabled: true, started: true, reused: true };
+
+  const intervalMs = Math.max(
+    15 * 60 * 1000,
+    Number(process.env.APOLLO_DISCOVERY_INTERVAL_MS || 6 * 60 * 60 * 1000)
+  );
+  const filters = parseFilters(process.env.APOLLO_DISCOVERY_FILTERS_JSON);
+  const maxProspects = Number(process.env.APOLLO_DISCOVERY_MAX_PROSPECTS || 5);
+
+  const run = async () => {
+    if (autonomousBusy) return;
+    autonomousBusy = true;
+    try {
+      const result = await discoverAndQualify({
+        tenantId,
+        filters,
+        maxProspects,
+        enrich: true,
+        dealValueKZT: Number(process.env.DEFAULT_DEAL_VALUE_KZT || 200000),
+        grossMarginRate: Number(process.env.DEFAULT_GROSS_MARGIN || 0.30)
+      });
+      console.log(JSON.stringify({
+        event: "apollo_autonomous_discovery",
+        discovered: result.discovered || 0,
+        enriched: result.enriched || 0,
+        prospects: result.prospects?.length || 0
+      }));
+    } catch (error) {
+      console.error(JSON.stringify({
+        event: "apollo_autonomous_discovery_failed",
+        code: error.code || null,
+        error: error.message
+      }));
+    } finally {
+      autonomousBusy = false;
+    }
+  };
+
+  autonomousTimer = setInterval(run, intervalMs);
+  autonomousTimer.unref();
+  return { enabled: true, started: true, intervalMs };
+}
+
+function stopAutonomousDiscovery() {
+  if (autonomousTimer) clearInterval(autonomousTimer);
+  autonomousTimer = null;
+  return { stopped: true };
+}
+
 module.exports = {
   apolloConfig,
   searchPeople,
   enrichPeople,
   discoverAndQualify,
   qualifyPerson,
-  flattenPerson
+  flattenPerson,
+  startAutonomousDiscovery,
+  stopAutonomousDiscovery
 };
