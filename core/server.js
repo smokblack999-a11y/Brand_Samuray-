@@ -19,6 +19,7 @@ const { policy: revenueRolloutPolicy } = require("./revenue-rollout-policy");
 const autonomousRevenueLoop = require("./autonomous-revenue-loop");
 const revenueBridge = require("./revenue-integration-bridge");
 const stripeWebhook = require("./stripe-webhook");
+const apolloRevenue = require("./apollo-revenue-adapter");
 
 const app = express();
 const PORT = Number(process.env.PORT || 8787);
@@ -161,6 +162,25 @@ app.get("/api/revenue/executions", requireApiKey, (req, res) => {
   try { return res.json({ ok: true, executions: revenueRuntime.list(revenueTenantId(req), "EXECUTION"), requestId: req.requestId }); }
   catch (error) { return res.status(500).json(errorBody(error.code || "REVENUE_EXECUTIONS_FAILED", "Revenue executions failed", req.requestId)); }
 });
+app.post("/api/integrations/apollo/discover", requireApiKey, leadRateLimit, async (req, res) => {
+  try {
+    const tenantId = revenueTenantId(req);
+    const result = await apolloRevenue.discoverAndQualify({
+      tenantId,
+      filters: req.body?.filters || {},
+      maxProspects: req.body?.maxProspects,
+      enrich: req.body?.enrich !== false,
+      dealValueKZT: req.body?.dealValueKZT,
+      grossMarginRate: req.body?.grossMarginRate
+    });
+    return res.status(200).json({ ok: true, ...result, requestId: req.requestId });
+  } catch (error) {
+    const code = error.code || "APOLLO_DISCOVERY_FAILED";
+    console.error(JSON.stringify({ event: "apollo_discovery_failed", requestId: req.requestId, code, error: error.message }));
+    return res.status(502).json(errorBody(code, "Apollo discovery failed", req.requestId));
+  }
+});
+
 app.post("/api/integrations/stripe/webhook", stripeWebhookRateLimit, async (req, res) => {
   try {
     const secret = String(process.env.STRIPE_WEBHOOK_SECRET || "").trim();
