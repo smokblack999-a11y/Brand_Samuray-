@@ -184,6 +184,27 @@ app.post("/api/integrations/stripe/webhook", stripeWebhookRateLimit, async (req,
 
     const result = revenueRuntime.recordOutcome(normalized.tenantId, normalized);
 
+    let hubspotDeal = null;
+    if (normalized.status === "WON") {
+      try {
+        hubspotDeal = await revenueBridge.syncHubSpotDeal({
+          dealName: `SamuraiOS / ${normalized.externalReference || normalized.eventId}`,
+          amountKZT: normalized.revenueKZT,
+          closedAt: normalized.occurredAt,
+          tenantId: normalized.tenantId,
+          correlationId: normalized.correlationId || normalized.eventId,
+          decisionId: normalized.actionId
+        });
+      } catch (crmError) {
+        console.error(JSON.stringify({
+          event: "stripe_hubspot_deal_sync_failed",
+          requestId: req.requestId,
+          stripeEventId: normalized.eventId,
+          error: crmError.message
+        }));
+      }
+    }
+
     try {
       await revenueBridge.recordRevenueEvent({
         type: `revenue_stripe_${normalized.status.toLowerCase()}`,
@@ -214,6 +235,7 @@ app.post("/api/integrations/stripe/webhook", stripeWebhookRateLimit, async (req,
       eventType: normalized.eventType,
       outcome: result.outcome,
       learning: result.learning || null,
+      hubspotDeal,
       requestId: req.requestId
     });
   } catch (error) {
@@ -249,6 +271,7 @@ app.post("/api/integrations/checkout", requireApiKey, leadRateLimit, async (req,
       amountMinor: req.body?.amountMinor,
       currency: req.body?.currency,
       productName: req.body?.productName,
+      customerEmail: req.body?.customerEmail,
       correlationId: req.body?.correlationId || req.requestId,
       decisionId: req.body?.decisionId,
       tenantId
