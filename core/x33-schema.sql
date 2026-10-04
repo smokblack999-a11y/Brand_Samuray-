@@ -2,23 +2,23 @@
 -- Values are BIGINT micro-KZT: 1 KZT = 1,000,000 micro-KZT.
 -- PostgreSQL is the authoritative economic state.
 
-DO $
+DO $$
 BEGIN
   CREATE TYPE x33_autonomy_mode AS ENUM ('ACTIVE','TRIPPED','MANUAL_REVIEW','ARMED');
 EXCEPTION WHEN duplicate_object THEN NULL;
-END $;
+END $$;
 
-DO $
+DO $$
 BEGIN
   CREATE TYPE x33_reservation_status AS ENUM ('ACTIVE','SETTLED','SETTLED_WITH_OVERAGE','SETTLED_AFTER_EXPIRY','EXPIRED','OVERFLOW_REJECTED');
 EXCEPTION WHEN duplicate_object THEN NULL;
-END $;
+END $$;
 
-DO $
+DO $$
 BEGIN
   CREATE TYPE x33_ledger_operation AS ENUM ('RESERVE','SETTLE','SETTLE_OVERAGE','SETTLE_AFTER_EXPIRY','EXPIRE_RELEASE','WINDOW_ROLLOVER','RECONCILE_ADJUSTMENT');
 EXCEPTION WHEN duplicate_object THEN NULL;
-END $;
+END $$;
 
 CREATE TABLE IF NOT EXISTS tenant_control_state (
   tenant_id TEXT PRIMARY KEY,
