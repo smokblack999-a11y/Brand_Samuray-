@@ -14,6 +14,10 @@ on:
       - '.github/workflows/core.yml'
   workflow_dispatch:
 
+concurrency:
+  group: samurai-core-ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
@@ -64,6 +68,22 @@ jobs:
           node --check dual-ai/critic.js
           node --check dual-ai/store.js
           node --check dual-ai/engine.js
+          node --check revenue-engine.js
+          node --check revenue-ledger.js
+          node --check revenue-black-box.js
+          node --check revenue-control-plane.js
+          node --check cost-model.js
+          node --check revenue-postgres.js
+          node --check probability-calibrator.js
+          node --check x27-outcome-engine.js
+          node --check x27-attribution-engine.js
+          node --check x27-runtime.js
+          node --check x28-revenue-rca.js
+          node --check revenue-genome.js
+          node --check budget-governor.js
+          node --check experiment-engine.js
+          node --check autonomous-revenue-loop.js
+          node --check revenue-rollout-policy.js
 
       - name: Unit tests
         run: npm test

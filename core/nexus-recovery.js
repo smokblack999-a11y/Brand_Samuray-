@@ -94,6 +94,16 @@ function evaluateRecovery(input = {}) {
     };
   }
 
+  if (evaluation.criticality === "HIGH") {
+    return {
+      ...evaluation,
+      decision: "BLOCK",
+      state: "BLOCKED",
+      reason: "critical_change_requires_downstream_gates",
+      candidateAccepted: true
+    };
+  }
+
   return {
     ...evaluation,
     candidateAccepted: true,
