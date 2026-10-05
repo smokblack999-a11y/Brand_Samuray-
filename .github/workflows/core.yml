@@ -110,9 +110,9 @@ jobs:
           node --check x42-veto-audit.js
           node --check x42-veto-audit.test.js
 
-      - name: X39/X41 deterministic risk-control tests
+      - name: X39-X44 deterministic risk-control tests
         working-directory: core
-        run: go test -race ./x41 ./x39
+        run: go test -race ./...
 
       - name: Unit tests
         run: npm test
