@@ -48,3 +48,39 @@ test("ARMED is not a spending state",()=>{
   assert.deepEqual([...TRANSITIONS.ARMED],["ACTIVE"]);
   assert.equal(TRANSITIONS.ARMED.has("TRIPPED"),false);
 });
+
+test("settlement refuses signed BIGINT overflow",()=>{
+  assert.throws(
+    ()=>allocateSettlement({
+      limit:"9223372036854775807",
+      spent:"9223372036854775807",
+      committed:"0",
+      reserved:"1",
+      actual:"1",
+      wasExpired:false
+    }),
+    /BIGINT overflow/
+  );
+});
+
+test("autonomy transitions are a strict one-way recovery path",()=>{
+  assert.equal(TRANSITIONS.ACTIVE.has("MANUAL_REVIEW"),false);
+  assert.equal(TRANSITIONS.TRIPPED.has("ACTIVE"),false);
+  assert.equal(TRANSITIONS.MANUAL_REVIEW.has("ARMED"),true);
+  assert.equal(TRANSITIONS.ARMED.has("ACTIVE"),true);
+});
+
+test("overflow is bounded: authorized spend never exceeds remaining budget",()=>{
+  const r=allocateSettlement({
+    limit:"1000000",
+    spent:"999999",
+    committed:"1",
+    reserved:"1",
+    actual:"999999999999",
+    wasExpired:false
+  });
+  assert.equal(r.authorizedSpend,0n);
+  assert.equal(r.unbudgetedDelta,999999999999n);
+  assert.equal(r.newSpent,999999n);
+  assert.equal(r.newCommitted,0n);
+});
