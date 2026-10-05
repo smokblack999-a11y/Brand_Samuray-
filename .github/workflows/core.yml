@@ -107,6 +107,8 @@ jobs:
           node --check x33-economic-consistency.js
           node --check x33-economic-consistency.test.js
           node --check x33-adversarial.test.js
+          node --check x42-veto-audit.js
+          node --check x42-veto-audit.test.js
 
       - name: X39/X41 deterministic risk-control tests
         working-directory: core
@@ -122,6 +124,11 @@ jobs:
         env:
           DATABASE_URL: postgresql://samurai:samurai_ci@localhost:5432/samurai_ci
         run: node --test x33-adversarial.test.js
+
+      - name: X42 PostgreSQL veto audit tests
+        env:
+          DATABASE_URL: postgresql://samurai:samurai_ci@localhost:5432/samurai_ci
+        run: node --test x42-veto-audit.test.js
 
   openai-smoke:
     if: github.event_name != 'pull_request'
