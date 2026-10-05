@@ -26,7 +26,7 @@ func TestAdversarialPipelineVetoInterception(t *testing.T) {
 	policy := x41.Policy{
 		Version: 1, MaxLossPerAction: 10, DailyLossBudget: 20, MaxCapitalPerAction: 50,
 		StaleDataWindow: 30 * time.Second, MinProbability: 0.55, MinConfidence: 0.60,
-		MaxRiskScore: 0.80, KellyFractionCap: 0.25, MinRiskReward: 1.5,
+		MaxRiskScore: 0.80, MaxKellyFraction: 0.25, MinKellyFraction: 0.01, MinRiskReward: 1.5,
 	}
 	claim := x41.Claim{
 		ID: "alpha-99", ExpectedProfit: 50, MaxLoss: 5, CapitalReq: 10,

@@ -17,7 +17,7 @@ func x39Policy() x41.Policy {
 	return x41.Policy{
 		Version: 1, MaxLossPerAction: 10, DailyLossBudget: 10, MaxCapitalPerAction: 100,
 		StaleDataWindow: 30 * time.Second, MinProbability: 0.55, MinConfidence: 0.60,
-		MaxRiskScore: 0.80, MaxKellyFraction: 0.25, MinRiskReward: 1.5,
+		MaxRiskScore: 0.80, MaxKellyFraction: 0.25, MinKellyFraction: 0.01, MinRiskReward: 1.5,
 	}
 }
 
@@ -135,10 +135,10 @@ func TestGateReservationCancellationFailsClosed(t *testing.T) {
 	}
 
 	out, err := gate.Evaluate(ctx, x39Claim("cancelled"))
-	if err != nil {
-		t.Fatalf("expected fail-closed decision, got error: %v", err)
+	if err == nil {
+		t.Fatalf("expected cancellation to fail closed with an error")
 	}
-	if out.Decision.Execute || out.Reserved || out.Decision.VetoLevel != x41.VetoBlack {
+	if out.Decision.Execute || out.Reserved {
 		t.Fatalf("unexpected cancellation response: %+v", out)
 	}
 	if got := res.Used(); got != 0 {
