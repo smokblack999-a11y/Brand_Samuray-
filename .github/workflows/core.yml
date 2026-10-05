@@ -1,5 +1,6 @@
 name: SamuraiOS Core CI
 
+# CI verification refresh: run full core gate on x26-revenue-allocator.
 on:
   push:
     branches: [ "main", "master", "x26-revenue-allocator" ]
