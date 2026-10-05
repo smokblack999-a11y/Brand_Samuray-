@@ -31,6 +31,11 @@ test("X42 PostgreSQL audit is append-only and idempotent", { skip: !enabled }, a
     assert.equal(first.inserted, true);
     assert.equal(second.inserted, false);
 
+    await assert.rejects(
+      audit.append(pool, { ...record, reason: "TAMPERED" }),
+      /X42_IDEMPOTENCY_CONFLICT/
+    );
+
     const checked = await audit.integrity(pool, tenant);
     assert.equal(checked.ok, true);
     assert.equal(checked.records, 1);
