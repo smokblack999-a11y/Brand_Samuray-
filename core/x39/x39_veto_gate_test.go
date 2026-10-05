@@ -14,37 +14,24 @@ import (
 
 func x39Policy() x41.Policy {
 	return x41.Policy{
-		Version:             1,
-		MaxLossPerAction:    40,
-		DailyLossBudget:     100,
-		MaxCapitalPerAction: 100,
-		StaleDataWindow:     30 * time.Second,
-		MinProbability:      0.55,
-		MinConfidence:       0.60,
-		KellyFractionCap:    0.25,
-		MinRiskReward:       1.5,
+		Version: 1, MaxLossPerAction: 10, DailyLossBudget: 10, MaxCapitalPerAction: 100,
+		StaleDataWindow: 30 * time.Second, MinProbability: 0.55, MinConfidence: 0.60,
+		KellyFractionCap: 0.25, MinRiskReward: 1.5,
 	}
 }
 
 func x39Claim(id string) x41.Claim {
 	return x41.Claim{
-		ID:             id,
-		ExpectedProfit: 120,
-		MaxLoss:        40,
-		CapitalReq:     60,
-		Probability:    0.9,
-		Confidence:     0.9,
-		DataTimestamp:  time.Unix(1000, 0),
-		PolicyVersion:  1,
+		ID: id, ExpectedProfit: 30, MaxLoss: 10, CapitalReq: 60,
+		Probability: 0.9, Confidence: 0.9, DataTimestamp: time.Unix(1000, 0), PolicyVersion: 1,
 	}
 }
 
 func TestGateConcurrentBudgetCannotBeOverReserved(t *testing.T) {
-	res := NewInMemoryReservation(40)
+	res := NewInMemoryReservation(2)
 	gate := Gate{
-		Policy:    x39Policy(),
-		Reserve:   res,
-		Now:       func() time.Time { return time.Unix(1001, 0) },
+		Policy: x39Policy(), Reserve: res,
+		Now: func() time.Time { return time.Unix(1001, 0) },
 		DailyLoss: func(context.Context) (int64, error) { return 0, nil },
 	}
 
@@ -75,20 +62,27 @@ func TestGateConcurrentBudgetCannotBeOverReserved(t *testing.T) {
 		}
 	}
 	if executed != 1 {
-		t.Fatalf("expected exactly one execution under a 40-unit budget, got %d", executed)
+		t.Fatalf("expected exactly one execution under a 2-unit budget, got %d", executed)
 	}
-	if got := res.Used(); got != 40 {
-		t.Fatalf("reserved=%d, want 40", got)
+	if got := res.Used(); got != 2 {
+		t.Fatalf("reserved=%d, want 2", got)
+	}
+}
+
+func TestGateFailsClosedWithoutDailyLossSource(t *testing.T) {
+	gate := Gate{Policy: x39Policy(), Reserve: NewInMemoryReservation(100), Now: func() time.Time { return time.Unix(1001, 0) }}
+	out, err := gate.Evaluate(context.Background(), x39Claim("no-daily-loss"))
+	if err != nil || out.Decision.Execute || out.Decision.Reason != "DAILY_LOSS_SOURCE_REQUIRED" {
+		t.Fatalf("unexpected response: %+v err=%v", out, err)
 	}
 }
 
 func TestGateVetoesWithoutReservationBackend(t *testing.T) {
 	gate := Gate{
-		Policy:    x39Policy(),
-		Now:       func() time.Time { return time.Unix(1001, 0) },
+		Policy: x39Policy(),
+		Now: func() time.Time { return time.Unix(1001, 0) },
 		DailyLoss: func(context.Context) (int64, error) { return 0, nil },
 	}
-
 	out, err := gate.Evaluate(context.Background(), x39Claim("no-backend"))
 	if err != nil || out.Decision.Execute || out.Decision.Reason != "RESERVATION_BACKEND_REQUIRED" {
 		t.Fatalf("unexpected response: %+v err=%v", out, err)
@@ -96,33 +90,26 @@ func TestGateVetoesWithoutReservationBackend(t *testing.T) {
 }
 
 func TestGateHTTPVetoBlocksHandler(t *testing.T) {
-	res := NewInMemoryReservation(0)
 	gate := Gate{
-		Policy:  x39Policy(),
-		Reserve: res,
-		Now:     func() time.Time { return time.Unix(1001, 0) },
+		Policy: x39Policy(), Reserve: NewInMemoryReservation(0),
+		Now: func() time.Time { return time.Unix(1001, 0) },
+		DailyLoss: func(context.Context) (int64, error) { return 0, nil },
 	}
-
 	called := false
 	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		called = true
 		w.WriteHeader(http.StatusNoContent)
 	})
-
 	server := httptest.NewServer(gate.Handler(next))
 	defer server.Close()
 
-	body := strings.NewReader(`{"ID":"blocked","ExpectedProfit":120,"MaxLoss":40,"CapitalReq":60,"Probability":0.9,"Confidence":0.9,"DataTimestamp":"1970-01-01T00:16:40Z","PolicyVersion":1}`)
+	body := strings.NewReader(`{"ID":"blocked","ExpectedProfit":30,"MaxLoss":10,"CapitalReq":60,"Probability":0.9,"Confidence":0.9,"DataTimestamp":"1970-01-01T00:16:40Z","PolicyVersion":1}`)
 	req, err := http.NewRequest(http.MethodPost, server.URL, body)
-	if err != nil {
-		t.Fatal(err)
-	}
+	if err != nil { t.Fatal(err) }
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
+	if err != nil { t.Fatal(err) }
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusForbidden || called {
