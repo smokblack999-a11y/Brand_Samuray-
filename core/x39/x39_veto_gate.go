@@ -39,22 +39,26 @@ func NewInMemoryReservation(dailyBudget int64) *InMemoryReservation {
 }
 
 func (r *InMemoryReservation) Reserve(ctx context.Context, claim x41.Claim, riskSize int64) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
 	default:
 	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
 	if existing, ok := r.reserved[claim.ID]; ok {
 		if existing == riskSize {
 			return nil
 		}
 		return errReservationConflict{}
 	}
-	if riskSize <= 0 || r.used > r.budget-riskSize {
+
+	if r.budget < 0 || r.used < 0 || riskSize <= 0 || r.used > r.budget || riskSize > r.budget-r.used {
 		return errReservationBudget{}
 	}
+
 	r.used += riskSize
 	r.reserved[claim.ID] = riskSize
 	return nil
@@ -68,42 +72,52 @@ func (r *InMemoryReservation) Used() int64 {
 
 type errReservationBudget struct{}
 func (errReservationBudget) Error() string { return "RESERVATION_BUDGET_EXCEEDED" }
+
 type errReservationConflict struct{}
 func (errReservationConflict) Error() string { return "RESERVATION_IDEMPOTENCY_CONFLICT" }
 
 func (g Gate) Evaluate(ctx context.Context, claim x41.Claim) (Response, error) {
+	response := Response{DecisionID: claim.ID}
+
+	if g.DailyLoss == nil {
+		response.Decision = x41.Decision{
+			Execute: false, Reason: "DAILY_LOSS_SOURCE_REQUIRED", VetoLevel: x41.VetoBlack,
+			PolicyVersion: g.Policy.Version, ChecksTotal: 10,
+		}
+		return response, nil
+	}
+
 	now := time.Now()
 	if g.Now != nil {
 		now = g.Now()
 	}
 
-	dailyLoss := int64(0)
-	if g.DailyLoss != nil {
-		v, err := g.DailyLoss(ctx)
-		if err != nil {
-			return Response{}, err
-		}
-		dailyLoss = v
+	dailyLoss, err := g.DailyLoss(ctx)
+	if err != nil {
+		return Response{}, err
 	}
 
 	decision := x41.EvaluateClaim(claim, g.Policy, now, dailyLoss)
-	response := Response{DecisionID: claim.ID, Decision: decision}
+	response.Decision = decision
 
 	if !decision.Execute {
 		return response, nil
 	}
+
 	if g.Reserve == nil {
 		response.Decision.Execute = false
 		response.Decision.Reason = "RESERVATION_BACKEND_REQUIRED"
 		response.Decision.VetoLevel = x41.VetoBlack
 		return response, nil
 	}
+
 	if err := g.Reserve.Reserve(ctx, claim, decision.RiskSize); err != nil {
 		response.Decision.Execute = false
 		response.Decision.Reason = err.Error()
 		response.Decision.VetoLevel = x41.VetoBlack
 		return response, nil
 	}
+
 	response.Reserved = true
 	return response, nil
 }
@@ -111,7 +125,7 @@ func (g Gate) Evaluate(ctx context.Context, claim x41.Claim) (Response, error) {
 func (g Gate) Handler(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var claim x41.Claim
-		if err := json.NewDecoder(r.Body).Decode(&claim); err != nil {
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&claim); err != nil {
 			http.Error(w, "invalid claim", http.StatusBadRequest)
 			return
 		}
@@ -122,13 +136,37 @@ func (g Gate) Handler(next http.Handler) http.Handler {
 			return
 		}
 
-		w.Header().Set("Content-Type", "application/json")
 		if !response.Decision.Execute {
+			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusForbidden)
 			_ = json.NewEncoder(w).Encode(response)
 			return
 		}
 
+		r.Header.Set("X-X39-Decision-ID", response.DecisionID)
+		r.Header.Set("X-X39-Reserved-Risk", formatInt(response.Decision.RiskSize))
 		next.ServeHTTP(w, r)
 	})
+}
+
+func formatInt(v int64) string {
+	if v == 0 {
+		return "0"
+	}
+	negative := v < 0
+	if negative {
+		v = -v
+	}
+	var buf [20]byte
+	i := len(buf)
+	for v > 0 {
+		i--
+		buf[i] = byte('0' + v%10)
+		v /= 10
+	}
+	if negative {
+		i--
+		buf[i] = '-'
+	}
+	return string(buf[i:])
 }
