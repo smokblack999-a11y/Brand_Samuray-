@@ -63,11 +63,11 @@ func TestGateConcurrentBudgetCannotBeOverReserved(t *testing.T) {
 			executed++
 		}
 	}
-	if executed != 1 {
+	if executed != 10 {
 		t.Fatalf("expected exactly ten executions under a 20-unit budget, got %d", executed)
 	}
 	if got := res.Used(); got != 20 {
-		t.Fatalf("reserved=%d, want 2", got)
+		t.Fatalf("reserved=%d, want 20", got)
 	}
 }
 
@@ -117,5 +117,31 @@ func TestGateHTTPVetoBlocksHandler(t *testing.T) {
 
 	if resp.StatusCode != http.StatusForbidden || called {
 		t.Fatalf("expected 403 + blocked handler, status=%d called=%v", resp.StatusCode, called)
+	}
+}
+
+
+func TestGateReservationCancellationFailsClosed(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	res := NewInMemoryReservation(100)
+	gate := Gate{
+		Audit: new(x42.MemoryLog),
+		Policy: x39Policy(),
+		Reserve: res,
+		Now: func() time.Time { return time.Unix(1001, 0) },
+		DailyLoss: func(context.Context) (int64, error) { return 0, nil },
+	}
+
+	out, err := gate.Evaluate(ctx, x39Claim("cancelled"))
+	if err != nil {
+		t.Fatalf("expected fail-closed decision, got error: %v", err)
+	}
+	if out.Decision.Execute || out.Reserved || out.Decision.VetoLevel != x41.VetoBlack {
+		t.Fatalf("unexpected cancellation response: %+v", out)
+	}
+	if got := res.Used(); got != 0 {
+		t.Fatalf("cancelled request reserved capital: %d", got)
 	}
 }
