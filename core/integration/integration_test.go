@@ -10,6 +10,7 @@ import (
 	"github.com/smokblack999-a11y/Brand_Samuray-/core/x40"
 	"github.com/smokblack999-a11y/Brand_Samuray-/core/x41"
 	"github.com/smokblack999-a11y/Brand_Samuray-/core/x42"
+	"github.com/smokblack999-a11y/Brand_Samuray-/core/x42"
 	"github.com/smokblack999-a11y/Brand_Samuray-/core/x43"
 	"github.com/smokblack999-a11y/Brand_Samuray-/core/x44"
 )
@@ -56,6 +57,7 @@ func TestAdversarialPipelineVetoInterception(t *testing.T) {
 	gate := x39.Gate{
 		Policy:  policy,
 		Reserve: x39.NewInMemoryReservation(100),
+		Audit:   new(x42.MemoryLog),
 		Now:     func() time.Time { return now },
 		DailyLoss: func(context.Context) (int64, error) { return 0, nil },
 	}
@@ -116,6 +118,7 @@ func TestConcurrentGateAttemptsCannotBreakInMemoryReservationInvariant(t *testin
 	gate := x39.Gate{
 		Policy: policy,
 		Reserve: reserve,
+		Audit: new(x42.MemoryLog),
 		Now: func() time.Time { return time.Unix(1001, 0) },
 		DailyLoss: func(context.Context) (int64, error) { return 0, nil },
 	}
