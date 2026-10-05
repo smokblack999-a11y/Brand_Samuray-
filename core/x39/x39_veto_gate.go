@@ -179,7 +179,7 @@ func (g Gate) Handler(next http.Handler) http.Handler {
 		}
 
 		r.Header.Set("X-X39-Decision-ID", response.DecisionID)
-		r.Header.Set("X-X39-Reserved-Risk", formatInt(response.Decision.RiskSize))
+		r.Header.Set("X-X39-Reserved-Risk", formatInt(response.Decision.RiskSizeMicro))
 		next.ServeHTTP(w, r)
 	})
 }
