@@ -84,3 +84,41 @@ test("overflow is bounded: authorized spend never exceeds remaining budget",()=>
   assert.equal(r.newSpent,999999n);
   assert.equal(r.newCommitted,0n);
 });
+
+
+test("idempotency fingerprint changes when economic reservation terms change",()=>{
+  const base={tenantId:"t1",eventId:"e1",estimateMicro:"1000000",ttlMs:60000};
+  assert.notEqual(fingerprint(base),fingerprint({...base,estimateMicro:"1000001"}));
+  assert.notEqual(fingerprint(base),fingerprint({...base,ttlMs:60001}));
+});
+
+test("settlement overage within remaining budget remains authorized",()=>{
+  const r=allocateSettlement({
+    limit:"10000000",
+    spent:"2000000",
+    committed:"3000000",
+    reserved:"1000000",
+    actual:"4000000",
+    wasExpired:false
+  });
+  assert.equal(r.authorizedSpend,4000000n);
+  assert.equal(r.unbudgetedDelta,0n);
+  assert.equal(r.newSpent,6000000n);
+  assert.equal(r.newCommitted,2000000n);
+  assert.equal(r.status,STATUS.SETTLED_WITH_OVERAGE);
+});
+
+test("expired reservation never silently consumes budget",()=>{
+  const r=allocateSettlement({
+    limit:"10000000",
+    spent:"9000000",
+    committed:"0",
+    reserved:"1000000",
+    actual:"500000",
+    wasExpired:true
+  });
+  assert.equal(r.authorizedSpend,0n);
+  assert.equal(r.unbudgetedDelta,500000n);
+  assert.equal(r.newSpent,9000000n);
+  assert.equal(r.newCommitted,0n);
+});
