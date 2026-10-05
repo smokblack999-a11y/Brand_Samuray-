@@ -54,9 +54,9 @@ class X33EconomicConsistency{
       const limit=BigInt(budget.budget_limit_micro_kzt),spent=BigInt(budget.spent_micro_kzt),committed=BigInt(budget.committed_micro_kzt),unbudgeted=BigInt(budget.unbudgeted_actual_micro_kzt);
       if(limit<0n||spent<0n||committed<0n||unbudgeted<0n||spent+committed>limit)return this.tripAndThrow(client,input.tenantId,"BUDGET_STATE_INVALID",Err.INVARIANT_VIOLATION);
       if(limit-spent-committed<estimate)throw codeError(Err.BUDGET_EXCEEDED,"reservation would exceed available budget");
+      if (committed > MAX_INT64 - estimate) return this.tripAndThrow(client,input.tenantId,"COMMITTED_BIGINT_OVERFLOW",Err.INVARIANT_VIOLATION);
       const reservationId=crypto.randomUUID();
       const ins=await client.query("INSERT INTO tenant_reservations (reservation_id,tenant_id,event_id,reserved_amount_micro,status,expires_at,request_fingerprint) VALUES ($1,$2,$3,$4,'ACTIVE',NOW()+($5::bigint*INTERVAL '1 millisecond'),$6) RETURNING reservation_id,tenant_id,event_id,reserved_amount_micro,actual_amount_micro,overage_micro,status::text AS status,expires_at",[reservationId,input.tenantId,input.eventId,estimate.toString(),input.ttlMs,fp]);
-      if (committed > MAX_INT64 - estimate) return this.tripAndThrow(client,input.tenantId,"COMMITTED_BIGINT_OVERFLOW",Err.INVARIANT_VIOLATION);
       const newCommitted=committed+estimate;
       await client.query("UPDATE tenant_budgets SET committed_micro_kzt=$1,version=version+1,updated_at=NOW() WHERE tenant_id=$2",[newCommitted.toString(),input.tenantId]);
       await this.appendLedger(client,{tenantId:input.tenantId,reservationId,eventId:input.eventId,operation:OP.RESERVE,operationKey:"reserve:"+fp,deltaSpent:0n,deltaCommitted:estimate,deltaUnbudgeted:0n,previousSpent:spent,newSpent:spent,previousCommitted:committed,newCommitted,previousUnbudgeted:unbudgeted,newUnbudgeted:unbudgeted});
