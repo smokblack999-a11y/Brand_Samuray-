@@ -17,7 +17,7 @@ func x39Policy() x41.Policy {
 	return x41.Policy{
 		Version: 1, MaxLossPerAction: 10, DailyLossBudget: 10, MaxCapitalPerAction: 100,
 		StaleDataWindow: 30 * time.Second, MinProbability: 0.55, MinConfidence: 0.60,
-		KellyFractionCap: 0.25, MinRiskReward: 1.5,
+		MaxRiskScore: 0.80, KellyFractionCap: 0.25, MinRiskReward: 1.5,
 	}
 }
 
@@ -72,7 +72,7 @@ func TestGateConcurrentBudgetCannotBeOverReserved(t *testing.T) {
 }
 
 func TestGateFailsClosedWithoutDailyLossSource(t *testing.T) {
-	gate := Gate{Policy: x39Policy(), Reserve: NewInMemoryReservation(100), Now: func() time.Time { return time.Unix(1001, 0) }}
+	gate := Gate{Policy: x39Policy(), Reserve: NewInMemoryReservation(100), Audit: new(x42.MemoryLog), Now: func() time.Time { return time.Unix(1001, 0) }}
 	out, err := gate.Evaluate(context.Background(), x39Claim("no-daily-loss"))
 	if err != nil || out.Decision.Execute || out.Decision.Reason != "DAILY_LOSS_SOURCE_REQUIRED" {
 		t.Fatalf("unexpected response: %+v err=%v", out, err)
