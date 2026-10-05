@@ -143,7 +143,7 @@ func TestConcurrentGateAttemptsCannotBreakInMemoryReservationInvariant(t *testin
 	wg.Wait()
 	close(results)
 
-	if used := reserve.Used(); used > 10 {
-		t.Fatalf("reservation invariant breached: used=%d", used)
+	if used := reserve.Used(); used != 10 {
+		t.Fatalf("reservation invariant mismatch: used=%d want=10", used)
 	}
 }
