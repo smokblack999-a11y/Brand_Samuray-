@@ -17,6 +17,19 @@ function canonical(record) {
   });
 }
 
+function semanticFingerprint(record) {
+  return JSON.stringify({
+    tenantId: String(record.tenantId),
+    decisionId: String(record.decisionId),
+    claimHash: String(record.claimHash),
+    policyVersion: String(record.policyVersion),
+    decision: Boolean(record.decision),
+    reason: String(record.reason),
+    vetoLevel: String(record.vetoLevel),
+    riskSizeMicro: String(record.riskSizeMicro)
+  });
+}
+
 function hashRecord(record) {
   return crypto.createHash("sha256")
     .update(String(record.previousHash || "") + "|" + canonical(record))
@@ -44,11 +57,25 @@ async function append(pool, record) {
     );
 
     const duplicate = await client.query(
-      "SELECT decision_id,record_hash FROM x42_veto_audit WHERE tenant_id=$1 AND decision_id=$2",
+      "SELECT tenant_id,decision_id,claim_hash,policy_version,decision,reason,veto_level,risk_size_micro,record_hash FROM x42_veto_audit WHERE tenant_id=$1 AND decision_id=$2",
       [record.tenantId, record.decisionId]
     );
     if (duplicate.rowCount) {
-      return { inserted: false, recordHash: duplicate.rows[0].record_hash };
+      const existing = duplicate.rows[0];
+      if (semanticFingerprint(record) !== semanticFingerprint({
+        tenantId: existing.tenant_id,
+        decisionId: existing.decision_id,
+        claimHash: existing.claim_hash,
+        policyVersion: existing.policy_version,
+        decision: existing.decision,
+        reason: existing.reason,
+        vetoLevel: existing.veto_level,
+        riskSizeMicro: existing.risk_size_micro
+      })) {
+        throw new Error("X42_IDEMPOTENCY_CONFLICT");
+      }
+      await client.query("COMMIT");
+      return { inserted: false, recordHash: existing.record_hash };
     }
 
     const clock = await client.query("SELECT NOW() AS db_now");
@@ -57,6 +84,7 @@ async function append(pool, record) {
       "SELECT record_hash FROM x42_veto_audit WHERE tenant_id=$1 ORDER BY audit_id DESC LIMIT 1",
       [record.tenantId]
     );
+
     const sealed = {
       ...record,
       createdAt,
@@ -115,4 +143,4 @@ async function integrity(pool, tenantId) {
   return { ok: true, records: rows.rowCount, lastHash: previous };
 }
 
-module.exports = { canonical, hashRecord, ensureSchema, append, integrity };
+module.exports = { canonical, semanticFingerprint, hashRecord, ensureSchema, append, integrity };
