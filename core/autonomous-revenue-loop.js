@@ -89,7 +89,40 @@ async function recordExecution(input = {}) {
   return { execution, economicGate };
 }
 
-async function recordOutcome(input = {}) {
+async 
+function recordPayment(input = {}) {
+  const tenantId = text(input.tenantId, 128);
+  const paymentId = text(input.paymentId, 256);
+  if (!tenantId || !paymentId) {
+    throw Object.assign(new Error("tenantId and paymentId are required"), { code: "PAYMENT_CONTEXT_REQUIRED" });
+  }
+
+  const amountKZT = positiveNumber(input.amountKZT, 0);
+  if (amountKZT <= 0) {
+    throw Object.assign(new Error("amountKZT must be greater than zero"), { code: "INVALID_PAYMENT_AMOUNT" });
+  }
+
+  return revenueRuntime.recordOutcome(tenantId, {
+    eventId: "payment:" + paymentId,
+    actionId: text(input.decisionId, 256),
+    status: "WON",
+    amountKZT,
+    attributableRevenueKZT: amountKZT,
+    attributableGrossProfitKZT: positiveNumber(input.attributableGrossProfitKZT, 0),
+    grossMarginRate: positiveNumber(input.grossMarginRate, 0),
+    actualCostKZT: positiveNumber(input.actualCostKZT, 0),
+    baselineConversionProbability: positiveNumber(input.baselineConversionProbability, 0),
+    controlConversionProbability: positiveNumber(input.controlConversionProbability, 0),
+    treatmentConversionProbability: positiveNumber(input.treatmentConversionProbability, 0),
+    provider: text(input.provider, 64) || "payment-provider",
+    model: "",
+    costId: text(input.costId, 256),
+    source: "payment-webhook",
+    correlationId: text(input.correlationId, 256)
+  });
+}
+
+function recordOutcome(input = {}) {
   const tenantId = text(input.tenantId, 128);
   const eventId = text(input.eventId, 256);
   if (!tenantId || !eventId) throw Object.assign(new Error("tenantId and eventId are required"), { code: "OUTCOME_CONTEXT_REQUIRED" });
@@ -141,6 +174,7 @@ module.exports = {
   evaluateLead,
   recordExecution,
   recordOutcome,
+  recordPayment,
   snapshot,
   FINAL_OUTCOMES
 };
