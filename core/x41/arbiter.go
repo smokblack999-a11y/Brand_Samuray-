@@ -141,6 +141,7 @@ func EvaluateClaim(claim Claim, policy Policy, now time.Time, currentDailyLoss i
 	if float64(claim.ExpectedProfit)/float64(claim.MaxLoss) < policy.MinRiskReward {
 		return veto("risk_reward_below_floor", VetoRed, policy.Version, passed, checksTotal)
 	}
+	passed++
 
 	kelly := kellyFraction(claim.ExpectedProfit, claim.MaxLoss, claim.Probability)
 	effective := kelly * claim.Confidence
@@ -152,7 +153,13 @@ func EvaluateClaim(claim Claim, policy Policy, now time.Time, currentDailyLoss i
 	}
 
 	remaining := policy.DailyLossBudget - currentDailyLoss
-	risk := int64(math.Floor(float64(claim.MaxLoss) * effective))
+	sized := math.Floor(float64(claim.MaxLoss) * effective)
+	var risk int64
+	if sized >= float64(math.MaxInt64) {
+		risk = math.MaxInt64
+	} else {
+		risk = int64(sized)
+	}
 	if risk < 1 {
 		return veto("sizing_below_minimum", VetoYellow, policy.Version, passed, checksTotal)
 	}
@@ -161,6 +168,9 @@ func EvaluateClaim(claim Claim, policy Policy, now time.Time, currentDailyLoss i
 	}
 	if risk > policy.MaxLossPerAction {
 		risk = policy.MaxLossPerAction
+	}
+	if risk > claim.MaxLoss {
+		risk = claim.MaxLoss
 	}
 	if risk <= 0 {
 		return veto("no_risk_budget_remaining", VetoBlack, policy.Version, passed, checksTotal)
