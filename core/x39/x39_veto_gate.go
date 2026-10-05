@@ -137,7 +137,7 @@ func (g Gate) Evaluate(ctx context.Context, claim x41.Claim) (Response, error) {
 		return response, nil
 	}
 
-	if err := g.Reserve.Reserve(ctx, claim, decision.RiskSize); err != nil {
+	if err := g.Reserve.Reserve(ctx, claim, decision.RiskSizeMicro); err != nil {
 		response.Decision.Execute = false
 		response.Decision.Reason = err.Error()
 		response.Decision.VetoLevel = x41.VetoBlack
