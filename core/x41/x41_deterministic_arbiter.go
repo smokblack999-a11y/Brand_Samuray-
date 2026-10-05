@@ -16,9 +16,10 @@ type Claim struct {
 	ID             string
 	ExpectedProfit int64
 	MaxLoss        int64
-	CapitalReq    int64
+	CapitalReq     int64
 	Probability    float64
 	Confidence     float64
+	RiskScore      float64
 	DataTimestamp  time.Time
 	PolicyVersion  int64
 }
@@ -31,6 +32,7 @@ type Policy struct {
 	StaleDataWindow     time.Duration
 	MinProbability      float64
 	MinConfidence       float64
+	MaxRiskScore        float64
 	KellyFractionCap    float64
 	MinRiskReward       float64
 }
@@ -55,13 +57,14 @@ func (p Policy) Validate() bool {
 		validProbability(p.MinConfidence) &&
 		p.MinProbability > 0 &&
 		p.MinConfidence > 0 &&
+		validProbability(p.MaxRiskScore) &&
 		p.KellyFractionCap > 0 &&
 		p.KellyFractionCap <= 1 &&
 		p.MinRiskReward > 0
 }
 
 func EvaluateClaim(claim Claim, policy Policy, now time.Time, currentDailyLoss int64) Decision {
-	const checks = 10
+	const checks = 11
 	d := Decision{PolicyVersion: policy.Version, ChecksTotal: checks}
 	passed := 0
 
@@ -84,14 +87,19 @@ func EvaluateClaim(claim Claim, policy Policy, now time.Time, currentDailyLoss i
 	}
 	passed++
 
-	if !validProbability(claim.Probability) || !validProbability(claim.Confidence) {
-		return veto(d, passed, "INVALID_PROBABILITY_OR_CONFIDENCE", VetoRed)
+	if !validProbability(claim.Probability) || !validProbability(claim.Confidence) || !validProbability(claim.RiskScore) {
+		return veto(d, passed, "INVALID_PROBABILITY_OR_RISK_SCORE", VetoRed)
 	}
 	passed++
 
 	age := now.Sub(claim.DataTimestamp)
 	if claim.DataTimestamp.IsZero() || age < 0 || age > policy.StaleDataWindow {
 		return veto(d, passed, "STALE_OR_INVALID_DATA", VetoRed)
+	}
+	passed++
+
+	if claim.RiskScore > policy.MaxRiskScore {
+		return veto(d, passed, "RISK_SCORE_EXCEEDED", VetoRed)
 	}
 	passed++
 
