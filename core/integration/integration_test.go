@@ -47,7 +47,7 @@ func TestAdversarialPipelineVetoInterception(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Decision.Execute || result.Decision.Reason != "RISK_SCORE_EXCEEDED" {
+	if result.Decision.Execute || result.Decision.Reason != "risk_score_exceeded" {
 		t.Fatalf("TRINITY failed to stop dangerous claim: %+v", result.Decision)
 	}
 
@@ -65,7 +65,7 @@ func TestAdversarialPipelineVetoInterception(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if enforced.Decision.Execute || enforced.Decision.Reason != "RISK_SCORE_EXCEEDED" {
+	if enforced.Decision.Execute || enforced.Decision.Reason != "risk_score_exceeded" {
 		t.Fatalf("X39 failed to enforce Court veto: %+v", enforced.Decision)
 	}
 
@@ -84,7 +84,7 @@ func TestAdversarialPipelineVetoInterception(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if record.Reason != "RISK_SCORE_EXCEEDED" || !x42.Verify(audit.Records()) {
+	if record.Reason != "risk_score_exceeded" || !x42.Verify(audit.Records()) {
 		t.Fatalf("invalid veto audit: %+v", record)
 	}
 
@@ -111,7 +111,7 @@ func TestConcurrentGateAttemptsCannotBreakInMemoryReservationInvariant(t *testin
 	policy := x41.Policy{
 		Version: 2, MaxLossPerAction: 10, DailyLossBudget: 20, MaxCapitalPerAction: 50,
 		StaleDataWindow: time.Minute, MinProbability: 0.55, MinConfidence: 0.60,
-		MaxRiskScore: 0.80, KellyFractionCap: 0.25, MinRiskReward: 1.5,
+		MaxRiskScore: 0.80, MaxKellyFraction: 0.25, MinRiskReward: 1.5,
 	}
 	reserve := x39.NewInMemoryReservation(10)
 	gate := x39.Gate{
