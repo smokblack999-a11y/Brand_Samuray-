@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/smokblack999-a11y/Brand_Samuray-/core/x41"
+	"github.com/smokblack999-a11y/Brand_Samuray-/core/x42"
 )
 
 type Reservation interface {
@@ -17,6 +18,7 @@ type Reservation interface {
 type Gate struct {
 	Policy    x41.Policy
 	Reserve   Reservation
+	Audit     x42.Store
 	Now       func() time.Time
 	DailyLoss func(ctx context.Context) (int64, error)
 }
@@ -76,13 +78,31 @@ func (errReservationBudget) Error() string { return "RESERVATION_BUDGET_EXCEEDED
 type errReservationConflict struct{}
 func (errReservationConflict) Error() string { return "RESERVATION_IDEMPOTENCY_CONFLICT" }
 
+func (g Gate) audit(ctx context.Context, claim x41.Claim, decision x41.Decision, at time.Time) error {
+	if g.Audit == nil {
+		return nil
+	}
+	_, err := g.Audit.Append(ctx, x42.NewDecisionRecord(claim, decision, at))
+	return err
+}
+
 func (g Gate) Evaluate(ctx context.Context, claim x41.Claim) (Response, error) {
 	response := Response{DecisionID: claim.ID}
 
+	if g.Audit == nil {
+		response.Decision = x41.Decision{
+			Execute: false, Reason: "AUDIT_BACKEND_REQUIRED", VetoLevel: x41.VetoBlack,
+			PolicyVersion: g.Policy.Version, ChecksTotal: 11,
+		}
+		return response, nil
+	}
 	if g.DailyLoss == nil {
 		response.Decision = x41.Decision{
 			Execute: false, Reason: "DAILY_LOSS_SOURCE_REQUIRED", VetoLevel: x41.VetoBlack,
-			PolicyVersion: g.Policy.Version, ChecksTotal: 10,
+			PolicyVersion: g.Policy.Version, ChecksTotal: 11,
+		}
+		if err := g.audit(ctx, claim, response.Decision, time.Now().UTC()); err != nil {
+			return Response{}, err
 		}
 		return response, nil
 	}
@@ -101,6 +121,9 @@ func (g Gate) Evaluate(ctx context.Context, claim x41.Claim) (Response, error) {
 	response.Decision = decision
 
 	if !decision.Execute {
+		if err := g.audit(ctx, claim, decision, now); err != nil {
+			return Response{}, err
+		}
 		return response, nil
 	}
 
@@ -108,6 +131,9 @@ func (g Gate) Evaluate(ctx context.Context, claim x41.Claim) (Response, error) {
 		response.Decision.Execute = false
 		response.Decision.Reason = "RESERVATION_BACKEND_REQUIRED"
 		response.Decision.VetoLevel = x41.VetoBlack
+		if err := g.audit(ctx, claim, response.Decision, now); err != nil {
+			return Response{}, err
+		}
 		return response, nil
 	}
 
@@ -115,7 +141,16 @@ func (g Gate) Evaluate(ctx context.Context, claim x41.Claim) (Response, error) {
 		response.Decision.Execute = false
 		response.Decision.Reason = err.Error()
 		response.Decision.VetoLevel = x41.VetoBlack
+		if auditErr := g.audit(ctx, claim, response.Decision, now); auditErr != nil {
+			return Response{}, auditErr
+		}
 		return response, nil
+	}
+
+	if err := g.audit(ctx, claim, decision, now); err != nil {
+		// Fail closed: no downstream handler is called. The reservation remains
+		// protected and can be reconciled by the reservation TTL/idempotency path.
+		return Response{}, err
 	}
 
 	response.Reserved = true
