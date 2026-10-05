@@ -406,6 +406,18 @@ app.post("/api/revenue/loop/execution", requireApiKey, leadRateLimit, (req, res)
   }
 });
 
+app.post("/api/revenue/loop/payment", requireApiKey, leadRateLimit, (req, res) => {
+  try {
+    const result = autonomousRevenueLoop.recordPayment(Object.assign({}, req.body || {}, {
+      tenantId: revenueTenantId(req)
+    }));
+    return res.status(result.inserted ? 201 : 200).json({ ok: true, ...result, requestId: req.requestId });
+  } catch (error) {
+    const status = /required|must be|invalid/i.test(String(error.message || "")) ? 400 : 500;
+    return res.status(status).json(errorBody(error.code || "REVENUE_LOOP_PAYMENT_FAILED", status === 400 ? error.message : "Payment outcome failed", req.requestId));
+  }
+});
+
 app.post("/api/revenue/loop/outcome", requireApiKey, leadRateLimit, (req, res) => {
   try {
     const result = await autonomousRevenueLoop.recordOutcome(Object.assign({}, req.body || {}, {
