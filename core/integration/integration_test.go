@@ -10,7 +10,6 @@ import (
 	"github.com/smokblack999-a11y/Brand_Samuray-/core/x40"
 	"github.com/smokblack999-a11y/Brand_Samuray-/core/x41"
 	"github.com/smokblack999-a11y/Brand_Samuray-/core/x42"
-	"github.com/smokblack999-a11y/Brand_Samuray-/core/x42"
 	"github.com/smokblack999-a11y/Brand_Samuray-/core/x43"
 	"github.com/smokblack999-a11y/Brand_Samuray-/core/x44"
 )
