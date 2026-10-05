@@ -18,7 +18,7 @@ func courtPolicy() x41.Policy {
 	return x41.Policy{
 		Version: 1, MaxLossPerAction: 50, DailyLossBudget: 100, MaxCapitalPerAction: 100,
 		StaleDataWindow: 30 * time.Second, MinProbability: 0.55, MinConfidence: 0.60,
-		MaxRiskScore: 0.80, KellyFractionCap: 0.25, MinRiskReward: 1.5,
+		MaxRiskScore: 0.80, MaxKellyFraction: 0.25, MinRiskReward: 1.5,
 	}
 }
 
