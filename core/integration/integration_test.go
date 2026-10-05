@@ -111,7 +111,7 @@ func TestConcurrentGateAttemptsCannotBreakInMemoryReservationInvariant(t *testin
 	policy := x41.Policy{
 		Version: 2, MaxLossPerAction: 10, DailyLossBudget: 20, MaxCapitalPerAction: 50,
 		StaleDataWindow: time.Minute, MinProbability: 0.55, MinConfidence: 0.60,
-		MaxRiskScore: 0.80, MaxKellyFraction: 0.25, MinRiskReward: 1.5,
+		MaxRiskScore: 0.80, MaxKellyFraction: 0.25, MinKellyFraction: 0.01, MinRiskReward: 1.5,
 	}
 	reserve := x39.NewInMemoryReservation(10)
 	gate := x39.Gate{
