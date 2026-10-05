@@ -46,6 +46,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22.x'
+
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
@@ -103,9 +108,9 @@ jobs:
           node --check x33-economic-consistency.test.js
           node --check x33-adversarial.test.js
 
-      - name: X41 deterministic arbiter tests
-        working-directory: core/x41
-        run: go test -race ./...
+      - name: X39/X41 deterministic risk-control tests
+        working-directory: core
+        run: go test -race ./x41 ./x39
 
       - name: Unit tests
         run: npm test
