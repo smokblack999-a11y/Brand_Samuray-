@@ -103,6 +103,10 @@ jobs:
           node --check x33-economic-consistency.test.js
           node --check x33-adversarial.test.js
 
+      - name: X41 deterministic arbiter tests
+        working-directory: core/x41
+        run: go test -race ./...
+
       - name: Unit tests
         run: npm test
 
