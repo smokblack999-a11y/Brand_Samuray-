@@ -41,7 +41,7 @@ func NewInMemoryReservation(dailyBudget int64) *InMemoryReservation {
 	return &InMemoryReservation{budget: dailyBudget, reserved: make(map[string]int64)}
 }
 
-func (r *InMemoryReservation) Reserve(ctx context.Context, claim x41.Claim, riskSize int64) error {
+func (r *InMemoryReservation) Reserve(ctx context.Context, claim x41.Claim, riskSize int64) (string, error) {
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
@@ -53,18 +53,18 @@ func (r *InMemoryReservation) Reserve(ctx context.Context, claim x41.Claim, risk
 
 	if existing, ok := r.reserved[claim.ID]; ok {
 		if existing == riskSize {
-			return nil
+			return claim.ID, nil
 		}
-		return errReservationConflict{}
+		return "", errReservationConflict{}
 	}
 
 	if r.budget < 0 || r.used < 0 || riskSize <= 0 || r.used > r.budget || riskSize > r.budget-r.used {
-		return errReservationBudget{}
+		return "", errReservationBudget{}
 	}
 
 	r.used += riskSize
 	r.reserved[claim.ID] = riskSize
-	return nil
+	return claim.ID, nil
 }
 
 func (r *InMemoryReservation) Used() int64 {
@@ -138,9 +138,10 @@ func (g Gate) Evaluate(ctx context.Context, claim x41.Claim) (Response, error) {
 		return response, nil
 	}
 
-	if err := g.Reserve.Reserve(ctx, claim, decision.RiskSizeMicro); err != nil {
+	reservationID, reserveErr := g.Reserve.Reserve(ctx, claim, decision.RiskSizeMicro)
+	if reserveErr != nil {
 		response.Decision.Execute = false
-		response.Decision.Reason = err.Error()
+		response.Decision.Reason = reserveErr.Error()
 		response.Decision.VetoLevel = x41.VetoBlack
 		if auditErr := g.audit(ctx, claim, response.Decision, now); auditErr != nil {
 			return Response{}, auditErr
@@ -155,6 +156,7 @@ func (g Gate) Evaluate(ctx context.Context, claim x41.Claim) (Response, error) {
 	}
 
 	response.Reserved = true
+	response.ReservationID = reservationID
 	return response, nil
 }
 
@@ -180,6 +182,7 @@ func (g Gate) Handler(next http.Handler) http.Handler {
 		}
 
 		r.Header.Set("X-X39-Decision-ID", response.DecisionID)
+		r.Header.Set("X-X39-Reservation-ID", response.ReservationID)
 		r.Header.Set("X-X39-Reserved-Risk", formatInt(response.Decision.RiskSizeMicro))
 		next.ServeHTTP(w, r)
 	})
