@@ -16,7 +16,7 @@ function getEngine() {
   if (!enabled()) return null;
   if (engine) return engine;
   const url = process.env.X33_DATABASE_URL || process.env.DATABASE_URL;
-  if (!url) throw Object.assign(new Error("X33_XDATABASE_REQUIRED"), { code: "X33_DATABASE_REQUIRED" });
+  if (!url) throw Object.assign(new Error("X33_DATABASE_REQUIRED"), { code: "X33_DATABASE_REQUIRED" });
   pool = createPool(url);
   engine = new X33EconomicConsistency(pool, { maxReservationTtlMs: Number(process.env.X33_MAX_RESERVATION_TTL_MS || 900000) });
   return engine;
