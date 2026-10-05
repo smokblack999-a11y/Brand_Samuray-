@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/smokblack999-a11y/Brand_Samuray-/core/x41"
+	"github.com/smokblack999-a11y/Brand_Samuray-/core/x42"
 )
 
 func x39Policy() x41.Policy {
@@ -30,6 +31,7 @@ func x39Claim(id string) x41.Claim {
 func TestGateConcurrentBudgetCannotBeOverReserved(t *testing.T) {
 	res := NewInMemoryReservation(2)
 	gate := Gate{
+		Audit: new(x42.MemoryLog),
 		Policy: x39Policy(), Reserve: res,
 		Now: func() time.Time { return time.Unix(1001, 0) },
 		DailyLoss: func(context.Context) (int64, error) { return 0, nil },
@@ -80,6 +82,7 @@ func TestGateFailsClosedWithoutDailyLossSource(t *testing.T) {
 func TestGateVetoesWithoutReservationBackend(t *testing.T) {
 	gate := Gate{
 		Policy: x39Policy(),
+		Audit: new(x42.MemoryLog),
 		Now: func() time.Time { return time.Unix(1001, 0) },
 		DailyLoss: func(context.Context) (int64, error) { return 0, nil },
 	}
@@ -91,7 +94,7 @@ func TestGateVetoesWithoutReservationBackend(t *testing.T) {
 
 func TestGateHTTPVetoBlocksHandler(t *testing.T) {
 	gate := Gate{
-		Policy: x39Policy(), Reserve: NewInMemoryReservation(0),
+		Policy: x39Policy(), Reserve: NewInMemoryReservation(0), Audit: new(x42.MemoryLog),
 		Now: func() time.Time { return time.Unix(1001, 0) },
 		DailyLoss: func(context.Context) (int64, error) { return 0, nil },
 	}
