@@ -1,149 +1,158 @@
 "use strict";
 
 /**
- * X41 — Deterministic Arbiter.
+ * X41 Deterministic Arbiter
  *
- * Policy is immutable for an evaluation. No LLM calls, wall-clock mutation,
- * network calls, or hidden state are allowed inside evaluateClaim().
- * Money is represented as integer micro-KZT in production-facing boundaries;
- * this core keeps the numeric policy API simple and rejects NaN/Infinity.
+ * Pure policy evaluation. No LLM, I/O, clocks, network calls or mutable state.
+ * Monetary values are integer micro-KZT strings/BigInt to avoid floating-point
+ * accounting errors.
  */
 
 const DECISION = Object.freeze({ EXECUTE: "EXECUTE", VETO: "VETO" });
 const LEVEL = Object.freeze({ GREEN: "GREEN", YELLOW: "YELLOW", RED: "RED", BLACK: "BLACK" });
 
-const REASONS = Object.freeze({
+const REASON = Object.freeze({
   INVALID_CLAIM: "INVALID_CLAIM",
-  MISMATCHED_POLICY_VERSION: "MISMATCHED_POLICY_VERSION",
+  POLICY_MISMATCH: "MISMATCHED_POLICY_VERSION",
   STALE_DATA: "STALE_MARKET_DATA",
   MAX_LOSS_EXCEEDED: "MAX_LOSS_EXCEEDED",
   CAPITAL_REQUIREMENT_EXCEEDED: "CAPITAL_REQUIREMENT_EXCEEDED",
   DAILY_LOSS_BUDGET_EXHAUSTED: "DAILY_LOSS_BUDGET_EXHAUSTED",
   NEGATIVE_EXPECTED_PROFIT: "NEGATIVE_EXPECTED_PROFIT",
-  NON_POSITIVE_EDGE: "NON_POSITIVE_EDGE",
-  KELLY_NON_POSITIVE: "KELLY_NON_POSITIVE",
-  KELLY_SIZING_EXCEEDED: "KELLY_SIZING_EXCEEDED",
-  EVIDENCE_REQUIRED: "EVIDENCE_REQUIRED",
+  INSUFFICIENT_EDGE: "INSUFFICIENT_EXPECTED_EDGE",
+  KELLY_SIZE_ZERO: "KELLY_SIZE_ZERO",
   ALL_CHECKS_PASSED: "ALL_CHECKS_PASSED"
 });
 
-function finiteNumber(value, field) {
+function fail(message) {
+  const e = new Error(message);
+  e.code = REASON.INVALID_CLAIM;
+  return e;
+}
+
+function money(value, field) {
+  if (typeof value === "bigint") return value;
+  if (typeof value === "string" && /^\d+$/.test(value.trim())) return BigInt(value.trim());
+  if (typeof value === "number" && Number.isSafeInteger(value) && value >= 0) return BigInt(value);
+  throw fail((field || "money") + " must be a non-negative integer micro-KZT value");
+}
+
+function fraction(value, field) {
   const n = Number(value);
-  if (!Number.isFinite(n)) throw new TypeError(field + " must be finite");
+  if (!Number.isFinite(n) || n < 0 || n > 1) throw fail((field || "fraction") + " must be in [0,1]");
   return n;
 }
 
-function validateClaim(claim) {
-  if (!claim || typeof claim !== "object") return REASONS.INVALID_CLAIM;
-  if (!claim.id || typeof claim.id !== "string") return REASONS.INVALID_CLAIM;
-  for (const [field, min] of [["expectedProfit", 0], ["maxLoss", 0], ["capitalReq", 0], ["probability", 0], ["confidence", 0], ["riskScore", 0]]) {
-    try {
-      const n = finiteNumber(claim[field], field);
-      if (n < min) return REASONS.INVALID_CLAIM;
-    } catch (_) { return REASONS.INVALID_CLAIM; }
-  }
-  if (claim.probability > 1 || claim.confidence > 1 || claim.riskScore > 1) return REASONS.INVALID_CLAIM;
-  if (!(claim.dataTimestamp instanceof Date) || Number.isNaN(claim.dataTimestamp.getTime())) return REASONS.INVALID_CLAIM;
-  if (!Number.isInteger(claim.policyVersion)) return REASONS.INVALID_CLAIM;
-  return null;
+function positiveInt(value, field) {
+  if (!Number.isSafeInteger(value) || value <= 0) throw fail((field || "integer") + " must be a positive safe integer");
+  return value;
 }
 
 /**
- * Conservative Kelly fraction for a binary opportunity:
- * f* = (b*p - q) / b, where b is net profit/loss ratio.
- * Confidence scales the fraction; risk score penalizes it.
+ * Kelly fraction for a binary outcome:
+ * f* = (b*p - q) / b
+ * where b = net profit / loss, p = win probability, q = 1-p.
+ *
+ * The arbiter only uses Kelly as a sizing signal; policy caps remain authoritative.
  */
-function kellyFraction(claim) {
-  const p = finiteNumber(claim.probability, "probability");
+function kellyFraction(probability, expectedProfitMicro, maxLossMicro) {
+  const p = fraction(probability, "probability");
+  const profit = Number(expectedProfitMicro);
+  const loss = Number(maxLossMicro);
+  if (!Number.isFinite(profit) || !Number.isFinite(loss) || profit <= 0 || loss <= 0) return 0;
+  const b = profit / loss;
   const q = 1 - p;
-  if (claim.maxLoss <= 0) return 0;
-  const b = claim.expectedProfit / claim.maxLoss;
-  if (!(b > 0)) return 0;
-  return Math.max(0, ((b * p) - q) / b);
+  const k = (b * p - q) / b;
+  return Math.max(0, Math.min(1, k));
 }
 
-function evaluateClaim(claim, policy, now = new Date()) {
-  if (!policy || typeof policy !== "object") throw new TypeError("policy is required");
-  const invalid = validateClaim(claim);
-  if (invalid) return veto(invalid, LEVEL.RED);
+function evaluateClaim(claim, policy, nowMs) {
+  if (!claim || !policy) throw fail("claim and policy are required");
 
-  const activePolicy = Number(policy.activePolicyVersion);
-  if (!Number.isInteger(activePolicy) || claim.policyVersion !== activePolicy)
-    return veto(REASONS.MISMATCHED_POLICY_VERSION, LEVEL.RED);
+  const maxLoss = money(claim.maxLossMicro ?? claim.maxLoss, "maxLoss");
+  const capitalReq = money(claim.capitalReqMicro ?? claim.capitalReq, "capitalReq");
+  const expectedProfit = money(claim.expectedProfitMicro ?? claim.expectedProfit, "expectedProfit");
+  const dailyLoss = money(policy.currentDailyLossMicro ?? policy.currentDailyLoss ?? 0, "currentDailyLoss");
+  const dailyBudget = money(policy.dailyLossBudgetMicro ?? policy.dailyLossBudget, "dailyLossBudget");
+  const maxLossLimit = money(policy.maxLossLimitMicro ?? policy.maxLossLimit, "maxLossLimit");
+  const maxCapitalReq = money(policy.maxCapitalReqMicro ?? policy.maxCapitalReq, "maxCapitalReq");
 
-  const current = now instanceof Date ? now : new Date(now);
-  if (Number.isNaN(current.getTime())) throw new TypeError("now must be a valid Date");
+  positiveInt(policy.activePolicy, "activePolicy");
+  if (!Number.isInteger(claim.policyVersion)) throw fail("claim.policyVersion must be an integer");
+  if (claim.policyVersion !== policy.activePolicy) {
+    return veto(REASON.POLICY_MISMATCH, LEVEL.RED);
+  }
 
-  const staleWindowMs = finiteNumber(policy.staleDataWindowMs, "staleDataWindowMs");
-  if (staleWindowMs < 0 || current.getTime() - claim.dataTimestamp.getTime() > staleWindowMs)
-    return veto(REASONS.STALE_DATA, LEVEL.RED);
+  const timestamp = Date.parse(claim.dataTimestamp);
+  if (!Number.isFinite(timestamp)) throw fail("claim.dataTimestamp must be an ISO timestamp");
+  if (!Number.isSafeInteger(nowMs)) throw fail("nowMs must be a safe integer timestamp");
+  const age = nowMs - timestamp;
+  if (age < 0 || age > policy.staleDataWindowMs) {
+    return veto(REASON.STALE_DATA, LEVEL.RED, { dataAgeMs: age });
+  }
 
-  if (claim.maxLoss > finiteNumber(policy.maxLossLimit, "maxLossLimit"))
-    return veto(REASONS.MAX_LOSS_EXCEEDED, LEVEL.RED);
+  if (maxLoss > maxLossLimit) {
+    return veto(REASON.MAX_LOSS_EXCEEDED, LEVEL.RED);
+  }
 
-  if (claim.capitalReq > finiteNumber(policy.maxCapitalReq, "maxCapitalReq"))
-    return veto(REASONS.CAPITAL_REQUIREMENT_EXCEEDED, LEVEL.YELLOW);
+  if (capitalReq > maxCapitalReq) {
+    return veto(REASON.CAPITAL_REQUIREMENT_EXCEEDED, LEVEL.YELLOW);
+  }
 
-  if (claim.expectedProfit <= 0)
-    return veto(REASONS.NEGATIVE_EXPECTED_PROFIT, LEVEL.RED);
+  if (expectedProfit <= 0n) {
+    return veto(REASON.NEGATIVE_EXPECTED_PROFIT, LEVEL.RED);
+  }
 
-  const edge = claim.probability * claim.expectedProfit - (1 - claim.probability) * claim.maxLoss;
-  if (!(edge > 0))
-    return veto(REASONS.NON_POSITIVE_EDGE, LEVEL.RED);
+  if (dailyLoss + maxLoss > dailyBudget) {
+    return veto(REASON.DAILY_LOSS_BUDGET_EXHAUSTED, LEVEL.BLACK);
+  }
 
-  if (policy.requireEvidence && (!Array.isArray(claim.evidence) || claim.evidence.length === 0))
-    return veto(REASONS.EVIDENCE_REQUIRED, LEVEL.RED);
+  const probability = fraction(claim.probability, "probability");
+  const confidence = fraction(claim.confidence ?? 1, "confidence");
+  const kelly = kellyFraction(probability, expectedProfit, maxLoss);
+  const effectiveKelly = kelly * confidence;
 
-  const rawKelly = kellyFraction(claim);
-  if (!(rawKelly > 0))
-    return veto(REASONS.KELLY_NON_POSITIVE, LEVEL.RED);
-
-  const confidence = Math.max(0, Math.min(1, claim.confidence));
-  const riskPenalty = 1 - Math.max(0, Math.min(1, claim.riskScore)) * finiteNumber(policy.riskPenalty, "riskPenalty");
-  const sizedFraction = Math.max(0, rawKelly * confidence * Math.max(0, riskPenalty));
-  const cappedFraction = Math.min(sizedFraction, finiteNumber(policy.maxKellyFraction, "maxKellyFraction"));
-  const dailyRemaining = finiteNumber(policy.dailyLossBudget, "dailyLossBudget") -
-    finiteNumber(policy.currentDailyLoss, "currentDailyLoss");
-
-  if (dailyRemaining <= 0 || claim.maxLoss > dailyRemaining)
-    return veto(REASONS.DAILY_LOSS_BUDGET_EXHAUSTED, LEVEL.BLACK);
-
-  const riskBudget = Math.min(claim.maxLoss, dailyRemaining);
-  const kellyRisk = claim.capitalReq * cappedFraction;
-
-  if (!(kellyRisk > 0) || kellyRisk > riskBudget)
-    return veto(REASONS.KELLY_SIZING_EXCEEDED, LEVEL.RED);
+  // Never allow a policy to allocate more than its explicit capital/risk caps.
+  const kellySize = BigInt(Math.floor(Number(capitalReq) * effectiveKelly));
+  if (kellySize <= 0n) {
+    return veto(REASON.KELLY_SIZE_ZERO, LEVEL.YELLOW, {
+      kellyFraction: kelly,
+      effectiveKelly
+    });
+  }
 
   return {
     decision: DECISION.EXECUTE,
+    reason: REASON.ALL_CHECKS_PASSED,
     vetoLevel: LEVEL.GREEN,
-    reason: REASONS.ALL_CHECKS_PASSED,
-    riskBudget,
-    kellyFraction: cappedFraction,
-    rawKellyFraction: rawKelly,
-    confidence,
-    riskAdjustedKellyRisk: kellyRisk,
-    policyVersion: claim.policyVersion
+    kellyFraction: kelly,
+    effectiveKelly,
+    recommendedRiskMicro: (kellySize < maxLoss ? kellySize : maxLoss).toString(),
+    checks: Object.freeze({
+      policy: true,
+      freshness: true,
+      maxLoss: true,
+      capital: true,
+      dailyLossBudget: true,
+      expectedProfit: true,
+      kelly: true
+    })
   };
 }
 
-function veto(reason, vetoLevel) {
+function veto(reason, level, extra = {}) {
   return {
     decision: DECISION.VETO,
-    vetoLevel,
     reason,
-    riskBudget: 0,
-    kellyFraction: 0,
-    rawKellyFraction: 0,
-    confidence: 0,
-    riskAdjustedKellyRisk: 0
+    vetoLevel: level,
+    ...extra
   };
 }
 
 module.exports = {
   DECISION,
   LEVEL,
-  REASONS,
-  kellyFraction,
-  evaluateClaim
+  REASON,
+  evaluateClaim,
+  kellyFraction
 };
