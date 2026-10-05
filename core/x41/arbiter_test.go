@@ -1,6 +1,7 @@
 package x41
 
 import (
+	"math"
 	"sync"
 	"testing"
 	"time"
@@ -142,7 +143,7 @@ func TestEvaluateClaim_RejectsInvalidNaNProbability(t *testing.T) {
 	now := time.Unix(1_800_000_000, 0)
 	a, _ := NewArbiter(testPolicy())
 	claim := baseClaim(now)
-	claim.Probability = 0.0 / 0.0
+	claim.Probability = math.NaN()
 	got := a.EvaluateClaim(claim, now)
 	if got.Execute || got.Reason != "invalid_claim" {
 		t.Fatalf("unexpected decision: %+v", got)
