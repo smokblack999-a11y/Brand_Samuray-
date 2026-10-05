@@ -12,7 +12,7 @@ import (
 )
 
 type Reservation interface {
-	Reserve(ctx context.Context, claim x41.Claim, riskSize int64) error
+	Reserve(ctx context.Context, claim x41.Claim, riskSize int64) (string, error)
 }
 
 type Gate struct {
@@ -27,6 +27,7 @@ type Response struct {
 	DecisionID string       `json:"decision_id"`
 	Decision   x41.Decision `json:"decision"`
 	Reserved   bool         `json:"reserved"`
+	ReservationID string   `json:"reservation_id,omitempty"`
 }
 
 type InMemoryReservation struct {
