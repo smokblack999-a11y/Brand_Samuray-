@@ -43,7 +43,7 @@ func TestCourtKillerFindingCanTriggerDeterministicVeto(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Decision.Execute || result.Decision.Reason != "RISK_SCORE_EXCEEDED" {
+	if result.Decision.Execute || result.Decision.Reason != "risk_score_exceeded" {
 		t.Fatalf("expected deterministic veto, got %+v", result.Decision)
 	}
 	if len(result.Findings) != 1 || result.Claim.RiskScore != 0.95 {
