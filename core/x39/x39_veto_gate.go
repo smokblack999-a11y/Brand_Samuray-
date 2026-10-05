@@ -44,7 +44,7 @@ func NewInMemoryReservation(dailyBudget int64) *InMemoryReservation {
 func (r *InMemoryReservation) Reserve(ctx context.Context, claim x41.Claim, riskSize int64) (string, error) {
 	select {
 	case <-ctx.Done():
-		return ctx.Err()
+		return "", ctx.Err()
 	default:
 	}
 
