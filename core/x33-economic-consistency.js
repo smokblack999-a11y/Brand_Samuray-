@@ -25,7 +25,9 @@ function allocateSettlement(input){
   let authorizedSpend=0n,unbudgetedDelta=0n,status=STATUS.SETTLED,operation=OP.SETTLE;
   if(input.wasExpired){status=STATUS.SETTLED_AFTER_EXPIRY;operation=OP.SETTLE_AFTER_EXPIRY;unbudgetedDelta=actual;}
   else{authorizedSpend=actual<=availableAuthorized?actual:availableAuthorized;unbudgetedDelta=actual-authorizedSpend;if(unbudgetedDelta>0n){status=STATUS.OVERFLOW_REJECTED;operation=OP.SETTLE_OVERAGE;}else if(actual>reserved){status=STATUS.SETTLED_WITH_OVERAGE;operation=OP.SETTLE_OVERAGE;}}
-  return {authorizedSpend,unbudgetedDelta,newSpent:spent+authorizedSpend,newCommitted:committedAfterRelease,status,operation,overage:actual>reserved?actual-reserved:0n};
+  const newSpent=spent+authorizedSpend;
+  if(newSpent>MAX_INT64)throw codeError(Err.INVARIANT_VIOLATION,"spent BIGINT overflow");
+  return {authorizedSpend,unbudgetedDelta,newSpent,newCommitted:committedAfterRelease,status,operation,overage:actual>reserved?actual-reserved:0n};
 }
 function rowResult(row,replay){return {reservationId:String(row.reservation_id),tenantId:String(row.tenant_id),eventId:String(row.event_id),status:String(row.status),reservedAmountMicro:String(row.reserved_amount_micro),actualAmountMicro:row.actual_amount_micro==null?null:String(row.actual_amount_micro),overageMicro:String(row.overage_micro==null?"0":row.overage_micro),expiresAt:row.expires_at,idempotentReplay:Boolean(replay)};}
 
@@ -41,10 +43,14 @@ class X33EconomicConsistency{
       await client.query("BEGIN");
       const budget=await this.lockBudget(client,input.tenantId);
       if(budget.window_expired)throw codeError(Err.BUDGET_WINDOW_EXPIRED,"budget window expired; roll it explicitly");
+      const old=await client.query("SELECT reservation_id,tenant_id,event_id,reserved_amount_micro,actual_amount_micro,overage_micro,status::text AS status,expires_at,request_fingerprint FROM tenant_reservations WHERE tenant_id=$1 AND event_id=$2 FOR UPDATE",[input.tenantId,input.eventId]);
+      if(old.rowCount){
+        const row=old.rows[0];
+        if(String(row.request_fingerprint)!==fp)throw codeError(Err.IDEMPOTENCY_CONFLICT,"same event was used with different reservation parameters");
+        await client.query("COMMIT");return rowResult(row,true);
+      }
       const control=await this.lockControl(client,input.tenantId);
       if(control.autonomy_mode!==MODE.ACTIVE)throw codeError(Err.AUTONOMY_TRIPPED,"tenant autonomy mode is "+control.autonomy_mode);
-      const old=await client.query("SELECT reservation_id,tenant_id,event_id,reserved_amount_micro,actual_amount_micro,overage_micro,status::text AS status,expires_at,request_fingerprint FROM tenant_reservations WHERE tenant_id=$1 AND event_id=$2 FOR UPDATE",[input.tenantId,input.eventId]);
-      if(old.rowCount){const row=old.rows[0];if(String(row.request_fingerprint)!==fp)throw codeError(Err.IDEMPOTENCY_CONFLICT,"same event was used with different reservation parameters");await client.query("COMMIT");return rowResult(row,true);}
       const limit=BigInt(budget.budget_limit_micro_kzt),spent=BigInt(budget.spent_micro_kzt),committed=BigInt(budget.committed_micro_kzt),unbudgeted=BigInt(budget.unbudgeted_actual_micro_kzt);
       if(limit<0n||spent<0n||committed<0n||unbudgeted<0n||spent+committed>limit)return this.tripAndThrow(client,input.tenantId,"BUDGET_STATE_INVALID",Err.INVARIANT_VIOLATION);
       if(limit-spent-committed<estimate)throw codeError(Err.BUDGET_EXCEEDED,"reservation would exceed available budget");
@@ -69,7 +75,10 @@ class X33EconomicConsistency{
       if(!rr.rowCount)throw codeError(Err.RESERVATION_NOT_FOUND,"reservation not found");
       const row=rr.rows[0];
       if(String(row.tenant_id)!==String(tenantId))return this.tripAndThrow(client,tenantId,"RESERVATION_TENANT_MISMATCH",Err.INVARIANT_VIOLATION);
-      if([STATUS.SETTLED,STATUS.SETTLED_WITH_OVERAGE,STATUS.SETTLED_AFTER_EXPIRY,STATUS.OVERFLOW_REJECTED].includes(String(row.status))){await client.query("COMMIT");return rowResult(row,true);}
+      if([STATUS.SETTLED,STATUS.SETTLED_WITH_OVERAGE,STATUS.SETTLED_AFTER_EXPIRY,STATUS.OVERFLOW_REJECTED].includes(String(row.status))){
+        if(row.actual_amount_micro!=null && BigInt(row.actual_amount_micro)!==actual)throw codeError(Err.IDEMPOTENCY_CONFLICT,"settlement replay used a different actual amount");
+        await client.query("COMMIT");return rowResult(row,true);
+      }
       const allocation=allocateSettlement({limit:budget.budget_limit_micro_kzt,spent:budget.spent_micro_kzt,committed:budget.committed_micro_kzt,reserved:row.reserved_amount_micro,actual,wasExpired:String(row.status)===STATUS.EXPIRED});
       const previousSpent=BigInt(budget.spent_micro_kzt),previousCommitted=BigInt(budget.committed_micro_kzt),previousUnbudgeted=BigInt(budget.unbudgeted_actual_micro_kzt),newUnbudgeted=previousUnbudgeted+allocation.unbudgetedDelta;
       await client.query("UPDATE tenant_reservations SET actual_amount_micro=$1,overage_micro=$2,status=$3,settled_at=NOW(),finalized_at=NOW() WHERE reservation_id=$4",[actual.toString(),allocation.overage.toString(),allocation.status,reservationId]);
@@ -106,6 +115,7 @@ class X33EconomicConsistency{
       await client.query("BEGIN");const budget=await this.lockBudget(client,tenantId);await this.lockControl(client,tenantId);
       if(!budget.window_expired)throw codeError(Err.INVALID_INPUT,"budget window has not expired");
       const active=await client.query("SELECT reservation_id FROM tenant_reservations WHERE tenant_id=$1 AND status='ACTIVE' FOR UPDATE",[tenantId]);if(active.rowCount||BigInt(budget.committed_micro_kzt)!==0n)return this.tripAndThrow(client,tenantId,"WINDOW_ROLLOVER_WITH_ACTIVE_COMMITMENTS",Err.INVARIANT_VIOLATION);
+      if(BigInt(budget.unbudgeted_actual_micro_kzt)!==0n)return this.tripAndThrow(client,tenantId,"WINDOW_ROLLOVER_WITH_UNBUDGETED_ACTUAL",Err.INVARIANT_VIOLATION);
       const previousSpent=BigInt(budget.spent_micro_kzt),previousUnbudgeted=BigInt(budget.unbudgeted_actual_micro_kzt),rolloverId=crypto.randomUUID();
       await client.query("UPDATE tenant_budgets SET window_start_at=NOW(),window_reset_at=NOW()+(window_seconds*INTERVAL '1 second'),spent_micro_kzt=0,committed_micro_kzt=0,unbudgeted_actual_micro_kzt=0,version=version+1,updated_at=NOW() WHERE tenant_id=$1",[tenantId]);
       await this.appendLedger(client,{tenantId,reservationId:rolloverId,eventId:"window:"+tenantId+":"+rolloverId,operation:OP.WINDOW_ROLLOVER,operationKey:"window:"+tenantId+":"+rolloverId,deltaSpent:-previousSpent,deltaCommitted:0n,deltaUnbudgeted:-previousUnbudgeted,previousSpent,newSpent:0n,previousCommitted:0n,newCommitted:0n,previousUnbudgeted,newUnbudgeted:0n});
@@ -150,5 +160,5 @@ class X33EconomicConsistency{
   async trip(client,tenantId,reason){await client.query("UPDATE tenant_control_state SET autonomy_mode='TRIPPED',trip_reason=$1,tripped_at=COALESCE(tripped_at,NOW()),version=version+1 WHERE tenant_id=$2 AND autonomy_mode<>'TRIPPED'",[reason,tenantId]);}
   async tripAndThrow(client,tenantId,reason,code){await this.trip(client,tenantId,reason);await client.query("COMMIT");throw codeError(code,reason);}
 }
-function normalizePgError(error){if(error?.code==="23505"&&/x33_unique_reservation_event|tenant_reservations/i.test(error.constraint||""))return codeError(Err.IDEMPOTENCY_CONFLICT,"reservation idempotency conflict");return error;}
+function normalizePgError(error){if(error?.code==="23505"&&error.constraint==="x33_unique_reservation_event")return codeError(Err.IDEMPOTENCY_CONFLICT,"reservation idempotency conflict");return error;}
 module.exports={X33EconomicConsistency,MODE,STATUS,OP,Err,TRANSITIONS,canonical,fingerprint,ledgerHash,allocateSettlement,asMicro,codeError};
