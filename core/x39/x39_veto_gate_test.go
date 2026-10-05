@@ -29,7 +29,7 @@ func x39Claim(id string) x41.Claim {
 }
 
 func TestGateConcurrentBudgetCannotBeOverReserved(t *testing.T) {
-	res := NewInMemoryReservation(2)
+	res := NewInMemoryReservation(20)
 	gate := Gate{
 		Audit: new(x42.MemoryLog),
 		Policy: x39Policy(), Reserve: res,
@@ -37,7 +37,7 @@ func TestGateConcurrentBudgetCannotBeOverReserved(t *testing.T) {
 		DailyLoss: func(context.Context) (int64, error) { return 0, nil },
 	}
 
-	const n = 10
+	const n = 100
 	var wg sync.WaitGroup
 	results := make(chan Response, n)
 
@@ -64,9 +64,9 @@ func TestGateConcurrentBudgetCannotBeOverReserved(t *testing.T) {
 		}
 	}
 	if executed != 1 {
-		t.Fatalf("expected exactly one execution under a 2-unit budget, got %d", executed)
+		t.Fatalf("expected exactly ten executions under a 20-unit budget, got %d", executed)
 	}
-	if got := res.Used(); got != 2 {
+	if got := res.Used(); got != 20 {
 		t.Fatalf("reserved=%d, want 2", got)
 	}
 }
