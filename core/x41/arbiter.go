@@ -79,7 +79,6 @@ func (a *Arbiter) EvaluateClaim(claim Claim, now time.Time) Decision {
 // It performs no LLM, network, clock, database, reservation, or execution I/O.
 func EvaluateClaim(claim Claim, policy Policy, now time.Time, currentDailyLoss int64) Decision {
 	const checksTotal = 11
-	d := Decision{PolicyVersion: policy.Version, ChecksTotal: checksTotal}
 	passed := 0
 
 	if err := validatePolicy(policy); err != nil {
