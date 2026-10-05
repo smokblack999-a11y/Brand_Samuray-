@@ -396,7 +396,7 @@ app.post("/api/revenue/loop/evaluate", requireApiKey, leadRateLimit, (req, res) 
 
 app.post("/api/revenue/loop/execution", requireApiKey, leadRateLimit, (req, res) => {
   try {
-    const result = autonomousRevenueLoop.recordExecution(Object.assign({}, req.body || {}, {
+    const result = await autonomousRevenueLoop.recordExecution(Object.assign({}, req.body || {}, {
       tenantId: revenueTenantId(req)
     }));
     return res.status(result.inserted ? 201 : 200).json({ ok: true, ...result, requestId: req.requestId });
@@ -408,7 +408,7 @@ app.post("/api/revenue/loop/execution", requireApiKey, leadRateLimit, (req, res)
 
 app.post("/api/revenue/loop/outcome", requireApiKey, leadRateLimit, (req, res) => {
   try {
-    const result = autonomousRevenueLoop.recordOutcome(Object.assign({}, req.body || {}, {
+    const result = await autonomousRevenueLoop.recordOutcome(Object.assign({}, req.body || {}, {
       tenantId: revenueTenantId(req)
     }));
     return res.status(result.inserted ? 201 : 200).json({ ok: true, ...result, requestId: req.requestId });
