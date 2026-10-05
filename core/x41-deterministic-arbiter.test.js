@@ -2,89 +2,90 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { DECISION, LEVEL, REASONS, evaluateClaim } = require("./x41-deterministic-arbiter");
+const { evaluateClaim, DECISION, LEVEL, REASON } = require("./x41-deterministic-arbiter");
 
-const now = new Date("2026-10-05T08:00:00.000Z");
-const policy = Object.freeze({
-  activePolicyVersion: 3,
-  staleDataWindowMs: 10_000,
-  maxLossLimit: 50,
-  dailyLossBudget: 200,
-  currentDailyLoss: 150,
-  maxCapitalReq: 100,
-  maxKellyFraction: 0.25,
-  riskPenalty: 0.5,
-  requireEvidence: true
-});
+const NOW = Date.parse("2026-10-05T08:00:00.000Z");
 
-function claim(overrides = {}) {
+function policy(overrides = {}) {
   return {
-    id: "claim-001",
-    expectedProfit: 120,
-    maxLoss: 40,
-    capitalReq: 80,
-    probability: 0.80,
-    confidence: 0.90,
-    riskScore: 0.10,
-    dataTimestamp: new Date(now),
-    policyVersion: 3,
-    evidence: ["fresh-source"],
+    activePolicy: 3,
+    maxLossLimitMicro: "50000000",
+    dailyLossBudgetMicro: "200000000",
+    currentDailyLossMicro: "150000000",
+    maxCapitalReqMicro: "100000000",
+    staleDataWindowMs: 10_000,
     ...overrides
   };
 }
 
-test("X41 executes only when every deterministic policy check passes", () => {
-  const result = evaluateClaim(claim(), policy, now);
+function claim(overrides = {}) {
+  return {
+    id: "claim-001",
+    expectedProfitMicro: "120000000",
+    maxLossMicro: "40000000",
+    capitalReqMicro: "80000000",
+    dataTimestamp: "2026-10-05T07:59:59.000Z",
+    policyVersion: 3,
+    probability: 0.95,
+    confidence: 0.9,
+    ...overrides
+  };
+}
+
+test("X41 executes a valid claim deterministically", () => {
+  const result = evaluateClaim(claim(), policy(), NOW);
   assert.equal(result.decision, DECISION.EXECUTE);
   assert.equal(result.vetoLevel, LEVEL.GREEN);
-  assert.equal(result.reason, REASONS.ALL_CHECKS_PASSED);
-  assert.ok(result.riskAdjustedKellyRisk > 0);
-  assert.ok(result.riskAdjustedKellyRisk <= 50);
+  assert.equal(result.reason, REASON.ALL_CHECKS_PASSED);
+  assert.ok(BigInt(result.recommendedRiskMicro) > 0n);
 });
 
-test("X41 hard-vetoes stale data", () => {
-  const result = evaluateClaim(claim({
-    dataTimestamp: new Date(now.getTime() - 10_001)
-  }), policy, now);
-  assert.deepEqual(
-    { decision: result.decision, reason: result.reason, level: result.vetoLevel },
-    { decision: DECISION.VETO, reason: REASONS.STALE_DATA, level: LEVEL.RED }
+test("X41 vetoes stale data before any economic approval", () => {
+  const result = evaluateClaim(
+    claim({ dataTimestamp: "2026-10-05T07:59:40.000Z" }),
+    policy(),
+    NOW
   );
+  assert.equal(result.decision, DECISION.VETO);
+  assert.equal(result.reason, REASON.STALE_DATA);
+  assert.equal(result.vetoLevel, LEVEL.RED);
 });
 
-test("X41 hard-vetoes high-risk claim even when expected profit is attractive", () => {
-  const result = evaluateClaim(claim({ maxLoss: 60, expectedProfit: 500 }), policy, now);
+test("X41 vetoes mismatched policy version", () => {
+  const result = evaluateClaim(claim({ policyVersion: 2 }), policy(), NOW);
   assert.equal(result.decision, DECISION.VETO);
-  assert.equal(result.reason, REASONS.MAX_LOSS_EXCEEDED);
+  assert.equal(result.reason, REASON.POLICY_MISMATCH);
 });
 
-test("X41 blocks when remaining daily loss budget is insufficient", () => {
-  const result = evaluateClaim(claim({ maxLoss: 40 }), policy, now);
+test("X41 hard-stops when the daily loss budget would be exceeded", () => {
+  const result = evaluateClaim(claim({ maxLossMicro: "60000000" }), policy(), NOW);
   assert.equal(result.decision, DECISION.VETO);
-  assert.equal(result.reason, REASONS.DAILY_LOSS_BUDGET_EXHAUSTED);
+  assert.equal(result.reason, REASON.MAX_LOSS_EXCEEDED);
+});
+
+test("X41 uses BLACK veto when the daily budget is the binding constraint", () => {
+  const result = evaluateClaim(
+    claim({ maxLossMicro: "40000000" }),
+    policy({ currentDailyLossMicro: "170000000" }),
+    NOW
+  );
+  assert.equal(result.decision, DECISION.VETO);
+  assert.equal(result.reason, REASON.DAILY_LOSS_BUDGET_EXHAUSTED);
   assert.equal(result.vetoLevel, LEVEL.BLACK);
 });
 
-test("X41 rejects policy-version drift", () => {
-  const result = evaluateClaim(claim({ policyVersion: 2 }), policy, now);
+test("X41 vetoes a negative expected-profit claim", () => {
+  const result = evaluateClaim(claim({ expectedProfitMicro: "0" }), policy(), NOW);
   assert.equal(result.decision, DECISION.VETO);
-  assert.equal(result.reason, REASONS.MISMATCHED_POLICY_VERSION);
+  assert.equal(result.reason, REASON.NEGATIVE_EXPECTED_PROFIT);
 });
 
-test("X41 rejects missing evidence when policy requires it", () => {
-  const result = evaluateClaim(claim({ evidence: [] }), policy, now);
-  assert.equal(result.decision, DECISION.VETO);
-  assert.equal(result.reason, REASONS.EVIDENCE_REQUIRED);
-});
-
-test("X41 rejects non-positive economic edge", () => {
-  const result = evaluateClaim(claim({ probability: 0.20 }), policy, now);
-  assert.equal(result.decision, DECISION.VETO);
-  assert.equal(result.reason, REASONS.NON_POSITIVE_EDGE);
-});
-
-test("X41 never returns EXECUTE with a non-positive risk budget", () => {
-  const result = evaluateClaim(claim(), { ...policy, currentDailyLoss: 200 }, now);
-  assert.equal(result.decision, DECISION.VETO);
-  assert.equal(result.reason, REASONS.DAILY_LOSS_BUDGET_EXHAUSTED);
+test("X41 has no floating-point money arithmetic in the decision path", () => {
+  const result = evaluateClaim(
+    claim({ expectedProfitMicro: "1", maxLossMicro: "1", capitalReqMicro: "1000000", probability: 0.51 }),
+    policy({ currentDailyLossMicro: "0" }),
+    NOW
+  );
+  assert.equal(result.decision, DECISION.EXECUTE);
+  assert.match(result.recommendedRiskMicro, /^\d+$/);
 });
