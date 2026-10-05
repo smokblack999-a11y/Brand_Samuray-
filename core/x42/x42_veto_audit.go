@@ -15,11 +15,11 @@ import (
 type DecisionRecord struct {
 	DecisionID    string    `json:"decision_id"`
 	ClaimHash     string    `json:"claim_hash"`
-	PolicyVersion int64     `json:"policy_version"`
+	PolicyVersion int     `json:"policy_version"`
 	Decision      bool      `json:"decision"`
 	Reason        string    `json:"reason"`
 	VetoLevel     string    `json:"veto_level"`
-	RiskSize      int64     `json:"risk_size"`
+	RiskSizeMicro int64     `json:"risk_size"`
 	CreatedAt     time.Time `json:"created_at"`
 	PreviousHash  string    `json:"previous_hash"`
 	RecordHash    string    `json:"record_hash"`
@@ -33,7 +33,7 @@ func NewDecisionRecord(claim x41.Claim, decision x41.Decision, at time.Time) Dec
 		Decision: decision.Execute,
 		Reason: decision.Reason,
 		VetoLevel: decision.VetoLevel,
-		RiskSize: decision.RiskSize,
+		RiskSizeMicro: decision.RiskSizeMicro,
 		CreatedAt: at.UTC(),
 	}
 }
