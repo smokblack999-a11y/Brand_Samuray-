@@ -166,7 +166,8 @@ function snapshot(tenantId) {
     decisions: revenueRuntime.list(tenantId, "DECISION").slice(0, 20),
     executions: revenueRuntime.list(tenantId, "EXECUTION").slice(0, 20),
     outcomes: revenueRuntime.list(tenantId, "OUTCOME").slice(0, 20),
-    learning: revenueRuntime.list(tenantId, "LEARNING").slice(0, 20)
+    learning: revenueRuntime.list(tenantId, "LEARNING").slice(0, 20),
+    observations: revenueRuntime.list(tenantId, "OBSERVATION").slice(0, 50)
   };
 }
 
