@@ -15,6 +15,12 @@ function recordExecution(tenantId,input){
   return ledger.appendExecution(x);
 }
 function recordExecutionCost(tenantId,decisionId,executionId,telemetry){const t=tenant(tenantId);const x=telemetry||{};const amount=Number(x.amountKZT||0);return ledger.appendCost({tenantId:t,costId:String(executionId||Date.now()),decisionId:decisionId||null,provider:x.provider||null,model:x.model||null,amountKZT:amount,inputTokens:Number(x.inputTokens||0),outputTokens:Number(x.outputTokens||0),cachedTokens:Number(x.cachedTokens||0),currency:x.currency||"KZT",costConfidence:x.confidence||"UNPRICED"});}
+function recordObservation(tenantId, input = {}) {
+  const t = tenant(tenantId);
+  const observationId = String(input.observationId || "").trim();
+  if (!observationId) throw new Error("observationId is required");
+  return ledger.appendObservation(Object.assign({}, input, { tenantId: t, observationId }));
+}
 function recordOutcome(tenantId,input){
   const t=tenant(tenantId); const raw=Object.assign({},input||{}); const eventId=String(raw.eventId||"").trim(); if(!eventId) throw new Error("eventId is required");
   let decision=null; if(raw.actionId) decision=ledger.list(t,"DECISION").find(x=>x.decisionId===raw.actionId)||null;
@@ -35,4 +41,4 @@ function recordOutcome(tenantId,input){
 function summary(tenantId){return ledger.summary(tenant(tenantId));}
 function list(tenantId,type){return ledger.list(tenant(tenantId),type);}
 function integrity(tenantId){return ledger.integrity(tenant(tenantId));}
-module.exports={tenant,decide,recordExecution,recordExecutionCost,summary,list,integrity,historicalStats,monthlyCostKZT};
+module.exports={tenant,decide,recordExecution,recordExecutionCost,recordObservation,summary,list,integrity,historicalStats,monthlyCostKZT};
