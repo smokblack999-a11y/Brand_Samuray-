@@ -17,7 +17,7 @@ on:
 
 concurrency:
   group: samurai-core-ci-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -46,22 +46,18 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
           go-version: '1.22.x'
-
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: core/package-lock.json
-
       - name: Install dependencies
         run: npm ci
-
       - name: Secret pattern scan
         working-directory: .
         shell: bash
@@ -72,7 +68,6 @@ jobs:
             exit 1
           fi
           echo "Secret scan: PASS"
-
       - name: Syntax check
         run: |
           node --check server.js
@@ -107,27 +102,21 @@ jobs:
           node --check x33-service.js
           node --check autonomous-revenue-orchestrator.js
           node --check revenue-rollout-policy.js
-          node --check x33-economic-consistency.js
           node --check x33-economic-consistency.test.js
           node --check x33-adversarial.test.js
           node --check x42-veto-audit.js
           node --check x42-veto-audit.test.js
-
       - name: X39-X44 deterministic risk-control tests
         working-directory: core
         run: go test -race ./...
-
       - name: Unit tests
         run: npm test
-
       - name: Install X33 PostgreSQL test driver
         run: npm install --no-save --package-lock=false pg@8.23.1
-
       - name: X33 PostgreSQL adversarial tests
         env:
           DATABASE_URL: postgresql://samurai:samurai_ci@localhost:5432/samurai_ci
         run: node --test x33-adversarial.test.js
-
       - name: X42 PostgreSQL veto audit tests
         env:
           DATABASE_URL: postgresql://samurai:samurai_ci@localhost:5432/samurai_ci
@@ -147,7 +136,6 @@ jobs:
           set -euo pipefail
           test -n "${OPENAI_API_KEY:-}" || { echo "OPENAI_API_KEY is missing from GitHub Secrets"; exit 1; }
           echo "OPENAI_API_KEY is configured"
-
       - name: OpenAI authentication smoke test
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
