@@ -394,7 +394,7 @@ app.post("/api/revenue/loop/evaluate", requireApiKey, leadRateLimit, (req, res) 
   }
 });
 
-app.post("/api/revenue/loop/execution", requireApiKey, leadRateLimit, (req, res) => {
+app.post("/api/revenue/loop/execution", requireApiKey, leadRateLimit, async (req, res) => {
   try {
     const result = await autonomousRevenueLoop.recordExecution(Object.assign({}, req.body || {}, {
       tenantId: revenueTenantId(req)
@@ -406,7 +406,7 @@ app.post("/api/revenue/loop/execution", requireApiKey, leadRateLimit, (req, res)
   }
 });
 
-app.post("/api/revenue/loop/payment", requireApiKey, leadRateLimit, (req, res) => {
+app.post("/api/revenue/loop/payment", requireApiKey, leadRateLimit, async (req, res) => {
   try {
     const result = autonomousRevenueLoop.recordPayment(Object.assign({}, req.body || {}, {
       tenantId: revenueTenantId(req)
@@ -418,7 +418,7 @@ app.post("/api/revenue/loop/payment", requireApiKey, leadRateLimit, (req, res) =
   }
 });
 
-app.post("/api/revenue/loop/outcome", requireApiKey, leadRateLimit, (req, res) => {
+app.post("/api/revenue/loop/outcome", requireApiKey, leadRateLimit, async (req, res) => {
   try {
     const result = await autonomousRevenueLoop.recordOutcome(Object.assign({}, req.body || {}, {
       tenantId: revenueTenantId(req)
