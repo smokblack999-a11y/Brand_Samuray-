@@ -1,6 +1,7 @@
 "use strict";
 
 const apolloRevenue = require("./apollo-revenue-adapter");
+const publicRevenue = require("./public-prospect-adapter");
 
 function boolEnv(name, fallback = false) {
   const value = String(process.env[name] ?? fallback).toLowerCase();
@@ -24,7 +25,8 @@ function config() {
     maxProspects: positiveInt(process.env.REVENUE_AUTONOMOUS_MAX_PROSPECTS, 5, 10),
     minLeadScore: positiveInt(process.env.REVENUE_AUTONOMOUS_MIN_LEAD_SCORE, 70, 100),
     sequenceIdConfigured: Boolean(process.env.APOLLO_AUTONOMOUS_SEQUENCE_ID),
-    emailAccountConfigured: Boolean(process.env.APOLLO_AUTONOMOUS_EMAIL_ACCOUNT_ID)
+    emailAccountConfigured: Boolean(process.env.APOLLO_AUTONOMOUS_EMAIL_ACCOUNT_ID),
+    publicFallbackEnabled: boolEnv("PUBLIC_PROSPECT_ENABLED", true)
   };
 }
 
@@ -83,7 +85,7 @@ async function runCycle({
     return { enabled: false, config: c, reason: "REVENUE_AUTONOMOUS_CYCLE_DISABLED", plans: [] };
   }
 
-  const result = await apolloRevenue.discoverAndQualify({
+  let result = await apolloRevenue.discoverAndQualify({
     tenantId: clean(tenantId, 128) || "default",
     filters,
     maxProspects: maxProspects || c.maxProspects,
@@ -91,6 +93,20 @@ async function runCycle({
     dealValueKZT,
     grossMarginRate
   });
+  let source = "apollo";
+  if (c.publicFallbackEnabled && !(result.prospects || []).length) {
+    const publicCompanies = publicRevenue.parseCompanies(process.env.PUBLIC_PROSPECT_COMPANIES_JSON);
+    if (publicCompanies.length) {
+      result = await publicRevenue.discoverAndQualify({
+        tenantId: clean(tenantId, 128) || "default",
+        companies: publicCompanies,
+        maxProspects: maxProspects || c.maxProspects,
+        dealValueKZT,
+        grossMarginRate
+      });
+      source = "public-web";
+    }
+  }
 
   const plans = (result.prospects || []).map((prospect) => {
     const actionPlan = buildActionPlan(prospect, c);
@@ -116,6 +132,7 @@ async function runCycle({
       console.error(JSON.stringify({ event: "action_plan_observation_failed", error: error.message }));
     }
     return {
+      source,
       lead: prospect.lead,
       qualification: prospect.qualification,
       decision: prospect.decision,
@@ -129,6 +146,7 @@ async function runCycle({
     discovered: result.discovered || 0,
     enriched: result.enriched || 0,
     qualified: result.prospects?.length || 0,
+    source,
     plans
   };
 }
