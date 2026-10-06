@@ -12,6 +12,7 @@ const { saveLead, claimEvent, updateLead, listLeads, stats } = require("./store"
 const { createRateLimiter } = require("./rate-limit");
 const dualAI = require("./dual-ai/engine");
 const agentControl = require("./agent-control");
+const agentControlGithub = require("./agent-control-github");
 
 const app = express();
 const PORT = Number(process.env.PORT || 8787);
@@ -108,6 +109,18 @@ app.get("/api/agent-control/jobs/:id", requireApiKey, (req, res) => {
   const job = agentControl.getJob(req.params.id);
   if (!job) return res.status(404).json(errorBody("AGENT_JOB_NOT_FOUND", "Agent-control job not found", req.requestId));
   return res.json({ ok: true, job, requestId: req.requestId });
+});
+
+app.post("/api/agent-control/jobs/:id/evidence", requireApiKey, async (req, res) => {
+  try {
+    const job = agentControl.getJob(req.params.id);
+    if (!job) return res.status(404).json(errorBody("AGENT_JOB_NOT_FOUND", "Agent-control job not found", req.requestId));
+    const updated = await agentControl.collectGithubEvidence(job, agentControlGithub);
+    return res.json({ ok: true, job: updated, repairEligible: updated.state === "REPAIR_ELIGIBLE", requestId: req.requestId });
+  } catch (error) {
+    const status = error.code === "GITHUB_WORKFLOW_IDENTITY_MISSING" ? 409 : 502;
+    return res.status(status).json(errorBody(error.code || "AGENT_EVIDENCE_COLLECTION_FAILED", error.message, req.requestId));
+  }
 });
 
 app.post("/api/agent-control/jobs/:id/diagnose", requireApiKey, (req, res) => {
