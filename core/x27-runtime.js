@@ -38,7 +38,7 @@ function recordOutcome(tenantId,input){
   if(decision){ learning=Object.assign({},buildLearningRecord(Object.assign({},decision,{expectedIncrementalProfit:decision.expectedIncrementalProfit!=null?decision.expectedIncrementalProfit:decision.expectedValue}),Object.assign({},attribution,{status:o.status,sourceEventId:o.eventId}),realizedCost),{tenantId:t}); learning=ledger.appendLearning(learning).record; }
   return {inserted:true,outcome:saved.record,attribution,learning,cost:costRecord};
 }
-function summary(tenantId){return ledger.summary(tenant(tenantId));}
+function monthlyCostKZT(tenantId){\n  const t=tenant(tenantId);\n  const now=new Date();\n  const monthStart=new Date(Date.UTC(now.getUTCFullYear(),now.getUTCMonth(),1)).getTime();\n  return ledger.list(t,"COST").filter(x=>Date.parse(x.createdAt||0)>=monthStart).reduce((sum,x)=>sum+Number(x.amountKZT||0),0);\n}\nfunction summary(tenantId){return ledger.summary(tenant(tenantId));}
 function list(tenantId,type){return ledger.list(tenant(tenantId),type);}
 function integrity(tenantId){return ledger.integrity(tenant(tenantId));}
 module.exports={tenant,decide,recordExecution,recordExecutionCost,recordObservation,summary,list,integrity,historicalStats,monthlyCostKZT};
