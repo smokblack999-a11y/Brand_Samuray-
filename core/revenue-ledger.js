@@ -75,6 +75,16 @@ function appendLearning(learning) {
   return { inserted: true, record };
 }
 
+function appendObservation(observation) {
+  if (!observation || !observation.tenantId) throw new Error("tenantId is required");
+  if (!observation.observationId) throw new Error("observationId is required");
+  const rows = read();
+  const duplicate = rows.find(x => x.type === "OBSERVATION" && x.tenantId === observation.tenantId && x.observationId === observation.observationId);
+  if (duplicate) return { inserted: false, record: duplicate };
+  const record = sealRecord(Object.assign({}, observation, { type: "OBSERVATION", createdAt: new Date().toISOString() }), lastTenantHash(rows, observation.tenantId));
+  rows.push(record); write(rows); return { inserted: true, record };
+}
+
 function appendExecution(execution) {
   if (!execution || !execution.tenantId) throw new Error("tenantId is required");
   if (!execution.executionId) throw new Error("executionId is required");
@@ -124,4 +134,4 @@ function summary(tenantId) {
 
 function integrity(tenantId) { const rows = read().filter(x => !tenantId || x.tenantId === tenantId); return verifyEvidenceChain(rows); }
 
-module.exports = { appendOutcome, appendDecision, appendExecution, appendLearning, appendCost, list, summary, integrity };
+module.exports = { appendOutcome, appendDecision, appendExecution, appendObservation, appendLearning, appendCost, list, summary, integrity };
