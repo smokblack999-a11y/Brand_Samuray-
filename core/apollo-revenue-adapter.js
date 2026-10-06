@@ -236,6 +236,34 @@ async function discoverAndQualify({
       }
     }
 
+    try {
+      revenueRuntime.recordObservation(tenantId, {
+        observationId: `qualify:${correlationId}`,
+        source: "apollo-qualification",
+        sourceId: leadId,
+        correlationId,
+        leadId,
+        observation: "qualification_observation",
+        score: qualification.score,
+        intent: qualification.intent,
+        signals: qualification.signals,
+        title: clean(lead.title, 200),
+        seniority: clean(lead.seniority, 64),
+        company: clean(lead.company, 200),
+        decisionAction: decision?.action || decision?.recommendedAction || "UNKNOWN",
+        decisionId: decision?.decisionId || null,
+        emailAvailable: Boolean(lead.email),
+        enrichmentRequested: Boolean(enrich),
+        enrichmentCreditsReported: enrichment?.mcp_credits || null
+      });
+    } catch (error) {
+      console.error(JSON.stringify({
+        event: "revenue_observation_write_failed",
+        leadId,
+        error: error.message
+      }));
+    }
+
     const saved = saveLead({
       source: "apollo",
       sourceId: lead.apolloPersonId || null,
