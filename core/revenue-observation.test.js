@@ -20,5 +20,5 @@ test("revenue observations persist without polluting learning calibration", () =
 
   assert.equal(saved.inserted, true);
   assert.equal(runtime.list(tenant, "OBSERVATION").length, 1);
-  assert.equal(runtime.historicalStats(tenant), undefined);
+  assert.deepEqual(runtime.historicalStats(tenant), {});
 });
