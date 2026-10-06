@@ -41,7 +41,7 @@ function providerConfig() {
   };
 }
 
-async function requestJson(url, headers = {}) {
+async function requestJson(url, headers = {}, options = {}) {
   const target = new URL(url);
   if (!["https:", "http:"].includes(target.protocol) || target.username || target.password) {
     throw Object.assign(new Error("DISCOVERY_URL_REJECTED"), { code: "DISCOVERY_URL_REJECTED" });
@@ -97,7 +97,7 @@ async function discoverCompanies({ query, maxResults } = {}) {
 
   if (c.provider === "serper") {
     url = new URL(c.endpoint || "https://google.serper.dev/search");
-    const payload = await requestJson(url.toString(), { "X-API-KEY": c.apiKey, "content-type": "application/json" });
+    const payload = await requestJson(url.toString(), { "X-API-KEY": c.apiKey, "content-type": "application/json" }, { method: "POST", body: JSON.stringify({ q: query, num: Math.min(maxResults || c.maxResults, MAX_RESULTS) }) });
     return { enabled: true, provider: c.provider, companies: normalizeResults(payload, c.provider, maxResults || c.maxResults) };
   }
 
