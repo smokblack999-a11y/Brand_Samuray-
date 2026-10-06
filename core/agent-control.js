@@ -189,6 +189,32 @@ function diagnose(job, evidence = {}) {
   return updated;
 }
 
+async function collectGithubEvidence(job, githubClient) {
+  if (!job || !job.workflow || !job.workflow.repository || !job.workflow.id) {
+    const error = new Error("GITHUB_WORKFLOW_IDENTITY_MISSING");
+    error.code = "GITHUB_WORKFLOW_IDENTITY_MISSING";
+    throw error;
+  }
+  if (!githubClient || typeof githubClient.collectFailureEvidence !== "function") {
+    const error = new Error("GITHUB_EVIDENCE_CLIENT_MISSING");
+    error.code = "GITHUB_EVIDENCE_CLIENT_MISSING";
+    throw error;
+  }
+  const evidence = await githubClient.collectFailureEvidence(job.workflow.repository, job.workflow.id);
+  const mergedLogs = (evidence.failedLogs || []).map(item => [
+    "[job:" + item.jobId + "] " + (item.name || "unknown") + " [" + (item.conclusion || "unknown") + "]",
+    item.content || "",
+    item.error ? "[log_error:" + item.error + "]" : ""
+  ].join("\n")).join("\n");
+  return diagnose(job, {
+    logs: mergedLogs,
+    reproduction: false,
+    causality: false,
+    source: "github-actions",
+    evidence: { runId: evidence.runId, repository: evidence.repository, jobs: evidence.jobs }
+  });
+}
+
 function health() {
   ensureStore();
   const jobs = listJobs(200);
@@ -210,6 +236,7 @@ module.exports = {
   listJobs,
   getJob,
   diagnose,
+  collectGithubEvidence,
   health,
   classifyFailure
 };
