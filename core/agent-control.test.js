@@ -37,3 +37,28 @@ test("requires reproduction and causality before repair eligibility", () => {
   const second = ac.diagnose(job, { logs: "AssertionError: expected 1", reproduction: true, causality: true });
   assert.equal(second.state, "REPAIR_ELIGIBLE");
 });
+
+test("GitHub evidence collection never grants repair eligibility without reproduction and causality", async () => {
+  const fakeClient = {
+    async collectFailureEvidence(repository, runId) {
+      return {
+        repository,
+        runId,
+        jobs: [{ id: 42, name: "SamuraiOS Core CI", conclusion: "failure" }],
+        failedLogs: [{ jobId: 42, name: "SamuraiOS Core CI", conclusion: "failure", content: "AssertionError: expected 1" }]
+      };
+    }
+  };
+  const job = {
+    id: "github-evidence-test",
+    state: "EVIDENCE_PENDING",
+    workflow: { id: 123, repository: "smokblack999-a11y/Brand_Samuray-" },
+    classification: { category: "ci_failure" },
+    diagnosis: { status: "pending", reproduction: false, causality: false }
+  };
+  const updated = await ac.collectGithubEvidence(job, fakeClient);
+  assert.equal(updated.diagnosis.source, "github-actions");
+  assert.equal(updated.diagnosis.reproduction, false);
+  assert.equal(updated.diagnosis.causality, false);
+  assert.equal(updated.state, "EVIDENCE_PENDING");
+});
