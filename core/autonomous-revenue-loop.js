@@ -122,7 +122,7 @@ function recordPayment(input = {}) {
   });
 }
 
-function recordOutcome(input = {}) {
+async function recordOutcome(input = {}) {
   const tenantId = text(input.tenantId, 128);
   const eventId = text(input.eventId, 256);
   if (!tenantId || !eventId) throw Object.assign(new Error("tenantId and eventId are required"), { code: "OUTCOME_CONTEXT_REQUIRED" });
