@@ -92,18 +92,44 @@ async function runCycle({
     grossMarginRate
   });
 
+  const plans = (result.prospects || []).map((prospect) => {
+    const actionPlan = buildActionPlan(prospect, c);
+    try {
+      const leadId = clean(
+        prospect?.lead?.apolloPersonId || prospect?.lead?.email || prospect?.id || "unknown",
+        256
+      );
+      const correlationId = clean(prospect?.lead?.correlationId || prospect?.decision?.correlationId || `apollo_${leadId}`, 256);
+      require("./x27-runtime").recordObservation(tenantId, {
+        observationId: `action-plan:${correlationId}`,
+        source: "autonomous-revenue-orchestrator",
+        sourceId: leadId,
+        correlationId,
+        leadId,
+        observation: "action_plan",
+        qualificationScore: Number(prospect?.qualification?.score || 0),
+        decisionAction: prospect?.decision?.action || prospect?.decision?.recommendedAction || "UNKNOWN",
+        planStatus: actionPlan.status,
+        planReason: actionPlan.reason
+      });
+    } catch (error) {
+      console.error(JSON.stringify({ event: "action_plan_observation_failed", error: error.message }));
+    }
+    return {
+      lead: prospect.lead,
+      qualification: prospect.qualification,
+      decision: prospect.decision,
+      actionPlan
+    };
+  });
+
   return {
     enabled: true,
     config: c,
     discovered: result.discovered || 0,
     enriched: result.enriched || 0,
     qualified: result.prospects?.length || 0,
-    plans: (result.prospects || []).map((prospect) => ({
-      lead: prospect.lead,
-      qualification: prospect.qualification,
-      decision: prospect.decision,
-      actionPlan: buildActionPlan(prospect, c)
-    }))
+    plans
   };
 }
 
