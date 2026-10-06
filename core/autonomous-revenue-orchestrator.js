@@ -1,7 +1,7 @@
 "use strict";
 
 const apolloRevenue = require("./apollo-revenue-adapter");
-const publicRevenue = require("./public-prospect-adapter");
+const publicRevenue = require("./public-prospect-adapter");\nconst publicDiscovery = require("./public-discovery-adapter");
 
 function boolEnv(name, fallback = false) {
   const value = String(process.env[name] ?? fallback).toLowerCase();
@@ -104,7 +104,34 @@ async function runCycle({
         dealValueKZT,
         grossMarginRate
       });
-      source = "public-web";
+      source = "public-web-seeded";
+    } else {
+      try {
+        const discovery = await publicDiscovery.discover({
+          niche: filters.niche || process.env.PUBLIC_PROSPECT_NICHE || "B2B SaaS",
+          geography: filters.geography || process.env.PUBLIC_PROSPECT_GEOGRAPHY || "",
+          pain: filters.pain || process.env.PUBLIC_PROSPECT_PAIN || "sales revenue CRM leads",
+          maxResults: maxProspects || c.maxProspects
+        });
+        if (discovery.companies?.length) {
+          result = await publicRevenue.discoverAndQualify({
+            tenantId: clean(tenantId, 128) || "default",
+            companies: discovery.companies,
+            maxProspects: maxProspects || c.maxProspects,
+            dealValueKZT,
+            grossMarginRate
+          });
+          result.discoveryProvider = discovery.provider;
+          result.discoveryQueries = discovery.queries;
+          source = "public-web-discovery";
+        }
+      } catch (error) {
+        console.error(JSON.stringify({
+          event: "public_discovery_failed",
+          code: error.code || "DISCOVERY_ERROR",
+          error: error.message
+        }));
+      }
     }
   }
 
