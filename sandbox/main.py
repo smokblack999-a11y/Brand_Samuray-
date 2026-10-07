@@ -79,7 +79,7 @@ async def run(body: RunIn):
         command = body.test_command or "npm test"
         sandbox_cmd = ["bwrap","--die-with-parent","--unshare-all","--new-session",
             "--ro-bind","/","/","--bind",str(stage),"/workspace","--proc","/proc",
-            "--dev","/dev","--tmpfs","/tmp","--chdir","/workspace",
+            "--dev","/dev","--dir","/workspace","--tmpfs","/tmp","--chdir","/workspace",
             "--setenv","HOME","/tmp/home","--setenv","CI","true","--","sh","-lc",command]
         code, out, err = await run_cmd(body.run_id, sandbox_cmd, stage, COMMAND_TIMEOUT)
         return {"run_id":body.run_id,"status":"PASSED" if code==0 else "FAILED",
