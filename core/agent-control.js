@@ -6,6 +6,7 @@ const path = require("node:path");
 const policy = require("./nexus-resource-policy");
 const orchestrator = require("./nexus-repair-orchestrator");
 const evidence = require("./agent-evidence");
+const intent = require("./agent-intent");
 
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, "data");
 const QUEUE_FILE = path.join(DATA_DIR, "agent-control-queue.jsonl");
@@ -262,8 +263,25 @@ function proposeRepair(job, proposal = {}) {
     throw error;
   }
   if (!job.orchestrator) throw new Error("ORCHESTRATOR_JOB_MISSING");
+  const semantic = intent.analyze({
+    intent: proposal.intent,
+    changedFiles: proposal.changedFiles || job.orchestrator.changedFiles || job.changedFiles
+  });
+  if (semantic.decision !== "ALLOW") {
+    const blockedJob = orchestrator.nextState(job.orchestrator, "CRITIC_BLOCKED", { intentGate: semantic });
+    const er = evidence.append(job.evidenceChain, {
+      type: "intent_gate",
+      intent: proposal.intent || "missing",
+      action: "semantic_scope_check",
+      decision: "BLOCK",
+      evidence: semantic
+    });
+    const updatedBlocked = {...job, updatedAt: now(), orchestrator: blockedJob, intentGate: semantic, evidenceChain: er.chain};
+    append({ type: "STATE", at: now(), jobId: job.id, job: updatedBlocked });
+    return updatedBlocked;
+  }
   const result = orchestrator.evaluateRepair(job.orchestrator, proposal);
-  let updated = {...job, updatedAt: now(), orchestrator: result.job};
+  let updated = {...job, updatedAt: now(), orchestrator: result.job, intentGate: semantic};
   const er = evidence.append(updated.evidenceChain, { type: "repair_proposal", intent: "repair_ci_failure", action: "propose_repair", decision: result.job.state === "SANDBOX_REQUIRED" ? "ALLOW_SANDBOX" : "BLOCK", evidence: result.evaluation });
   updated = {...updated, evidenceChain: er.chain};
   append({ type: "STATE", at: now(), jobId: job.id, job: updated });
