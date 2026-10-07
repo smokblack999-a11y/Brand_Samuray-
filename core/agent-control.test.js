@@ -128,7 +128,7 @@ test("X19 E2E fail-closed path reaches proof only after evidence, sandbox and CI
     retryCount: 0,
     proposal: {
       changedFiles: ["core/nexus-resource-policy.js"],
-      diff: "+ const repaired = true;",
+      diff: "@@ -1,1 +1,1 @@\n+ const repaired = true;",
       source: "x19-e2e-test"
     }
   });
@@ -147,7 +147,7 @@ test("X19 E2E fail-closed path reaches proof only after evidence, sandbox and CI
     policyGateEvidence: { checks: ["sandbox", "ci", "proof_receipt"] },
     proposal: {
       changedFiles: ["core/agent-control.js"],
-      diff: "+ const repaired = true;",
+      diff: "@@ -1,1 +1,1 @@\n+ const repaired = true;",
       source: "x19-e2e-test"
     }
   });
@@ -164,7 +164,7 @@ test("X19 E2E fail-closed path reaches proof only after evidence, sandbox and CI
 
   const repair = orchestrator.evaluateRepair(job, {
     changedFiles: ["core/agent-control.js"],
-    diff: "+ const repaired = true;",
+    diff: "@@ -1,1 +1,1 @@\n+ const repaired = true;",
     actor: "x19-e2e-test"
   });
   assert.equal(repair.job.state, "SANDBOX_REQUIRED");
