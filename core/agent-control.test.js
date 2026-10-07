@@ -126,10 +126,10 @@ test("X19 E2E fail-closed path reaches proof only after evidence, sandbox and CI
     resource: confirmed.resource,
     diagnosis: confirmed.diagnosis,
     retryCount: 0,
-    changedFiles: ["core/agent-control.test.js"],
+    changedFiles: ["src/crypto/key.js"],
     proposal: {
       changedFiles: ["core/agent-control.test.js"],
-      diff: "--- a/core/agent-control.test.js\n+++ b/core/agent-control.test.js\n@@ -1,1 +1,2 @@\n const existing = true;\n+const repaired = true;",
+      diff: "--- a/src/crypto/key.js\n+++ b/src/crypto/key.js\n@@ -1,1 +1,2 @@\n const existing = true;\n+const repaired = true;",
       source: "x19-e2e-test"
     }
   });
