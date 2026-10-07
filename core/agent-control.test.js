@@ -164,7 +164,15 @@ test("X19 E2E fail-closed path reaches proof only after evidence, sandbox and CI
     conclusion: "failure"
   });
 
-  const repair = orchestrator.evaluateRepair(job, {
+  const diagnosedJob = orchestrator.nextState(job, "DIAGNOSING", {
+    evidence: "github-actions",
+    reproduction: true,
+    causality: true
+  });
+  const proposedJob = orchestrator.nextState(diagnosedJob, "REPAIR_PROPOSED", {
+    proposal: "validated"
+  });
+  const repair = orchestrator.evaluateRepair(proposedJob, {
     changedFiles: ["core/agent-control.js"],
     diff: "--- a/core/agent-control.js\n+++ b/core/agent-control.js\n@@ -1,1 +1,2 @@\n const existing = true;\n+const repaired = true;",
     actor: "x19-e2e-test"
