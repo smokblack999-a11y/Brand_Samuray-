@@ -38,8 +38,8 @@ function validateUnifiedDiff(input) {
     }
   }
 
-  if (!files.length) throw new Error("PATCH_FILE_REQUIRED");
   if (!hasHunk) throw new Error("PATCH_HUNK_REQUIRED");
+  if (!files.length) throw new Error("PATCH_FILE_REQUIRED");
 
   return { diff, files };
 }

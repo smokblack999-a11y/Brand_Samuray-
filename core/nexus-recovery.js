@@ -94,6 +94,25 @@ function evaluateRecovery(input = {}) {
     };
   }
 
+  if (evaluation.criticality === "HIGH") {
+    const gateEvidence = input.policyGateEvidence || {};
+    const requiredChecks = evaluation.requiredChecks || [];
+    const satisfied = new Set(
+      Array.isArray(gateEvidence.checks) ? gateEvidence.checks.map(String) : []
+    );
+    const missing = requiredChecks.filter(check => !satisfied.has(check));
+    if (missing.length) {
+      return {
+        ...evaluation,
+        decision: "BLOCK",
+        state: "BLOCKED",
+        candidateAccepted: true,
+        reason: "policy_gate_evidence_required",
+        missingChecks: missing
+      };
+    }
+  }
+
   return {
     ...evaluation,
     candidateAccepted: true,
