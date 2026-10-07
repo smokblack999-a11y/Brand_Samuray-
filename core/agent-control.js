@@ -5,6 +5,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const policy = require("./nexus-resource-policy");
 const orchestrator = require("./nexus-repair-orchestrator");
+const evidence = require("./agent-evidence");
 
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, "data");
 const QUEUE_FILE = path.join(DATA_DIR, "agent-control-queue.jsonl");
@@ -145,7 +146,12 @@ function ingestWorkflowRun(payload, deliveryId) {
       autonomousMerge: false,
       requiresSandbox: failed
     },
-    orchestrator: orchestratorJob
+    orchestrator: orchestratorJob,
+    evidenceChain: evidence.createChain({
+      subject: `workflow_run:${workflow.id}`,
+      intent: failed ? "repair_ci_failure" : "observe_ci_run",
+      initialEvidence: { source: "github.workflow_run", workflow }
+    })
   };
 
   append({ type: "INGEST", at: now(), eventKey, job });
@@ -216,7 +222,9 @@ function diagnose(job, evidence = {}) {
     finalJob = {...updated, orchestrator: state};
   }
 
-  append({ type: "DIAGNOSIS", at: now(), jobId: job.id, diagnosis: finalJob.diagnosis });
+  const evidenceRecord = evidence.append(finalJob.evidenceChain, { type: "diagnosis", intent: finalJob.workflow?.name || "ci_failure_diagnosis", action: "diagnose", decision: finalJob.state === "REPAIR_ELIGIBLE" ? "ALLOW_NEXT_STAGE" : "HOLD", evidence: finalJob.diagnosis });
+  finalJob = {...finalJob, evidenceChain: evidenceRecord.chain};
+  append({ type: "DIAGNOSIS", at: now(), jobId: job.id, diagnosis: finalJob.diagnosis, evidence: evidenceRecord.record });
   append({ type: "STATE", at: now(), jobId: job.id, job: finalJob });
   return finalJob;
 }
@@ -255,7 +263,9 @@ function proposeRepair(job, proposal = {}) {
   }
   if (!job.orchestrator) throw new Error("ORCHESTRATOR_JOB_MISSING");
   const result = orchestrator.evaluateRepair(job.orchestrator, proposal);
-  const updated = {...job, updatedAt: now(), orchestrator: result.job};
+  let updated = {...job, updatedAt: now(), orchestrator: result.job};
+  const er = evidence.append(updated.evidenceChain, { type: "repair_proposal", intent: "repair_ci_failure", action: "propose_repair", decision: result.job.state === "SANDBOX_REQUIRED" ? "ALLOW_SANDBOX" : "BLOCK", evidence: result.evaluation });
+  updated = {...updated, evidenceChain: er.chain};
   append({ type: "STATE", at: now(), jobId: job.id, job: updated });
   return updated;
 }
@@ -264,7 +274,9 @@ function recordSandbox(job, result) {
   if (!job) throw new Error("job_not_found");
   if (!job.orchestrator) throw new Error("ORCHESTRATOR_JOB_MISSING");
   const state = orchestrator.recordSandbox(job.orchestrator, result);
-  const updated = {...job, updatedAt: now(), orchestrator: state};
+  let updated = {...job, updatedAt: now(), orchestrator: state};
+  const er = evidence.append(updated.evidenceChain, { type: "sandbox_result", intent: "verify_repair", action: "sandbox_execute", decision: result?.passed === true ? "ALLOW_CI" : "BLOCK_OR_RETRY", evidence: result });
+  updated = {...updated, evidenceChain: er.chain};
   append({ type: "STATE", at: now(), jobId: job.id, job: updated });
   return updated;
 }
@@ -273,7 +285,9 @@ function recordCI(job, result) {
   if (!job) throw new Error("job_not_found");
   if (!job.orchestrator) throw new Error("ORCHESTRATOR_JOB_MISSING");
   const state = orchestrator.recordCI(job.orchestrator, result);
-  const updated = {...job, updatedAt: now(), orchestrator: state};
+  let updated = {...job, updatedAt: now(), orchestrator: state};
+  const er = evidence.append(updated.evidenceChain, { type: "ci_result", intent: "verify_repair", action: "ci_validate", decision: result?.conclusion === "success" ? "ALLOW_PROOF" : "BLOCK_OR_RETRY", evidence: result });
+  updated = {...updated, evidenceChain: er.chain};
   append({ type: "STATE", at: now(), jobId: job.id, job: updated });
   return updated;
 }
@@ -282,8 +296,9 @@ function finalizeProof(job, options = {}) {
   if (!job) throw new Error("job_not_found");
   if (!job.orchestrator) throw new Error("ORCHESTRATOR_JOB_MISSING");
   const result = orchestrator.finalizeProof(job.orchestrator, options);
-  const updated = {...job, updatedAt: now(), orchestrator: result.job};
-  append({ type: "PROOF", at: now(), jobId: job.id, receipt: result.receipt });
+  const er = evidence.append(job.evidenceChain, { type: "proof_receipt", intent: "release_verified_repair", action: "finalize_proof", decision: "READY_FOR_REVIEW", evidence: result.receipt });
+  const updated = {...job, updatedAt: now(), orchestrator: result.job, evidenceChain: er.chain};
+  append({ type: "PROOF", at: now(), jobId: job.id, receipt: result.receipt, evidence: er.record });
   append({ type: "STATE", at: now(), jobId: job.id, job: updated });
   return {job: updated, receipt: result.receipt};
 }
