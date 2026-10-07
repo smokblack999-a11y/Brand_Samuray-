@@ -69,6 +69,7 @@ jobs:
           node --check agent-evidence.js
           node --check agent-intent.js
           node --check agent-sandbox-client.js
+          node --check agent-approval.js
 
       - name: Unit tests
         run: npm test
