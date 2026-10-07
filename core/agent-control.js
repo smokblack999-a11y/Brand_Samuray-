@@ -7,6 +7,7 @@ const policy = require("./nexus-resource-policy");
 const orchestrator = require("./nexus-repair-orchestrator");
 const evidence = require("./agent-evidence");
 const intent = require("./agent-intent");
+const approval = require("./agent-approval");
 
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, "data");
 const QUEUE_FILE = path.join(DATA_DIR, "agent-control-queue.jsonl");
@@ -421,7 +422,15 @@ function finalizeProof(job, options = {}) {
   if (!job.orchestrator) throw new Error("ORCHESTRATOR_JOB_MISSING");
   const result = orchestrator.finalizeProof(job.orchestrator, options);
   const er = evidence.append(job.evidenceChain, { type: "proof_receipt", intent: "release_verified_repair", action: "finalize_proof", decision: "READY_FOR_REVIEW", evidence: result.receipt });
-  const updated = {...job, updatedAt: now(), orchestrator: result.job, evidenceChain: er.chain};
+  const issuedApproval = approval.createApproval({
+    jobId: job.id,
+    resource: job.resource,
+    headSha: result.receipt.after?.sha || result.receipt.before?.sha,
+    policyVersion: result.receipt.policy,
+    evidenceHeadHash: er.chain.headHash,
+    decision: "READY_FOR_REVIEW"
+  });
+  const updated = {...job, updatedAt: now(), orchestrator: result.job, evidenceChain: er.chain, approval: issuedApproval};
   append({ type: "PROOF", at: now(), jobId: job.id, receipt: result.receipt, evidence: er.record });
   append({ type: "STATE", at: now(), jobId: job.id, job: updated });
   return {job: updated, receipt: result.receipt};
