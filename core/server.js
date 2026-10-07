@@ -14,6 +14,7 @@ const dualAI = require("./dual-ai/engine");
 const agentControl = require("./agent-control");
 const agentControlGithub = require("./agent-control-github");
 const agentSandbox = require("./agent-sandbox-client");
+const agentApproval = require("./agent-approval");
 
 const app = express();
 const PORT = Number(process.env.PORT || 8787);
@@ -162,6 +163,26 @@ app.post("/api/agent-control/jobs/:id/reproduce", requireApiKey, async (req, res
 app.post("/api/agent-control/jobs/:id/sandbox", requireApiKey, (req, res) =>
   agentJobAction(agentControl.recordSandbox, req, res)
 );
+
+app.post("/api/agent-control/jobs/:id/reassess", requireApiKey, (req, res) => {
+  const job = agentControl.getJob(req.params.id);
+  if (!job) return res.status(404).json(errorBody("AGENT_JOB_NOT_FOUND", "Agent-control job not found", req.requestId));
+  if (!job.approval) return res.status(409).json(errorBody("AGENT_APPROVAL_NOT_FOUND", "No approval is bound to this job", req.requestId));
+
+  const result = agentApproval.reassess(job.approval, {
+    headSha: req.body?.headSha || job.orchestrator?.headSha || job.workflow?.headSha,
+    policyVersion: req.body?.policyVersion,
+    evidenceHeadHash: req.body?.evidenceHeadHash || job.evidenceChain?.headHash
+  });
+  return res.status(result.valid ? 200 : 409).json({
+    ok: result.valid,
+    approval: job.approval,
+    reassessment: result,
+    requestId: req.requestId
+  });
+});
+
+
 
 app.post("/api/agent-control/jobs/:id/ci", requireApiKey, (req, res) =>
   agentJobAction(agentControl.recordCI, req, res)
