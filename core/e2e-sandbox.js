@@ -44,6 +44,7 @@ const sandbox = require("./agent-sandbox-client");
     testCommand: "node -e 'if (require(\"./core/e2e-fixture\") !== 2) process.exit(1)'"
   }, sandbox);
 
+  console.log("E2E_RESULT", JSON.stringify(result, null, 2));
   assert.equal(result.state, "REPAIR_ELIGIBLE");
   assert.equal(result.diagnosis.reproduction, true);
   assert.equal(result.diagnosis.causality, true);
