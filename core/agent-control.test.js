@@ -269,6 +269,103 @@ test("repair proposal fails closed when declared intent is missing", async () =>
   assert.equal(blocked.intentGate.reason, "declared_intent_unrecognized");
 });
 
+test("reproduction gate proves causality only from failed baseline plus same-SHA sandbox pass", async () => {
+  const payload = {
+    workflow_run: {
+      id: 994001,
+      name: "SamuraiOS Core CI",
+      event: "pull_request",
+      status: "completed",
+      conclusion: "failure",
+      head_sha: "same-sha",
+      base: { sha: "base-sha" },
+      repository: { full_name: "smokblack999-a11y/Brand_Samuray-" }
+    }
+  };
+  const ingested = ac.ingestWorkflowRun(payload, "repro-gate-" + Date.now());
+  const diagnosed = ac.diagnose(ingested.job, {
+    logs: "AssertionError: candidate",
+    reproduction: false,
+    causality: false,
+    source: "github-actions"
+  });
+
+  const updated = await ac.reproduceRepair(diagnosed, {
+    intent: "fix failing CI in agent control",
+    changedFiles: ["core/agent-control.js"],
+    diff: "--- a/core/agent-control.js\\n+++ b/core/agent-control.js\\n@@ -1,1 +1,2 @@\\n const existing = true;\\n+const repaired = true;",
+    workspacePath: "/workspaces/samurai",
+    testCommand: "npm test"
+  }, {
+    async reproduceRepair(input) {
+      assert.equal(input.commitSha, "same-sha");
+      assert.equal(input.repository, "smokblack999-a11y/Brand_Samuray-");
+      return {
+        runId: "sandbox-994002",
+        status: "PASSED",
+        passed: true,
+        exitCode: 0,
+        timeout: false,
+        patchSha256: "patch-hash",
+        environmentHash: "env-hash",
+        networkAccess: false,
+        commitSha: "same-sha"
+      };
+    }
+  });
+
+  assert.equal(updated.state, "REPAIR_ELIGIBLE");
+  assert.equal(updated.diagnosis.reproduction, true);
+  assert.equal(updated.diagnosis.causality, true);
+  assert.equal(updated.diagnosis.source, "github-baseline-plus-sandbox-candidate");
+  assert.equal(evidence.verify(updated.evidenceChain), true);
+});
+
+test("reproduction gate refuses causal claim when sandbox candidate fails", async () => {
+  const payload = {
+    workflow_run: {
+      id: 994003,
+      name: "SamuraiOS Core CI",
+      event: "pull_request",
+      status: "completed",
+      conclusion: "failure",
+      head_sha: "same-sha-fail",
+      base: { sha: "base-sha" },
+      repository: { full_name: "smokblack999-a11y/Brand_Samuray-" }
+    }
+  };
+  const ingested = ac.ingestWorkflowRun(payload, "repro-gate-fail-" + Date.now());
+  const diagnosed = ac.diagnose(ingested.job, {
+    logs: "AssertionError: candidate",
+    reproduction: false,
+    causality: false,
+    source: "github-actions"
+  });
+  const updated = await ac.reproduceRepair(diagnosed, {
+    intent: "fix failing CI in agent control",
+    changedFiles: ["core/agent-control.js"],
+    diff: "--- a/core/agent-control.js\\n+++ b/core/agent-control.js\\n@@ -1,1 +1,2 @@\\n const existing = true;\\n+const repaired = true;",
+    workspacePath: "/workspaces/samurai"
+  }, {
+    async reproduceRepair() {
+      return {
+        runId: "sandbox-994004",
+        status: "FAILED",
+        passed: false,
+        exitCode: 1,
+        timeout: false,
+        patchSha256: "patch-hash",
+        environmentHash: "env-hash",
+        networkAccess: false,
+        commitSha: "same-sha-fail"
+      };
+    }
+  });
+  assert.equal(updated.state, "EVIDENCE_PENDING");
+  assert.equal(updated.diagnosis.causality, false);
+  assert.equal(evidence.verify(updated.evidenceChain), true);
+});
+
 test("X19 runtime job persists orchestrator state through proof receipt", async () => {
   const payload = {
     workflow_run: {
