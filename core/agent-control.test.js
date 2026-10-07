@@ -173,6 +173,8 @@ test("X19 E2E fail-closed path reaches proof only after evidence, sandbox and CI
     proposal: "validated"
   });
   const repair = orchestrator.evaluateRepair(proposedJob, {
+    intent: "fix failing CI in agent control",
+    intent: "fix failing CI in agent control",
     changedFiles: ["core/agent-control.js"],
     diff: "--- a/core/agent-control.js\n+++ b/core/agent-control.js\n@@ -1,1 +1,2 @@\n const existing = true;\n+const repaired = true;",
     actor: "x19-e2e-test"
@@ -205,6 +207,67 @@ test("X19 E2E fail-closed path reaches proof only after evidence, sandbox and CI
   );
 });
 
+
+test("repair proposal blocks semantic scope expansion before sandbox", async () => {
+  const payload = {
+    workflow_run: {
+      id: 993001,
+      name: "SamuraiOS Core CI",
+      event: "pull_request",
+      status: "completed",
+      conclusion: "failure",
+      head_sha: "before-sha",
+      base: { sha: "base-sha" },
+      repository: { full_name: "smokblack999-a11y/Brand_Samuray-" }
+    }
+  };
+  const ingested = ac.ingestWorkflowRun(payload, "semantic-gate-" + Date.now());
+  const diagnosed = ac.diagnose(ingested.job, {
+    logs: "AssertionError: semantic gate",
+    reproduction: true,
+    causality: true,
+    source: "sandbox-reproduction"
+  });
+  const blocked = ac.proposeRepair(diagnosed, {
+    intent: "fix authentication test",
+    changedFiles: ["tests/auth.test.js", "src/auth/token.js", "src/permissions/rbac.js"],
+    diff: "+export const repaired = true;",
+    actor: "semantic-test"
+  });
+  assert.equal(blocked.orchestrator.state, "CRITIC_BLOCKED");
+  assert.equal(blocked.intentGate.reason, "action_scope_exceeds_intent");
+  const persisted = ac.getJob(ingested.job.id);
+  assert.equal(persisted.orchestrator.state, "CRITIC_BLOCKED");
+});
+
+test("repair proposal fails closed when declared intent is missing", async () => {
+  const payload = {
+    workflow_run: {
+      id: 993002,
+      name: "SamuraiOS Core CI",
+      event: "pull_request",
+      status: "completed",
+      conclusion: "failure",
+      head_sha: "before-sha",
+      base: { sha: "base-sha" },
+      repository: { full_name: "smokblack999-a11y/Brand_Samuray-" }
+    }
+  };
+  const ingested = ac.ingestWorkflowRun(payload, "missing-intent-" + Date.now());
+  const diagnosed = ac.diagnose(ingested.job, {
+    logs: "AssertionError: missing intent",
+    reproduction: true,
+    causality: true,
+    source: "sandbox-reproduction"
+  });
+  const blocked = ac.proposeRepair(diagnosed, {
+    changedFiles: ["core/agent-control.js"],
+    diff: "+const repaired = true;",
+    actor: "missing-intent-test"
+  });
+  assert.equal(blocked.orchestrator.state, "CRITIC_BLOCKED");
+  assert.equal(blocked.intentGate.reason, "declared_intent_unrecognized");
+});
 
 test("X19 runtime job persists orchestrator state through proof receipt", async () => {
   const payload = {
