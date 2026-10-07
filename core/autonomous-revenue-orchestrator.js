@@ -211,7 +211,6 @@ async function runCycle({
     qualified: rawProspects.length,
     source,
     opportunityIntelligence: opportunitySet,
-    source,
     plans
   };
 }
