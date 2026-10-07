@@ -4,6 +4,7 @@ const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 const policy = require("./nexus-resource-policy");
+const orchestrator = require("./nexus-repair-orchestrator");
 
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, "data");
 const QUEUE_FILE = path.join(DATA_DIR, "agent-control-queue.jsonl");
@@ -106,6 +107,16 @@ function ingestWorkflowRun(payload, deliveryId) {
   const classification = classifyFailure(payload.workflow_run);
   const failed = failureConclusion(workflow.conclusion);
 
+  const orchestratorJob = failed
+    ? orchestrator.createJob({
+        resource,
+        workflowRunId: workflow.id,
+        changedFiles: [],
+        headSha: workflow.headSha,
+        conclusion: workflow.conclusion
+      })
+    : null;
+
   const job = {
     id: `ac_${crypto.randomUUID()}`,
     state: failed ? "EVIDENCE_PENDING" : "OBSERVED",
@@ -133,7 +144,8 @@ function ingestWorkflowRun(payload, deliveryId) {
       autonomousWrite: false,
       autonomousMerge: false,
       requiresSandbox: failed
-    }
+    },
+    orchestrator: orchestratorJob
   };
 
   append({ type: "INGEST", at: now(), eventKey, job });
@@ -146,7 +158,14 @@ function listJobs(limit = 50) {
 }
 
 function getJob(id) {
-  return listJobs(200).find(job => job.id === String(id)) || null;
+  const records = readAll().filter(record => record.jobId === String(id) || record.job?.id === String(id));
+  const first = records.find(record => record.type === "INGEST");
+  if (!first) return null;
+  let job = first.job;
+  for (const record of records) {
+    if (record.type === "STATE" && record.job) job = record.job;
+  }
+  return job;
 }
 
 function diagnose(job, evidence = {}) {
@@ -185,8 +204,21 @@ function diagnose(job, evidence = {}) {
     }
   };
 
-  append({ type: "DIAGNOSIS", at: now(), jobId: job.id, diagnosis: updated.diagnosis });
-  return updated;
+  let finalJob = updated;
+  if (reproduction && causality && updated.orchestrator) {
+    const state = updated.orchestrator.state === "QUEUED"
+      ? orchestrator.nextState(updated.orchestrator, "DIAGNOSING", {
+          evidence: updated.diagnosis.source,
+          reproduction: true,
+          causality: true
+        })
+      : updated.orchestrator;
+    finalJob = {...updated, orchestrator: state};
+  }
+
+  append({ type: "DIAGNOSIS", at: now(), jobId: job.id, diagnosis: finalJob.diagnosis });
+  append({ type: "STATE", at: now(), jobId: job.id, job: finalJob });
+  return finalJob;
 }
 
 async function collectGithubEvidence(job, githubClient) {
@@ -215,6 +247,47 @@ async function collectGithubEvidence(job, githubClient) {
   });
 }
 
+function proposeRepair(job, proposal = {}) {
+  if (!job) {
+    const error = new Error("job_not_found");
+    error.code = "JOB_NOT_FOUND";
+    throw error;
+  }
+  if (!job.orchestrator) throw new Error("ORCHESTRATOR_JOB_MISSING");
+  const result = orchestrator.evaluateRepair(job.orchestrator, proposal);
+  const updated = {...job, updatedAt: now(), orchestrator: result.job};
+  append({ type: "STATE", at: now(), jobId: job.id, job: updated });
+  return updated;
+}
+
+function recordSandbox(job, result) {
+  if (!job) throw new Error("job_not_found");
+  if (!job.orchestrator) throw new Error("ORCHESTRATOR_JOB_MISSING");
+  const state = orchestrator.recordSandbox(job.orchestrator, result);
+  const updated = {...job, updatedAt: now(), orchestrator: state};
+  append({ type: "STATE", at: now(), jobId: job.id, job: updated });
+  return updated;
+}
+
+function recordCI(job, result) {
+  if (!job) throw new Error("job_not_found");
+  if (!job.orchestrator) throw new Error("ORCHESTRATOR_JOB_MISSING");
+  const state = orchestrator.recordCI(job.orchestrator, result);
+  const updated = {...job, updatedAt: now(), orchestrator: state};
+  append({ type: "STATE", at: now(), jobId: job.id, job: updated });
+  return updated;
+}
+
+function finalizeProof(job, options = {}) {
+  if (!job) throw new Error("job_not_found");
+  if (!job.orchestrator) throw new Error("ORCHESTRATOR_JOB_MISSING");
+  const result = orchestrator.finalizeProof(job.orchestrator, options);
+  const updated = {...job, updatedAt: now(), orchestrator: result.job};
+  append({ type: "PROOF", at: now(), jobId: job.id, receipt: result.receipt });
+  append({ type: "STATE", at: now(), jobId: job.id, job: updated });
+  return {job: updated, receipt: result.receipt};
+}
+
 function health() {
   ensureStore();
   const jobs = listJobs(200);
@@ -237,6 +310,10 @@ module.exports = {
   getJob,
   diagnose,
   collectGithubEvidence,
+  proposeRepair,
+  recordSandbox,
+  recordCI,
+  finalizeProof,
   health,
   classifyFailure
 };
