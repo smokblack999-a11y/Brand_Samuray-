@@ -10,6 +10,8 @@ on:
       - "core/agent-evidence.js"
       - "core/agent-intent.js"
       - "core/e2e-fixture.js"
+      - "core/agent-control.test.js"
+      - "core/github-webhook.test.js"
       - ".github/workflows/x10think-sandbox-e2e.yml"
   pull_request:
     paths:
