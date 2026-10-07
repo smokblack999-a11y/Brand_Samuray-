@@ -30,7 +30,9 @@ function reassess(approval, current = {}) {
   if (!approval || approval.schema !== "x10think-approval/v1") {
     return {valid: false, invalidated: true, reasons: ["approval_invalid"]};
   }
+  const expectedApprovalHash = sha256(JSON.stringify(Object.fromEntries(Object.entries(approval).filter(([key]) => key !== "approvalHash"))));
   const reasons = [];
+  if (approval.approvalHash !== expectedApprovalHash) reasons.push("approval_tampered");
   if (!current.headSha || String(current.headSha) !== approval.headSha) reasons.push("head_sha_changed");
   if (!current.policyVersion || String(current.policyVersion) !== approval.policyVersion) reasons.push("policy_version_changed");
   if (!current.evidenceHeadHash || String(current.evidenceHeadHash) !== approval.evidenceHeadHash) reasons.push("evidence_context_changed");
