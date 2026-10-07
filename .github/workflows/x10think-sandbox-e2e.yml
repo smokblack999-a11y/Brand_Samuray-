@@ -14,14 +14,6 @@ on:
       - "core/github-webhook.test.js"
       - ".github/workflows/x10think-sandbox-e2e.yml"
   pull_request:
-    paths:
-      - "sandbox/**"
-      - "core/agent-control.js"
-      - "core/agent-sandbox-client.js"
-      - "core/agent-evidence.js"
-      - "core/agent-intent.js"
-      - "core/e2e-fixture.js"
-      - ".github/workflows/x10think-sandbox-e2e.yml"
 
 permissions:
   contents: read
