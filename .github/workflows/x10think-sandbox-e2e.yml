@@ -118,7 +118,8 @@ jobs:
             testCommand: "node -e 'if (require(\"./core/e2e-fixture\") !== 2) process.exit(1)'"
           }, sandbox);
 
-          assert.equal(result.state, "REPAIR_ELIGIBLE");
+          console.log("SANDBOX_RESULT", JSON.stringify(result, null, 2));
+  assert.equal(result.state, "REPAIR_ELIGIBLE");
           assert.equal(result.diagnosis.reproduction, true);
           assert.equal(result.diagnosis.causality, true);
           assert.equal(result.execution.autonomousWrite, false);
