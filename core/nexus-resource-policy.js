@@ -2,6 +2,8 @@
 
 const crypto = require("crypto");
 
+const POLICY_VERSION = "nexus-policy-v3";
+
 const STATES = Object.freeze([
   "UNKNOWN",
   "CI_FAILED",
@@ -161,7 +163,7 @@ function evaluate({ resource, fromState, toState, files, diff, actor = "x10think
     requiredChecks: [...new Set(required)],
     reasons: [...new Set(reasons)],
     dangerousFindings: scan.findings,
-    policyVersion: "nexus-policy-v3",
+    policyVersion: POLICY_VERSION,
     evaluationHash: sha256(JSON.stringify({
       resource: target,
       fromState,
@@ -214,6 +216,7 @@ function createProofReceipt({ evaluation, beforeSha, afterSha, validations = [] 
 }
 
 module.exports = {
+  POLICY_VERSION,
   STATES,
   CRITICAL_RULES,
   CRITICAL_PATHS: CRITICAL_RULES.map(([, re]) => re),
