@@ -21,6 +21,7 @@ permissions:
 
 jobs:
   sandbox-e2e:
+    if: hashFiles('sandbox/main.py', 'core/e2e-fixture.js', 'core/agent-control.js') != ''
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
