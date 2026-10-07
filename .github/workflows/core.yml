@@ -101,6 +101,8 @@ jobs:
           node --check x33-economic-consistency.js
           node --check x33-service.js
           node --check autonomous-revenue-orchestrator.js
+          node --check samurai-verification-engine.js
+          node --check samurai-verification-engine.test.js
           node --check revenue-rollout-policy.js
           node --check x33-economic-consistency.test.js
           node --check x33-adversarial.test.js
