@@ -2,6 +2,7 @@
 
 const API_BASE = "https://api.apollo.io/api/v1";
 const TIMEOUT_MS = 10000;
+const { assertAuthorization } = require("./revenue-execution-gate");
 
 function clean(v, max = 512) {
   return String(v == null ? "" : v).trim().slice(0, max);
@@ -112,6 +113,7 @@ async function executePlan(plan) {
   if (plan?.actionPlan?.status !== "READY_FOR_EXECUTION") {
     return { executed: false, status: "BLOCKED", reason: "ACTION_PLAN_NOT_READY" };
   }
+  assertAuthorization(plan.executionAuthorization);
 
   const contact = await createOrUpsertContact(plan.lead);
   const sequence = await addContactToSequence(contact.id);
