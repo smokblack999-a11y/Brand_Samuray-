@@ -74,6 +74,77 @@ jobs:
       - name: Unit tests
         run: npm test
 
+
+  sandbox-e2e:
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install sandbox runtime
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y bubblewrap python3 python3-pip
+          python3 -m pip install --user --break-system-packages fastapi==0.116.1 uvicorn==0.35.0
+          bwrap --version
+
+      - name: Permit bubblewrap user namespaces on ephemeral runner
+        run: |
+          set -euo pipefail
+          if sysctl -n kernel.apparmor_restrict_unprivileged_userns >/dev/null 2>&1; then
+            sysctl -n kernel.apparmor_restrict_unprivileged_userns > /tmp/x10-apparmor-userns.original
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          else
+            echo "kernel.apparmor_restrict_unprivileged_userns unavailable"
+          fi
+
+      - name: Start sandbox
+        env:
+          SANDBOX_WORKSPACE_ROOT: /tmp/x10-workspaces
+          SANDBOX_TIMEOUT_SECONDS: 120
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/x10-workspaces/workspace
+          python3 sandbox/main.py > /tmp/x10-sandbox.log 2>&1 &
+          echo $! > /tmp/x10-sandbox.pid
+          for i in $(seq 1 30); do
+            curl -fsS http://127.0.0.1:8891/health && exit 0
+            sleep 1
+          done
+          cat /tmp/x10-sandbox.log
+          exit 1
+
+      - name: Prepare exact-head workspace
+        env:
+          WORKSPACE: /tmp/x10-workspaces/workspace
+        run: |
+          set -euo pipefail
+          git clone . "$WORKSPACE"
+          cd "$WORKSPACE"
+          git checkout --detach "$GITHUB_SHA"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          node -e 'if (require("./core/e2e-fixture") !== 1) process.exit(1)'
+          if node -e 'if (require("./core/e2e-fixture") !== 2) process.exit(1)'; then
+            echo "Baseline unexpectedly passed"
+            exit 1
+          fi
+
+      - name: Prove Agent Control -> real sandbox -> causality
+        env:
+          WORKSPACE: /tmp/x10-workspaces/workspace
+          X10THINK_SANDBOX_URL: http://127.0.0.1:8891
+        run: node core/e2e-sandbox.js
+
+      - name: Stop sandbox
+        if: always()
+        run: |
+          if test -f /tmp/x10-sandbox.pid; then kill "$(cat /tmp/x10-sandbox.pid)" || true; fi
+          cat /tmp/x10-sandbox.log || true
+          if test -f /tmp/x10-apparmor-userns.original; then sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns="$(cat /tmp/x10-apparmor-userns.original)" || true; fi
+
   openai-smoke:
     if: github.event_name != 'pull_request'
     needs: test

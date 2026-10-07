@@ -176,7 +176,7 @@ function getJob(id) {
   return job;
 }
 
-function diagnose(job, evidence = {}) {
+function diagnose(job, diagnosticEvidence = {}) {
   if (!job) {
     const error = new Error("job_not_found");
     error.code = "JOB_NOT_FOUND";
@@ -190,7 +190,7 @@ function diagnose(job, evidence = {}) {
       initialEvidence: { source: "synthetic-or-legacy-job" }
     })
   };
-  const logs = String(evidence.logs || "");
+  const logs = String(diagnosticEvidence.logs || "");
   const patterns = [
     ["dependency", /npm ERR!|ERESOLVE|Could not resolve|peer dep/i],
     ["test", /FAIL(?:ED)?|AssertionError|test suite failed/i],
@@ -203,8 +203,8 @@ function diagnose(job, evidence = {}) {
   ];
   const matches = patterns.filter(([, re]) => re.test(logs)).map(([name]) => name);
   const category = matches[0] || job.classification.category || "unknown";
-  const reproduction = evidence.reproduction === true;
-  const causality = evidence.causality === true;
+  const reproduction = diagnosticEvidence.reproduction === true;
+  const causality = diagnosticEvidence.causality === true;
 
   const updated = {
     ...job,
@@ -216,7 +216,7 @@ function diagnose(job, evidence = {}) {
       matches,
       reproduction,
       causality,
-      source: evidence.source || "manual-or-external-evidence"
+      source: diagnosticEvidence.source || "manual-or-external-evidence"
     }
   };
 
