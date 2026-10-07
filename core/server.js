@@ -15,6 +15,7 @@ const agentControl = require("./agent-control");
 const agentControlGithub = require("./agent-control-github");
 const agentSandbox = require("./agent-sandbox-client");
 const agentApproval = require("./agent-approval");
+const agentPolicy = require("./nexus-resource-policy");
 
 const app = express();
 const PORT = Number(process.env.PORT || 8787);
@@ -171,7 +172,7 @@ app.post("/api/agent-control/jobs/:id/reassess", requireApiKey, (req, res) => {
 
   const result = agentApproval.reassess(job.approval, {
     headSha: req.body?.headSha || job.orchestrator?.headSha || job.workflow?.headSha,
-    policyVersion: req.body?.policyVersion,
+    policyVersion: req.body?.policyVersion || agentPolicy.POLICY_VERSION,
     evidenceHeadHash: req.body?.evidenceHeadHash || job.evidenceChain?.headHash
   });
   return res.status(result.valid ? 200 : 409).json({
