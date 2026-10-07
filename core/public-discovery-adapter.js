@@ -37,7 +37,7 @@ function providerConfig() {
     provider,
     endpoint: clean(process.env.PUBLIC_DISCOVERY_ENDPOINT || "", 1000),
     apiKey: clean(process.env.PUBLIC_DISCOVERY_API_KEY || "", 512),
-    maxResults: Math.min(Number(process.env.PUBLIC_DISCOVERY_MAX_RESULTS || 10) || 10, MAX_RESULTS)
+    maxResults: Math.min(Math.max(Number(process.env.PUBLIC_DISCOVERY_MAX_RESULTS || 10) || 10, 1), MAX_RESULTS)
   };
 }
 
@@ -51,9 +51,15 @@ async function requestJson(url, headers = {}, options = {}) {
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
   try {
     const response = await fetch(target, {
+      method: options.method || "GET",
+      body: options.body,
+      redirect: "manual",
       signal: controller.signal,
-      headers: { accept: "application/json", "user-agent": "SamuraiOS-PublicDiscovery/1.0", ...headers }
+      headers: { accept: "application/json", "user-agent": "SamuraiOS-PublicDiscovery/1.1", ...headers }
     });
+    if (response.status >= 300 && response.status < 400) {
+      throw Object.assign(new Error("DISCOVERY_REDIRECT_BLOCKED"), { code: "DISCOVERY_REDIRECT_BLOCKED" });
+    }
     if (!response.ok) throw Object.assign(new Error(`DISCOVERY_HTTP_${response.status}`), { code: `DISCOVERY_HTTP_${response.status}` });
     const body = (await response.text()).slice(0, MAX_BODY_BYTES);
     return JSON.parse(body);
@@ -68,44 +74,54 @@ function normalizeResults(payload, provider, maxResults) {
   return rows.slice(0, maxResults).map((row) => {
     const url = clean(row.url || row.link || row.href || "", 1000);
     let domain = "";
-    try { domain = new URL(url).hostname; } catch (_) {}
-    return {
+    try {
+      const parsed = new URL(url);
+      if (!["http:", "https:"].includes(parsed.protocol) || parsed.username || parsed.password) return null;
+      domain = parsed.hostname.toLowerCase();
+    } catch (_) {}
+    return domain ? {
       name: clean(row.name || row.title || row.company || domain, 200),
       domain,
       website: url,
       description: clean(row.description || row.snippet || row.text || "", 1000),
       discoveryProvider: provider
-    };
-  }).filter(x => x.domain);
+    } : null;
+  }).filter(Boolean);
 }
 
 async function discoverCompanies({ query, maxResults } = {}) {
   const c = providerConfig();
   if (!query) return { enabled: false, reason: "DISCOVERY_QUERY_REQUIRED", companies: [] };
+  if (!c.endpoint && c.provider === "brave") c.endpoint = "https://api.search.brave.com/res/v1/web/search";
+  if (!c.endpoint && c.provider === "serper") c.endpoint = "https://google.serper.dev/search";
   if (!c.endpoint || !c.apiKey || c.provider === "none") {
     return { enabled: false, reason: "PUBLIC_DISCOVERY_NOT_CONFIGURED", provider: c.provider, companies: [] };
   }
 
+  const limit = Math.min(maxResults || c.maxResults, MAX_RESULTS);
   let url;
   if (c.provider === "brave") {
-    url = new URL(c.endpoint || "https://api.search.brave.com/res/v1/web/search");
+    url = new URL(c.endpoint);
     url.searchParams.set("q", query);
-    url.searchParams.set("count", String(Math.min(maxResults || c.maxResults, MAX_RESULTS)));
+    url.searchParams.set("count", String(limit));
     const payload = await requestJson(url.toString(), { "X-Subscription-Token": c.apiKey });
-    return { enabled: true, provider: c.provider, companies: normalizeResults(payload, c.provider, maxResults || c.maxResults) };
+    return { enabled: true, provider: c.provider, companies: normalizeResults(payload, c.provider, limit) };
   }
 
   if (c.provider === "serper") {
-    url = new URL(c.endpoint || "https://google.serper.dev/search");
-    const payload = await requestJson(url.toString(), { "X-API-KEY": c.apiKey, "content-type": "application/json" }, { method: "POST", body: JSON.stringify({ q: query, num: Math.min(maxResults || c.maxResults, MAX_RESULTS) }) });
-    return { enabled: true, provider: c.provider, companies: normalizeResults(payload, c.provider, maxResults || c.maxResults) };
+    url = new URL(c.endpoint);
+    const payload = await requestJson(url.toString(), { "X-API-KEY": c.apiKey, "content-type": "application/json" }, {
+      method: "POST",
+      body: JSON.stringify({ q: query, num: limit })
+    });
+    return { enabled: true, provider: c.provider, companies: normalizeResults(payload, c.provider, limit) };
   }
 
   if (c.provider === "generic-json") {
     url = new URL(c.endpoint);
     url.searchParams.set("q", query);
     const payload = await requestJson(url.toString(), { authorization: `Bearer ${c.apiKey}` });
-    return { enabled: true, provider: c.provider, companies: normalizeResults(payload, c.provider, maxResults || c.maxResults) };
+    return { enabled: true, provider: c.provider, companies: normalizeResults(payload, c.provider, limit) };
   }
 
   return { enabled: false, reason: "PUBLIC_DISCOVERY_PROVIDER_UNSUPPORTED", provider: c.provider, companies: [] };
@@ -128,7 +144,9 @@ async function discover({ niche, geography, pain, maxResults = 10 } = {}) {
   const seen = new Set();
   for (const query of queries) {
     const result = await discoverCompanies({ query, maxResults });
-    if (!result.enabled && result.reason === "PUBLIC_DISCOVERY_NOT_CONFIGURED") return { ...result, queries, companies: [] };
+    if (!result.enabled && result.reason === "PUBLIC_DISCOVERY_NOT_CONFIGURED") {
+      return { ...result, queries, companies: [] };
+    }
     for (const company of result.companies || []) {
       if (!seen.has(company.domain)) {
         seen.add(company.domain);
