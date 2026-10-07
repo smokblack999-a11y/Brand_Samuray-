@@ -3,6 +3,7 @@
 const apolloRevenue = require("./apollo-revenue-adapter");
 const publicRevenue = require("./public-prospect-adapter");
 const publicDiscovery = require("./public-discovery-adapter");
+const opportunityIntel = require("./opportunity-intelligence");
 
 function boolEnv(name, fallback = false) {
   const value = String(process.env[name] ?? fallback).toLowerCase();
@@ -27,7 +28,13 @@ function config() {
     minLeadScore: positiveInt(process.env.REVENUE_AUTONOMOUS_MIN_LEAD_SCORE, 70, 100),
     sequenceIdConfigured: Boolean(process.env.APOLLO_AUTONOMOUS_SEQUENCE_ID),
     emailAccountConfigured: Boolean(process.env.APOLLO_AUTONOMOUS_EMAIL_ACCOUNT_ID),
-    publicFallbackEnabled: boolEnv("PUBLIC_PROSPECT_ENABLED", true)
+    publicFallbackEnabled: boolEnv("PUBLIC_PROSPECT_ENABLED", true),
+    opportunityIntelligenceEnabled: boolEnv("REVENUE_OPPORTUNITY_INTELLIGENCE_ENABLED", true),
+    opportunityBudgetKZT: Math.max(0, Number(process.env.REVENUE_OPPORTUNITY_BUDGET_KZT || 0)),
+    opportunityReserveKZT: Math.max(0, Number(process.env.REVENUE_OPPORTUNITY_RESERVE_KZT || 0)),
+    opportunityMaxPerKZT: Math.max(1, Number(process.env.REVENUE_OPPORTUNITY_MAX_PER_KZT || 10000)),
+    opportunityMinProbability: Math.min(1, Math.max(0, Number(process.env.REVENUE_OPPORTUNITY_MIN_PROBABILITY || 0.35))),
+    opportunityRiskPenaltyKZT: Math.max(0, Number(process.env.REVENUE_OPPORTUNITY_RISK_PENALTY_KZT || 0))
   };
 }
 
@@ -136,7 +143,21 @@ async function runCycle({
     }
   }
 
-  const plans = (result.prospects || []).map((prospect) => {
+  const rawProspects = result.prospects || [];
+  const opportunitySet = c.opportunityIntelligenceEnabled
+    ? opportunityIntel.buildOpportunitySet(rawProspects.map(p => ({...p, source})), {
+        tenantId: clean(tenantId, 128) || "default",
+        dealValueKZT,
+        grossMarginRate,
+        minProbability: c.opportunityMinProbability,
+        riskPenaltyKZT: c.opportunityRiskPenaltyKZT,
+        budgetKZT: c.opportunityBudgetKZT,
+        reserveKZT: c.opportunityReserveKZT,
+        maxPerOpportunityKZT: c.opportunityMaxPerKZT
+      })
+    : { opportunities: [], allocation: { budgetKZT: 0, allocatedKZT: 0, remainingKZT: 0, allocations: [] } };
+  const opportunityById = new Map(opportunitySet.opportunities.map(o => [o.opportunityId, o]));
+  const plans = rawProspects.map((prospect) => {
     const actionPlan = buildActionPlan(prospect, c);
     try {
       const leadId = clean(
@@ -159,9 +180,23 @@ async function runCycle({
     } catch (error) {
       console.error(JSON.stringify({ event: "action_plan_observation_failed", error: error.message }));
     }
+    const opportunity = opportunityById.get(
+      opportunityIntel.scoreOpportunity({...prospect, source}, {tenantId, dealValueKZT, grossMarginRate}).opportunityId
+    ) || null;
+    const allocation = opportunity
+      ? opportunitySet.allocation.allocations.find(a => a.opportunityId === opportunity.opportunityId)
+      : null;
+    const economicallyReady = opportunity && opportunity.action === "INVEST" && (allocation?.allocationKZT || 0) > 0;
+    if (!economicallyReady && actionPlan.status === "READY_FOR_EXECUTION") {
+      actionPlan.status = "READY_FOR_APPROVAL";
+      actionPlan.reason = "OPPORTUNITY_ECONOMIC_GATE";
+    }
     return {
       source,
       lead: prospect.lead,
+      opportunity,
+      allocation,
+
       qualification: prospect.qualification,
       decision: prospect.decision,
       actionPlan
@@ -173,7 +208,9 @@ async function runCycle({
     config: c,
     discovered: result.discovered || 0,
     enriched: result.enriched || 0,
-    qualified: result.prospects?.length || 0,
+    qualified: rawProspects.length,
+    source,
+    opportunityIntelligence: opportunitySet,
     source,
     plans
   };
