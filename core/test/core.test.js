@@ -32,7 +32,8 @@ test.before(async () => {
       TELEGRAM_WEBHOOK_SECRET: WEBHOOK_SECRET,
       MAX_MESSAGE_CHARS: '4000'
     },
-    stdio: ['ignore', 'pipe', 'pipe']
+    // Do not pipe child output without consuming it: a busy server can fill the pipe and block before /health is reachable.
+    stdio: 'ignore'
   });
   await new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error('server startup timeout')), 10000);
