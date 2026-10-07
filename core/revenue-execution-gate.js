@@ -25,10 +25,10 @@ function microKzt(value, field) {
 function policy() {
   return {
     activePolicy: Math.max(1, Number(process.env.X39_POLICY_VERSION || 1)),
-    maxLossLimitMicro: clean(process.env.X39_MAX_LOSS_MICRO || "50000000"),
-    dailyLossBudgetMicro: clean(process.env.X39_DAILY_LOSS_BUDGET_MICRO || "200000000"),
+    maxLossLimitMicro: clean(process.env.X39_MAX_LOSS_MICRO || "10000000000"),
+    dailyLossBudgetMicro: clean(process.env.X39_DAILY_LOSS_BUDGET_MICRO || "200000000000"),
     currentDailyLossMicro: clean(process.env.X39_CURRENT_DAILY_LOSS_MICRO || "0"),
-    maxCapitalReqMicro: clean(process.env.X39_MAX_CAPITAL_MICRO || "100000000"),
+    maxCapitalReqMicro: clean(process.env.X39_MAX_CAPITAL_MICRO || "100000000000"),
     staleDataWindowMs: Math.max(1000, Number(process.env.X39_STALE_DATA_WINDOW_MS || 300000))
   };
 }
