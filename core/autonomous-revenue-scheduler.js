@@ -1,6 +1,7 @@
 "use strict";
 
 const orchestrator = require("./autonomous-revenue-orchestrator");
+const outreachExecutor = require("./apollo-outreach-executor");
 
 let timer = null;
 let busy = false;
@@ -19,8 +20,33 @@ function schedulerConfig() {
   return {
     enabled: enabled(),
     intervalMs: intervalMs(),
-    immediate: String(process.env.REVENUE_AUTONOMOUS_RUN_ON_START || "true").toLowerCase() !== "false"
+    immediate: String(process.env.REVENUE_AUTONOMOUS_RUN_ON_START || "true").toLowerCase() !== "false",
+    executionEnabled: outreachExecutor.enabled()
   };
+}
+
+async function executeApprovedPlans(result) {
+  if (!outreachExecutor.enabled()) return [];
+  const executions = [];
+  for (const plan of result?.plans || []) {
+    if (plan?.actionPlan?.status !== "READY_FOR_EXECUTION") continue;
+    try {
+      const execution = await outreachExecutor.executePlan(plan);
+      executions.push({
+        leadId: plan.lead?.email || plan.lead?.apolloPersonId || null,
+        ...execution
+      });
+    } catch (error) {
+      executions.push({
+        leadId: plan.lead?.email || plan.lead?.apolloPersonId || null,
+        executed: false,
+        status: "FAILED",
+        code: error.code || "OUTREACH_EXECUTION_FAILED",
+        error: error.message
+      });
+    }
+  }
+  return executions;
 }
 
 async function runOnce({ tenantId = "default" } = {}) {
@@ -42,14 +68,20 @@ async function runOnce({ tenantId = "default" } = {}) {
       maxProspects: Number(process.env.REVENUE_AUTONOMOUS_MAX_PROSPECTS || 5),
       enrich: true
     });
+
+    const executions = await executeApprovedPlans(result);
+
     console.log(JSON.stringify({
       event: "autonomous_revenue_cycle",
       source: result.source || null,
       discovered: result.discovered || 0,
       qualified: result.qualified || 0,
-      plans: result.plans?.length || 0
+      plans: result.plans?.length || 0,
+      executed: executions.filter(x => x.executed).length,
+      executionFailures: executions.filter(x => x.status === "FAILED").length
     }));
-    return result;
+
+    return { ...result, executions };
   } catch (error) {
     console.error(JSON.stringify({
       event: "autonomous_revenue_cycle_failed",
@@ -63,7 +95,9 @@ async function runOnce({ tenantId = "default" } = {}) {
 }
 
 function start({ tenantId = "default" } = {}) {
-  if (!enabled()) return { ...schedulerConfig(), started: false, reason: "REVENUE_AUTONOMOUS_SCHEDULER_DISABLED" };
+  if (!enabled()) {
+    return { ...schedulerConfig(), started: false, reason: "REVENUE_AUTONOMOUS_SCHEDULER_DISABLED" };
+  }
   if (timer) return { ...schedulerConfig(), started: true, reused: true };
 
   stopped = false;
