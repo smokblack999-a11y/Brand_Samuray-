@@ -37,7 +37,7 @@ function analyze({intent, changedFiles = []} = {}) {
   const undeclared = observed.filter(scope => !declared.includes(scope) && scope !== "tests");
   const taskEmpty = declared.length === 0;
   const actionEmpty = observed.length === 0;
-  const mismatch = taskEmpty || undeclared.length > 0;
+  const mismatch = taskEmpty || actionEmpty || undeclared.length > 0;
   return {
     declaredScopes: declared,
     observedScopes: observed,
@@ -46,7 +46,7 @@ function analyze({intent, changedFiles = []} = {}) {
     actionEmpty,
     mismatch,
     decision: mismatch ? "BLOCK" : "ALLOW",
-    reason: taskEmpty ? "declared_intent_unrecognized" : undeclared.length ? "action_scope_exceeds_intent" : "intent_action_scope_match"
+    reason: taskEmpty ? "declared_intent_unrecognized" : actionEmpty ? "changed_files_missing" : undeclared.length ? "action_scope_exceeds_intent" : "intent_action_scope_match"
   };
 }
 
