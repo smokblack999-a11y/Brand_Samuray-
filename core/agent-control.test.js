@@ -204,3 +204,65 @@ test("X19 E2E fail-closed path reaches proof only after evidence, sandbox and CI
     ["critic", "sandbox", "ci", "evidence", "reproduction", "causality"]
   );
 });
+
+
+test("X19 runtime job persists orchestrator state through proof receipt", async () => {
+  const payload = {
+    workflow_run: {
+      id: 992001,
+      name: "SamuraiOS Core CI",
+      event: "pull_request",
+      status: "completed",
+      conclusion: "failure",
+      head_branch: "x10think-agent-control-mvp",
+      head_sha: "runtime-before",
+      base: { sha: "base-sha" },
+      repository: { full_name: "smokblack999-a11y/Brand_Samuray-" },
+      actor: { login: "x10think" },
+      html_url: "https://github.com/smokblack999-a11y/Brand_Samuray-/actions/runs/992001"
+    }
+  };
+
+  const ingested = ac.ingestWorkflowRun(payload, "x19-runtime-" + Date.now());
+  const observed = await ac.collectGithubEvidence(ingested.job, {
+    async collectFailureEvidence(repository, runId) {
+      return {
+        repository,
+        runId,
+        jobs: [{ id: 992002, name: "Core tests", conclusion: "failure" }],
+        failedLogs: [{ jobId: 992002, name: "Core tests", conclusion: "failure", content: "AssertionError: runtime proof" }]
+      };
+    }
+  });
+
+  const diagnosed = ac.diagnose(observed, {
+    logs: "AssertionError: runtime proof",
+    reproduction: true,
+    causality: true,
+    source: "sandbox-reproduction"
+  });
+  assert.equal(diagnosed.orchestrator.state, "DIAGNOSING");
+
+  const proposed = ac.proposeRepair(diagnosed, {
+    changedFiles: ["core/agent-control.js"],
+    diff: "--- a/core/agent-control.js\n+++ b/core/agent-control.js\n@@ -1,1 +1,2 @@\n const existing = true;\n+const repaired = true;",
+    actor: "x19-runtime-test"
+  });
+  assert.equal(proposed.orchestrator.state, "SANDBOX_REQUIRED");
+
+  const sandboxed = ac.recordSandbox(proposed, { passed: true, runId: 992003 });
+  assert.equal(sandboxed.orchestrator.state, "CI_REQUIRED");
+
+  const ci = ac.recordCI(sandboxed, { conclusion: "success", runId: 992004 });
+  assert.equal(ci.orchestrator.state, "PROOF_READY");
+
+  const proof = ac.finalizeProof(ci, {
+    afterSha: "runtime-after",
+    validations: ["evidence", "reproduction", "causality"]
+  });
+  assert.equal(proof.job.orchestrator.state, "READY_FOR_REVIEW");
+  assert.ok(proof.receipt.proofHash);
+  assert.equal(ac.getJob(ingested.job.id).orchestrator.state, "READY_FOR_REVIEW");
+  assert.equal(ac.getJob(ingested.job.id).execution.autonomousWrite, false);
+  assert.equal(ac.getJob(ingested.job.id).execution.autonomousMerge, false);
+});
