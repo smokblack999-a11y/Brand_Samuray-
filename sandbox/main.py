@@ -84,6 +84,7 @@ async def run(body: RunIn):
         code, out, err = await run_cmd(body.run_id, sandbox_cmd, stage, COMMAND_TIMEOUT)
         return {"run_id":body.run_id,"status":"PASSED" if code==0 else "FAILED",
             "exit_code":code,"timeout":code==124,"stdout":out,"stderr":err,
+            "commit_sha":body.commit_sha,
             "patch_sha256":patch_sha,
             "environment_hash":hashlib.sha256(b"node:22-bookworm-slim+bubblewrap").hexdigest(),
             "network_access":False,"resource_limits":{"timeout_seconds":COMMAND_TIMEOUT}}
