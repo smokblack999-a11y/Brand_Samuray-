@@ -1,7 +1,8 @@
 "use strict";
 
 const apolloRevenue = require("./apollo-revenue-adapter");
-const publicRevenue = require("./public-prospect-adapter");\nconst publicDiscovery = require("./public-discovery-adapter");
+const publicRevenue = require("./public-prospect-adapter");
+const publicDiscovery = require("./public-discovery-adapter");
 
 function boolEnv(name, fallback = false) {
   const value = String(process.env[name] ?? fallback).toLowerCase();
