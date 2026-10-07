@@ -26,6 +26,7 @@ import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import androidx.exifinterface.media.ExifInterface
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
 import com.google.android.gms.tasks.CancellationTokenSource
@@ -87,27 +88,98 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun buildUi() {
-        val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(24, 24, 24, 24); setBackgroundColor(Color.rgb(5, 8, 17)) }
-        statusText = TextView(this).apply { text = "SamuraiOS: запуск..."; textSize = 20f; setTextColor(Color.rgb(0, 255, 136)); setPadding(0, 0, 0, 12) }
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(24, 28, 24, 32)
+            setBackgroundColor(Color.rgb(5, 8, 17))
+        }
+        statusText = TextView(this).apply {
+            text = "SAMURAI OS // COMMAND HOME"
+            textSize = 22f
+            setTextColor(Color.rgb(0, 255, 136))
+            setPadding(0, 0, 0, 8)
+        }
         root.addView(statusText)
+
+        val subtitle = TextView(this).apply {
+            text = "ONE APK  •  CAMERA  •  GPS  •  GALLERY  •  TELEGRAM"
+            textSize = 11f
+            setTextColor(Color.LTGRAY)
+            setPadding(0, 0, 0, 18)
+        }
+        root.addView(subtitle)
+
+        fun addModule(title: String, action: () -> Unit) {
+            root.addView(Button(this).apply {
+                text = title
+                textSize = 15f
+                setOnClickListener { action() }
+            }, LinearLayout.LayoutParams(-1, 58).apply { setMargins(0, 6, 0, 6) })
+        }
+
+        addModule("▣  CAMERA + GPS") { previewView.requestFocus() }
+        addModule("▤  GALLERY") { galleryContainer.requestFocus() }
+        addModule("◉  TELEGRAM") { chatIdInput.requestFocus() }
+
+        root.addView(TextView(this).apply {
+            text = "CAMERA / GEO CAPTURE"
+            textSize = 18f
+            setTextColor(Color.WHITE)
+            setPadding(0, 24, 0, 8)
+        })
         previewView = PreviewView(this).apply { scaleType = PreviewView.ScaleType.FILL_CENTER }
         root.addView(previewView, LinearLayout.LayoutParams(-1, 520))
-        root.addView(Button(this).apply { text = "СНЯТЬ ФОТО + GPS"; setOnClickListener { capturePhoto() } })
-        root.addView(Button(this).apply { text = "ИМПОРТИРОВАТЬ ИЗ ГАЛЕРЕИ"; setOnClickListener { galleryPicker.launch("image/*") } })
-        root.addView(TextView(this).apply { text = "Галерея SamuraiOS — приватная копия"; textSize = 18f; setTextColor(Color.WHITE); setPadding(0, 18, 0, 8) })
+        root.addView(Button(this).apply {
+            text = "CAPTURE PHOTO + GPS"
+            setOnClickListener { capturePhoto() }
+        })
+
+        root.addView(TextView(this).apply {
+            text = "SAMURAI GALLERY"
+            textSize = 18f
+            setTextColor(Color.WHITE)
+            setPadding(0, 24, 0, 8)
+        })
         galleryContainer = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         root.addView(galleryContainer)
-        root.addView(TextView(this).apply { text = "Telegram"; textSize = 20f; setTextColor(Color.WHITE); setPadding(0, 24, 0, 8) })
-        root.addView(Button(this).apply { text = "Мой Telegram"; setOnClickListener { loadMe() } })
-        root.addView(Button(this).apply { text = "Диалоги"; setOnClickListener { loadDialogs() } })
-        chatIdInput = EditText(this).apply { hint = "Chat ID, например -100..."; setSingleLine(true); setTextColor(Color.WHITE); setHintTextColor(Color.GRAY) }
+        root.addView(Button(this).apply {
+            text = "IMPORT PHOTO"
+            setOnClickListener { galleryPicker.launch("image/*") }
+        })
+
+        root.addView(TextView(this).apply {
+            text = "TELEGRAM CORE"
+            textSize = 18f
+            setTextColor(Color.WHITE)
+            setPadding(0, 24, 0, 8)
+        })
+        root.addView(Button(this).apply { text = "MY TELEGRAM"; setOnClickListener { loadMe() } })
+        root.addView(Button(this).apply { text = "DIALOGS"; setOnClickListener { loadDialogs() } })
+        chatIdInput = EditText(this).apply {
+            hint = "Chat ID, например -100..."
+            setSingleLine(true)
+            setTextColor(Color.WHITE)
+            setHintTextColor(Color.GRAY)
+        }
         root.addView(chatIdInput, LinearLayout.LayoutParams(-1, -2))
-        root.addView(Button(this).apply { text = "Загрузить сообщения"; setOnClickListener { loadMessages() } })
-        messageInput = EditText(this).apply { hint = "Сообщение..."; setTextColor(Color.WHITE); setHintTextColor(Color.GRAY); minLines = 3; gravity = Gravity.TOP }
+        root.addView(Button(this).apply { text = "LOAD MESSAGES"; setOnClickListener { loadMessages() } })
+        messageInput = EditText(this).apply {
+            hint = "Message..."
+            setTextColor(Color.WHITE)
+            setHintTextColor(Color.GRAY)
+            minLines = 3
+            gravity = Gravity.TOP
+        }
         root.addView(messageInput, LinearLayout.LayoutParams(-1, -2))
-        root.addView(Button(this).apply { text = "ОТПРАВИТЬ СООБЩЕНИЕ"; setOnClickListener { sendTelegramMessage() } })
-        root.addView(Button(this).apply { text = "ОТПРАВИТЬ ВЫБРАННОЕ ФОТО"; setOnClickListener { sendSelectedPhoto() } })
-        outputText = TextView(this).apply { text = "Выберите фото в галерее, затем отправьте его в Telegram."; textSize = 14f; setTextColor(Color.LTGRAY); setPadding(0, 18, 0, 18) }
+        root.addView(Button(this).apply { text = "SEND MESSAGE"; setOnClickListener { sendTelegramMessage() } })
+        root.addView(Button(this).apply { text = "SEND SELECTED PHOTO"; setOnClickListener { sendSelectedPhoto() } })
+
+        outputText = TextView(this).apply {
+            text = "SAMURAI READY"
+            textSize = 14f
+            setTextColor(Color.LTGRAY)
+            setPadding(0, 18, 0, 18)
+        }
         root.addView(outputText)
         setContentView(ScrollView(this).apply { addView(root) })
     }
@@ -142,8 +214,15 @@ class MainActivity : ComponentActivity() {
         }
         locationClient.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, CancellationTokenSource().token)
             .addOnSuccessListener { location: Location? ->
+                if (location != null) {
+                    runCatching {
+                        val exif = ExifInterface(photo.absolutePath)
+                        exif.setGpsInfo(location)
+                        exif.saveAttributes()
+                    }
+                }
                 Vault.saveMetadata(photo, location?.latitude, location?.longitude, location?.accuracy, timestamp)
-                mainHandler.post { refreshGallery(); outputText.text = if (location != null) "Сохранено: %.6f, %.6f ± %.1fm".format(location.latitude, location.longitude, location.accuracy) else "Сохранено без GPS fix" }
+                mainHandler.post { refreshGallery(); outputText.text = if (location != null) "GPS: %.6f, %.6f ± %.1fm".format(location.latitude, location.longitude, location.accuracy) else "Сохранено без GPS fix" }
             }
             .addOnFailureListener { Vault.saveMetadata(photo, null, null, null, timestamp); mainHandler.post { refreshGallery(); showToast("Фото сохранено, GPS недоступен") } }
     }

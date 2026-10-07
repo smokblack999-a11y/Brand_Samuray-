@@ -2,6 +2,7 @@ package com.samuraios.app
 
 import android.content.Context
 import android.net.Uri
+import java.io.FileOutputStream
 import java.io.File
 import org.json.JSONObject
 
@@ -17,15 +18,6 @@ object Vault {
 
     fun createPhotoFile(context: Context): File {
         return File(directory(context), "samurai_${System.currentTimeMillis()}.jpg")
-    }
-
-    fun importPhoto(context: Context, uri: Uri): File {
-        val file = createPhotoFile(context)
-        context.contentResolver.openInputStream(uri).use { input ->
-            requireNotNull(input) { "Не удалось открыть изображение" }
-            file.outputStream().use { output -> input.copyTo(output) }
-        }
-        return file
     }
 
     fun metadataFile(photo: File): File = File(photo.parentFile, "${photo.nameWithoutExtension}.json")
@@ -49,6 +41,16 @@ object Vault {
             ?.filter { it.isFile && it.extension.lowercase() == "jpg" }
             ?.sortedByDescending { it.lastModified() }
             ?: emptyList()
+    }
+
+    fun importPhoto(context: Context, uri: Uri): File {
+        val file = createPhotoFile(context)
+        context.contentResolver.openInputStream(uri).use { input ->
+            requireNotNull(input) { "Не удалось открыть изображение" }
+            FileOutputStream(file).use { output -> input.copyTo(output) }
+        }
+        saveMetadata(file, null, null, null, System.currentTimeMillis())
+        return file
     }
 
     fun deletePhoto(file: File): Boolean {
