@@ -56,7 +56,7 @@ function microKzt(kzt) {
 }
 async function authorize(input={}) {
   const e=getEngine();
-  if(!e)return {enabled:false,authorized:true,idempotentReplay:false};
+  if(!e)return {enabled:false,authorized:false,idempotentReplay:false,reason:"X33_DISABLED"};
   await ensureReady(input.tenantId);
   const estimateMicro=input.estimateMicro!=null?input.estimateMicro:microKzt(input.estimateKZT||0);
   if(BigInt(estimateMicro)<=0n)return {enabled:true,authorized:true,skipped:true,reason:"ZERO_COST"};
