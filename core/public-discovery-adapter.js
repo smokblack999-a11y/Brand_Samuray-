@@ -81,9 +81,9 @@ async function requestJson(url, headers = {}, options = {}) {
 
 function normalizeDomain(value) {
   try {
-    const u = new URL(/^https?:\\/\\//i.test(value) ? value : `https://${value}`);
+    const u = new URL(/^https?:\/\//i.test(value) ? value : `https://${value}`);
     if (!["http:", "https:"].includes(u.protocol) || u.username || u.password) return "";
-    return u.hostname.toLowerCase().replace(/^www\\./, "");
+    return u.hostname.toLowerCase().replace(/^www\./, "");
   } catch (_) { return ""; }
 }
 
@@ -101,11 +101,11 @@ function scoreEvidence(company) {
   const add = (n, code, re) => {
     if (re.test(text)) { score += n; signals.push(code); }
   };
-  add(22, "saas_software", /\\b(saas|software|platform|api|cloud|subscription)\\b/i);
-  add(18, "b2b_enterprise", /\\b(b2b|enterprise|business|companies|teams|mid-market)\\b/i);
-  add(24, "revenue_motion", /\\b(sales|revenue|pipeline|crm|leads|revops|go-to-market|gtm)\\b/i);
-  add(14, "growth_signal", /\\b(growth|scaling|expanding|expansion|hiring|funding|raised|series [a-c]|new market)\\b/i);
-  add(12, "buyer_signal", /\\b(ceo|founder|cro|chief revenue|head of sales|vp sales|revenue operations)\\b/i);
+  add(22, "saas_software", /\b(saas|software|platform|api|cloud|subscription)\b/i);
+  add(18, "b2b_enterprise", /\b(b2b|enterprise|business|companies|teams|mid-market)\b/i);
+  add(24, "revenue_motion", /\b(sales|revenue|pipeline|crm|leads|revops|go-to-market|gtm)\b/i);
+  add(14, "growth_signal", /\b(growth|scaling|expanding|expansion|hiring|funding|raised|series [a-c]|new market)\b/i);
+  add(12, "buyer_signal", /\b(ceo|founder|cro|chief revenue|head of sales|vp sales|revenue operations)\b/i);
   const workforce = Number(company.workforce || 0);
   if (workforce >= 20 && workforce <= 1000) { score += 6; signals.push("target_company_size"); }
   if (company.publishedDate) {
