@@ -5,6 +5,7 @@ const publicRevenue = require("./public-prospect-adapter");
 const publicDiscovery = require("./public-discovery-adapter");
 const opportunityIntel = require("./opportunity-intelligence");
 const verificationEngine = require("./samurai-verification-engine");
+const executionGate = require("./revenue-execution-gate");
 
 function boolEnv(name, fallback = false) {
   const value = String(process.env[name] ?? fallback).toLowerCase();
@@ -207,7 +208,8 @@ async function runCycle({
       })
     : { opportunities: [], allocation: { budgetKZT: 0, allocatedKZT: 0, remainingKZT: 0, allocations: [] } };
   const opportunityById = new Map(opportunitySet.opportunities.map(o => [o.opportunityId, o]));
-  const plans = rawProspects.map((prospect) => {
+  const plans = [];
+  for (const prospect of rawProspects) {
     const actionPlan = buildActionPlan(prospect, c);
     try {
       const leadId = clean(
@@ -246,17 +248,37 @@ async function runCycle({
       actionPlan.status = "READY_FOR_APPROVAL";
       actionPlan.reason = "VERIFICATION_GATE_BLOCK";
     }
-    return {
+
+    let executionAuthorization = null;
+    if (actionPlan.status === "READY_FOR_EXECUTION") {
+      const gateResult = await executionGate.authorizePlan({
+        source,
+        lead: prospect.lead,
+        opportunity,
+        allocation,
+        qualification: prospect.qualification,
+        decision: prospect.decision,
+        actionPlan
+      });
+      if (gateResult.authorized) {
+        executionAuthorization = gateResult.authorization;
+      } else {
+        actionPlan.status = "READY_FOR_APPROVAL";
+        actionPlan.reason = gateResult.reason || "EXECUTION_GATE_BLOCK";
+      }
+    }
+
+    plans.push({
       source,
       lead: prospect.lead,
       opportunity,
       allocation,
-
       qualification: prospect.qualification,
       decision: prospect.decision,
-      actionPlan
-    };
-  });
+      actionPlan,
+      executionAuthorization
+    });
+  }
 
   return {
     enabled: true,
