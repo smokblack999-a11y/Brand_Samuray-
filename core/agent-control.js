@@ -230,6 +230,104 @@ function diagnose(job, evidence = {}) {
   return finalJob;
 }
 
+async function reproduceRepair(job, proposal = {}, sandboxClient) {
+  if (!job) {
+    const error = new Error("job_not_found");
+    error.code = "JOB_NOT_FOUND";
+    throw error;
+  }
+  if (!job.orchestrator) throw new Error("ORCHESTRATOR_JOB_MISSING");
+  if (!sandboxClient || typeof sandboxClient.reproduceRepair !== "function") {
+    const error = new Error("SANDBOX_REPRODUCTION_CLIENT_MISSING");
+    error.code = "SANDBOX_REPRODUCTION_CLIENT_MISSING";
+    throw error;
+  }
+
+  const semantic = intent.analyze({
+    intent: proposal.intent,
+    changedFiles: proposal.changedFiles || job.orchestrator.changedFiles || job.changedFiles
+  });
+  if (semantic.decision !== "ALLOW") {
+    const er = evidence.append(job.evidenceChain, {
+      type: "intent_gate",
+      intent: proposal.intent || "missing",
+      action: "semantic_scope_check",
+      decision: "BLOCK",
+      evidence: semantic
+    });
+    const updated = {...job, updatedAt: now(), intentGate: semantic, evidenceChain: er.chain};
+    append({ type: "STATE", at: now(), jobId: job.id, job: updated });
+    return updated;
+  }
+
+  const runResult = await sandboxClient.reproduceRepair({
+    runId: `repro_${job.workflow.id}_${crypto.randomUUID()}`,
+    incidentId: job.id,
+    repository: job.workflow.repository,
+    commitSha: job.workflow.headSha,
+    patchDiff: proposal.diff,
+    workspacePath: proposal.workspacePath,
+    testCommand: proposal.testCommand
+  });
+
+  const baselineFailure = failureConclusion(job.workflow.conclusion);
+  const sameCommit = runResult.commitSha === job.workflow.headSha;
+  const candidatePassed = runResult.passed === true;
+  const environmentBound = Boolean(runResult.environmentHash);
+  const causal = baselineFailure && sameCommit && candidatePassed && environmentBound && runResult.timeout === false;
+
+  const diagnosis = {
+    ...(job.diagnosis || {}),
+    status: causal ? "confirmed" : "insufficient_evidence",
+    reproduction: baselineFailure,
+    causality: causal,
+    source: "github-baseline-plus-sandbox-candidate",
+    reproductionEvidence: {
+      baseline: {
+        workflowRunId: job.workflow.id,
+        conclusion: job.workflow.conclusion,
+        headSha: job.workflow.headSha
+      },
+      candidate: {
+        runId: runResult.runId,
+        passed: candidatePassed,
+        commitSha: runResult.commitSha,
+        patchSha256: runResult.patchSha256,
+        environmentHash: runResult.environmentHash,
+        timeout: runResult.timeout,
+        networkAccess: runResult.networkAccess
+      },
+      causalBasis: [
+        "baseline_ci_failure",
+        "same_head_sha",
+        "candidate_passed",
+        "sandbox_environment_bound"
+      ]
+    }
+  };
+
+  const next = causal ? orchestrator.nextState(job.orchestrator, job.orchestrator.state === "QUEUED" ? "DIAGNOSING" : job.orchestrator.state, { reproduction: true, causality: true }) : job.orchestrator;
+  const er = evidence.append(job.evidenceChain, {
+    type: "reproduction",
+    intent: proposal.intent,
+    action: "sandbox_candidate",
+    decision: causal ? "ALLOW_REPAIR_EVALUATION" : "HOLD",
+    evidence: { diagnosis, sandbox: runResult }
+  });
+  const updated = {
+    ...job,
+    updatedAt: now(),
+    state: causal ? "REPAIR_ELIGIBLE" : "EVIDENCE_PENDING",
+    diagnosis,
+    intentGate: semantic,
+    orchestrator: next,
+    evidenceChain: er.chain
+  };
+  append({ type: "REPRODUCTION", at: now(), jobId: job.id, evidence: er.record, job: updated });
+  append({ type: "STATE", at: now(), jobId: job.id, job: updated });
+  return updated;
+}
+
 async function collectGithubEvidence(job, githubClient) {
   if (!job || !job.workflow || !job.workflow.repository || !job.workflow.id) {
     const error = new Error("GITHUB_WORKFLOW_IDENTITY_MISSING");
@@ -347,6 +445,7 @@ module.exports = {
   recordSandbox,
   recordCI,
   finalizeProof,
+  reproduceRepair,
   health,
   classifyFailure
 };
