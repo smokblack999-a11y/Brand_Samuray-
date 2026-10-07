@@ -2,6 +2,7 @@
 
 const orchestrator = require("./autonomous-revenue-orchestrator");
 const outreachExecutor = require("./apollo-outreach-executor");
+const revenueRuntime = require("./x27-runtime");
 
 let timer = null;
 let busy = false;
@@ -56,8 +57,23 @@ async function executeApprovedPlans(result) {
     if (plan?.actionPlan?.status !== "READY_FOR_EXECUTION") continue;
     try {
       const execution = await outreachExecutor.executePlan(plan);
+      const leadId = plan.lead?.email || plan.lead?.apolloPersonId || null;
+      const executionId = `apollo:${plan.executionAuthorization.decisionId}:${plan.executionAuthorization.reservationId}`;
+      revenueRuntime.recordExecution(tenantId, {
+        executionId,
+        decisionId: plan.executionAuthorization.decisionId,
+        action: plan.actionPlan.action,
+        status: execution.status,
+        provider: "apollo",
+        channel: "email_sequence",
+        reservationId: plan.executionAuthorization.reservationId,
+        riskSizeMicro: plan.executionAuthorization.riskSizeMicro,
+        gateDecision: plan.executionAuthorization.gateDecision
+      });
       executions.push({
-        leadId: plan.lead?.email || plan.lead?.apolloPersonId || null,
+        leadId,
+        executionId,
+        reservationId: plan.executionAuthorization.reservationId,
         ...execution
       });
     } catch (error) {
