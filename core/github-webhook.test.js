@@ -17,8 +17,9 @@ function signature(body) {
   return "sha256=" + crypto.createHmac("sha256", SECRET).update(body).digest("hex");
 }
 
-test("GitHub workflow_run webhook accepts valid signature and deduplicates delivery", async (t) => {
-  t.after(() => server.close());
+test.after(() => server.close());
+
+test("GitHub workflow_run webhook accepts valid signature and deduplicates delivery", async () => {
 
   const port = server.address().port;
   const payload = {
