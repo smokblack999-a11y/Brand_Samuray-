@@ -13,6 +13,7 @@ const { createRateLimiter } = require("./rate-limit");
 const dualAI = require("./dual-ai/engine");
 const agentControl = require("./agent-control");
 const agentControlGithub = require("./agent-control-github");
+const agentSandbox = require("./agent-sandbox-client");
 
 const app = express();
 const PORT = Number(process.env.PORT || 8787);
@@ -138,6 +139,25 @@ function agentJobAction(action, req, res) {
 app.post("/api/agent-control/jobs/:id/propose", requireApiKey, (req, res) =>
   agentJobAction(agentControl.proposeRepair, req, res)
 );
+
+app.post("/api/agent-control/jobs/:id/reproduce", requireApiKey, async (req, res) => {
+  try {
+    const job = agentControl.getJob(req.params.id);
+    if (!job) return res.status(404).json(errorBody("AGENT_JOB_NOT_FOUND", "Agent-control job not found", req.requestId));
+    const updated = await agentControl.reproduceRepair(job, req.body || {}, agentSandbox);
+    return res.json({
+      ok: true,
+      job: updated,
+      repairEligible: updated.state === "REPAIR_ELIGIBLE",
+      requestId: req.requestId
+    });
+  } catch (error) {
+    const status = error.code === "JOB_NOT_FOUND" ? 404 : error.code === "X10THINK_SANDBOX_NOT_CONFIGURED" ? 503 : 502;
+    return res.status(status).json(errorBody(error.code || "AGENT_REPRODUCTION_FAILED", status === 503 ? "Sandbox is not configured" : error.message, req.requestId));
+  }
+});
+
+
 
 app.post("/api/agent-control/jobs/:id/sandbox", requireApiKey, (req, res) =>
   agentJobAction(agentControl.recordSandbox, req, res)
