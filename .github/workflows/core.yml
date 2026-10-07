@@ -91,6 +91,16 @@ jobs:
           python3 -m pip install --user --break-system-packages fastapi==0.116.1 uvicorn==0.35.0
           bwrap --version
 
+      - name: Permit bubblewrap user namespaces on ephemeral runner
+        run: |
+          set -euo pipefail
+          if sysctl -n kernel.apparmor_restrict_unprivileged_userns >/dev/null 2>&1; then
+            sysctl -n kernel.apparmor_restrict_unprivileged_userns > /tmp/x10-apparmor-userns.original
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          else
+            echo "kernel.apparmor_restrict_unprivileged_userns unavailable"
+          fi
+
       - name: Start sandbox
         env:
           SANDBOX_WORKSPACE_ROOT: /tmp/x10-workspaces
@@ -133,6 +143,7 @@ jobs:
         run: |
           if test -f /tmp/x10-sandbox.pid; then kill "$(cat /tmp/x10-sandbox.pid)" || true; fi
           cat /tmp/x10-sandbox.log || true
+          if test -f /tmp/x10-apparmor-userns.original; then sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns="$(cat /tmp/x10-apparmor-userns.original)" || true; fi
 
   openai-smoke:
     if: github.event_name != 'pull_request'
