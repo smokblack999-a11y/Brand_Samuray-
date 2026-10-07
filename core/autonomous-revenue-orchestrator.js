@@ -74,6 +74,10 @@ function verifyActionPlan(prospect, actionPlan) {
   return verificationEngine.verify({
     contract,
     evidence,
+    verifier: async ({requirement}) => {
+      const item = evidence.find(e => e.requirementId === requirement.id);
+      return item || { passed:false, evidence:"verification evidence missing" };
+    },
     regressionResults:[{name:"revenue action planner",passed:true}],
     trajectory:[
       {action:"plan"},
