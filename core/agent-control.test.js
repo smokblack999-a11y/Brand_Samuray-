@@ -2,6 +2,7 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const evidence = require("./agent-evidence");
 
 const ac = require("./agent-control");
 
