@@ -180,8 +180,29 @@ async function queryProvider(provider, query, c, maxResults) {
   if (provider === "brave-llm") {
     const url = new URL("https://api.search.brave.com/res/v1/llm/context");
     url.searchParams.set("q", query);
+    url.searchParams.set("count", String(Math.min(limit, 20)));
+    url.searchParams.set("country", clean(process.env.PUBLIC_DISCOVERY_COUNTRY || "US", 2).toLowerCase());
+    url.searchParams.set("search_lang", clean(process.env.PUBLIC_DISCOVERY_LANGUAGE || "en", 8).toLowerCase());
+    url.searchParams.set("maximum_number_of_urls", String(Math.min(limit, 20)));
+    url.searchParams.set("maximum_number_of_tokens", "8192");
+    url.searchParams.set("maximum_number_of_snippets", "50");
+    url.searchParams.set("context_threshold_mode", "balanced");
+    url.searchParams.set("enable_source_metadata", "true");
     const payload = await requestJson(url.toString(), { "X-Subscription-Token": c.braveKey });
-    return normalizeResults(payload, provider, limit);
+    const generic = payload?.grounding?.generic || [];
+    const sources = payload?.sources || {};
+    return normalizeResults({
+      results: generic.map(row => {
+        const meta = sources[row.url] || {};
+        return {
+          url: row.url,
+          title: row.title || meta.title,
+          description: meta.description || "",
+          highlights: row.snippets || [],
+          publishedDate: meta.age?.find(x => /^\d{4}-\d{2}-\d{2}T/.test(String(x))) || null
+        };
+      })
+    }, provider, limit);
   }
 
   if (provider === "brave") {
