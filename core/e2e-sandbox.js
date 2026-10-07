@@ -31,7 +31,7 @@ const sandbox = require("./agent-sandbox-client");
     "@@ -1,3 +1,3 @@",
     ' "use strict";',
     "",
-    "-module.exports = 1;",
+    "-module.exports = 1; // E2E baseline fixture",
     "+module.exports = 2;"
   ].join("\n") + "\n";
 
