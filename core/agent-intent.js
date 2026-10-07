@@ -36,7 +36,8 @@ function analyze({intent, changedFiles = []} = {}) {
   const observed = scopesFromFiles(changedFiles).scopes;
   const undeclared = observed.filter(scope => !declared.includes(scope) && scope !== "tests");
   const taskEmpty = declared.length === 0;
-  const actionEmpty = observed.length === 0;
+  const normalizedFiles = (Array.isArray(changedFiles) ? changedFiles : []).map(x => String(x).replace(/^\.\//, "").replace(/\\/g, "/").trim()).filter(Boolean);
+  const actionEmpty = normalizedFiles.length === 0;
   const mismatch = taskEmpty || actionEmpty || undeclared.length > 0;
   return {
     declaredScopes: declared,
