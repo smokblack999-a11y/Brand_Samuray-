@@ -31,17 +31,17 @@ test("Contact payload excludes undefined fields and enables dedupe", () => {
   assert.equal("title" in payload, false);
 });
 
-test("Execution rejects public/generic leads without person identity", async () => {
+test("Execution rejects a READY plan without gate authorization", async () => {
   const oldOutreach = process.env.APOLLO_AUTONOMOUS_OUTREACH_ENABLED;
   const oldExecution = process.env.REVENUE_AUTONOMOUS_EXECUTION_ENABLED;
   process.env.APOLLO_AUTONOMOUS_OUTREACH_ENABLED = "true";
   process.env.REVENUE_AUTONOMOUS_EXECUTION_ENABLED = "true";
   await assert.rejects(
     executor.executePlan({
-      lead: { email: "sales@company.example", company: "Company" },
+      lead: { email: "person@example.com", firstName: "Jane" },
       actionPlan: { status: "READY_FOR_EXECUTION" }
     }),
-    /APOLLO_CONTACT_IDENTITY_INSUFFICIENT/
+    /EXECUTION_AUTHORIZATION_REQUIRED/
   );
   if (oldOutreach == null) delete process.env.APOLLO_AUTONOMOUS_OUTREACH_ENABLED;
   else process.env.APOLLO_AUTONOMOUS_OUTREACH_ENABLED = oldOutreach;
