@@ -127,8 +127,8 @@ test("X19 E2E fail-closed path reaches proof only after evidence, sandbox and CI
     diagnosis: confirmed.diagnosis,
     retryCount: 0,
     proposal: {
-      changedFiles: ["core/nexus-resource-policy.js"],
-      diff: "--- a/core/agent-control.js\n+++ b/core/agent-control.js\n@@ -1,1 +1,2 @@\n const existing = true;\n+const repaired = true;",
+      changedFiles: ["core/agent-control.test.js"],
+      diff: "--- a/core/agent-control.test.js\n+++ b/core/agent-control.test.js\n@@ -1,1 +1,2 @@\n const existing = true;\n+const repaired = true;",
       source: "x19-e2e-test"
     }
   });
