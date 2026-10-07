@@ -78,6 +78,7 @@ jobs:
         run: |
           set -euo pipefail
           node <<'NODE'
+          (async () => {
           const assert = require("node:assert/strict");
           const control = require("./core/agent-control");
           const sandbox = require("./core/agent-sandbox-client");
@@ -132,6 +133,7 @@ jobs:
             evidenceHeadHash: result.evidenceChain.headHash,
             patchSha256: result.diagnosis.reproductionEvidence.candidate.patchSha256
           }, null, 2));
+          })().catch((error) => { console.error(error); process.exit(1); });
           NODE
 
       - name: Stop sandbox
