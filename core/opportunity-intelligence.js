@@ -150,7 +150,7 @@ function scoreOpportunity(prospect={}, opts={}) {
 
 function rankOpportunities(prospects=[], opts={}) {
   return prospects.map(p=>scoreOpportunity(p,opts))
-    .sort((a,b)=>(b.expectedNetProfitKZT-b.risk*opts.riskPenaltyKZT??0)-(a.expectedNetProfitKZT-a.risk*opts.riskPenaltyKZT??0));
+    .sort((a,b)=>{ const penalty=num(opts.riskPenaltyKZT,0); return (b.expectedNetProfitKZT-b.risk*penalty)-(a.expectedNetProfitKZT-a.risk*penalty); });
 }
 
 function allocateCapital(opportunities=[], input={}) {
