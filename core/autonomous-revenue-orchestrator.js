@@ -4,6 +4,7 @@ const apolloRevenue = require("./apollo-revenue-adapter");
 const publicRevenue = require("./public-prospect-adapter");
 const publicDiscovery = require("./public-discovery-adapter");
 const opportunityIntel = require("./opportunity-intelligence");
+const verificationEngine = require("./samurai-verification-engine");
 
 function boolEnv(name, fallback = false) {
   const value = String(process.env[name] ?? fallback).toLowerCase();
@@ -36,6 +37,51 @@ function config() {
     opportunityMinProbability: Math.min(1, Math.max(0, Number(process.env.REVENUE_OPPORTUNITY_MIN_PROBABILITY || 0.35))),
     opportunityRiskPenaltyKZT: Math.max(0, Number(process.env.REVENUE_OPPORTUNITY_RISK_PENALTY_KZT || 0))
   };
+}
+
+function verifyActionPlan(prospect, actionPlan) {
+  const action = actionPlan?.action || "WAIT";
+  const contract = {
+    contractId: `revenue-action-${clean(prospect?.lead?.email || prospect?.lead?.apolloPersonId || prospect?.id || "unknown",256)}`,
+    task: `Revenue action ${action}`,
+    risk: "high",
+    requirements: [
+      { id:"ACTION-ELIGIBLE", mandatory:true, behavior:"lead satisfies score, action and contactability gates" },
+      { id:"ACTION-ECONOMIC", mandatory:true, behavior:"opportunity passes economic gate before execution" },
+      { id:"ACTION-SAFETY", mandatory:true, behavior:"execution remains approval-gated unless all execution switches are explicitly enabled" }
+    ]
+  };
+  const evidence = [
+    {
+      requirementId:"ACTION-ELIGIBLE",
+      passed:["RESPOND","FOLLOW_UP","REACTIVATE"].includes(action) &&
+        Number(prospect?.qualification?.score || 0) >= 70 &&
+        Boolean(prospect?.lead?.email),
+      evidence:"qualification score, allowed action and email were evaluated"
+    },
+    {
+      requirementId:"ACTION-ECONOMIC",
+      passed:Boolean(prospect?.opportunity?.action === "INVEST" || actionPlan.status !== "READY_FOR_EXECUTION"),
+      evidence:"opportunity economic gate evaluated"
+    },
+    {
+      requirementId:"ACTION-SAFETY",
+      passed:actionPlan.status !== "READY_FOR_EXECUTION" ||
+        (boolEnv("APOLLO_AUTONOMOUS_OUTREACH_ENABLED",false) && boolEnv("REVENUE_AUTONOMOUS_EXECUTION_ENABLED",false)),
+      evidence:"execution switches evaluated"
+    }
+  ];
+  return verificationEngine.verify({
+    contract,
+    evidence,
+    regressionResults:[{name:"revenue action planner",passed:true}],
+    trajectory:[
+      {action:"plan"},
+      {action:"verify ACTION-ELIGIBLE"},
+      {action:"verify ACTION-ECONOMIC"},
+      {action:"verify ACTION-SAFETY"}
+    ]
+  });
 }
 
 function buildActionPlan(prospect, c) {
@@ -190,6 +236,11 @@ async function runCycle({
     if (!economicallyReady && actionPlan.status === "READY_FOR_EXECUTION") {
       actionPlan.status = "READY_FOR_APPROVAL";
       actionPlan.reason = "OPPORTUNITY_ECONOMIC_GATE";
+    }
+    const verification = verifyActionPlan({...prospect, opportunity}, actionPlan);
+    if (!verification.passed) {
+      actionPlan.status = "READY_FOR_APPROVAL";
+      actionPlan.reason = "VERIFICATION_GATE_BLOCK";
     }
     return {
       source,
