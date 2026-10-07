@@ -20,6 +20,7 @@ const autonomousRevenueLoop = require("./autonomous-revenue-loop");
 const revenueBridge = require("./revenue-integration-bridge");
 const stripeWebhook = require("./stripe-webhook");
 const apolloRevenue = require("./apollo-revenue-adapter");
+const autonomousRevenueScheduler = require("./autonomous-revenue-scheduler");
 const autonomousRevenueOrchestrator = require("./autonomous-revenue-orchestrator");
 
 const app = express();
@@ -708,6 +709,10 @@ const server = app.listen(PORT, "0.0.0.0", () => {
       tenantId: String(process.env.TENANT_ID || "default").trim().slice(0, 128) || "default"
     });
     if (discovery.started) console.log(JSON.stringify({ event: "apollo_autodiscovery_started", ...discovery }));
+    const scheduler = autonomousRevenueScheduler.start({
+      tenantId: String(process.env.TENANT_ID || "default").trim().slice(0, 128) || "default"
+    });
+    if (scheduler.started) console.log(JSON.stringify({ event: "autonomous_revenue_scheduler_started", ...scheduler }));
   } catch (error) {
     console.error(JSON.stringify({ event: "apollo_autodiscovery_start_failed", error: error.message }));
   }
