@@ -181,6 +181,14 @@ function diagnose(job, evidence = {}) {
     error.code = "JOB_NOT_FOUND";
     throw error;
   }
+  job = job.evidenceChain ? job : {
+    ...job,
+    evidenceChain: evidence.createChain({
+      subject: `job:${job.id || "unknown"}`,
+      intent: "ci_failure_diagnosis",
+      initialEvidence: { source: "synthetic-or-legacy-job" }
+    })
+  };
   const logs = String(evidence.logs || "");
   const patterns = [
     ["dependency", /npm ERR!|ERESOLVE|Could not resolve|peer dep/i],
