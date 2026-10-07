@@ -1,4 +1,5 @@
 name: X10THINK Real Sandbox E2E
+# Real-sandbox proof workflow: baseline failure -> candidate -> isolated execution -> causality.
 
 on:
   workflow_dispatch:
