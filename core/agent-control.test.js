@@ -405,6 +405,7 @@ test("X19 runtime job persists orchestrator state through proof receipt", async 
   assert.equal(diagnosed.orchestrator.state, "DIAGNOSING");
 
   const proposed = ac.proposeRepair(diagnosed, {
+    intent: "fix failing CI in agent control",
     changedFiles: ["core/agent-control.js"],
     diff: "--- a/core/agent-control.js\n+++ b/core/agent-control.js\n@@ -1,1 +1,2 @@\n const existing = true;\n+const repaired = true;",
     actor: "x19-runtime-test"
