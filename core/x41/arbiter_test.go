@@ -6,13 +6,18 @@ func TestInvalidInputFailsClosed(t *testing.T) {
 	vs:=[]struct{name string; v Validator}{{"A",func()Validator{x,_:=NewArbiterA(Limits{1000,1000,10});return x}()},{"C",func()Validator{x,_:=NewArbiterC(Limits{1000,1000,10});return x}()},{"D",func()Validator{x,_:=NewArbiterD(Limits{1000,1000,10});return x}()}}
 	for _,tc:=range vs { t.Run(tc.name,func(t *testing.T){ got:=tc.v.Validate(-1,1,1); if got.Decision!=DecisionRejected || got.Reasons!=ReasonInvalidInput {t.Fatalf("%+v",got)} }) }
 }
-func TestAllReasons(t *testing.T) {
+func TestAllApplicableReasons(t *testing.T) {
 	for _,tc:=range []Validator{func()Validator{x,_:=NewArbiterA(Limits{1000,1000,10});return x}(),func()Validator{x,_:=NewArbiterC(Limits{1000,1000,10});return x}(),func()Validator{x,_:=NewArbiterD(Limits{1000,1000,10});return x}()} {
-		got:=tc.Validate(2000,2000,-1); want:=ReasonInvalidInput|ReasonVolumeLimit|ReasonPriceLimit|ReasonRiskLimit
+		got:=tc.Validate(-1,2000,20); want:=ReasonInvalidInput|ReasonPriceLimit|ReasonRiskLimit
 		if got.Decision!=DecisionRejected || got.Reasons!=want {t.Fatalf("got=%+v want=%d",got,want)}
 	}
 }
-
+func TestAllLimitReasons(t *testing.T) {
+	for _,tc:=range []Validator{func()Validator{x,_:=NewArbiterA(Limits{1000,1000,10});return x}(),func()Validator{x,_:=NewArbiterC(Limits{1000,1000,10});return x}(),func()Validator{x,_:=NewArbiterD(Limits{1000,1000,10});return x}()} {
+		got:=tc.Validate(2000,2000,20); want:=ReasonVolumeLimit|ReasonPriceLimit|ReasonRiskLimit
+		if got.Decision!=DecisionRejected || got.Reasons!=want {t.Fatalf("got=%+v want=%d",got,want)}
+	}
+}
 func TestCombinedInvalidAndLimitReasons(t *testing.T) {
 	want := ReasonInvalidInput | ReasonPriceLimit | ReasonRiskLimit
 	for _, tc := range []Validator{
@@ -21,12 +26,9 @@ func TestCombinedInvalidAndLimitReasons(t *testing.T) {
 		func() Validator { x, _ := NewArbiterD(Limits{100, 100, 1}); return x }(),
 	} {
 		got := tc.Validate(-1, 200, 2)
-		if got.Decision != DecisionRejected || got.Reasons != want {
-			t.Fatalf("got=%+v want=%d", got, want)
-		}
+		if got.Decision != DecisionRejected || got.Reasons != want {t.Fatalf("got=%+v want=%d", got, want)}
 	}
 }
-
 func TestInvalidUpdateKeepsPreviousLimits(t *testing.T) {
 	for _,tc:=range []Validator{func()Validator{x,_:=NewArbiterA(Limits{1000,1000,10});return x}(),func()Validator{x,_:=NewArbiterC(Limits{1000,1000,10});return x}(),func()Validator{x,_:=NewArbiterD(Limits{1000,1000,10});return x}()} {
 		if tc.UpdateLimits(Limits{-1,2000,20}) {t.Fatal("invalid update accepted")}
