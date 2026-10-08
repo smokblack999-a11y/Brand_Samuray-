@@ -116,7 +116,10 @@ jobs:
         working-directory: core
         run: go test -race ./...
       - name: Unit tests
-        run: node --test --test-concurrency=1 --test-timeout=60000
+        shell: bash
+        run: |
+          set -euo pipefail
+          timeout --signal=TERM --kill-after=10s 180s node --test --test-concurrency=1 --test-timeout=60000
       - name: Install X33 PostgreSQL test driver
         run: npm install --no-save --package-lock=false pg@8.23.1
       - name: X33 PostgreSQL adversarial tests
@@ -152,7 +155,7 @@ jobs:
             -H "Authorization: Bearer ${OPENAI_API_KEY}" \
             https://api.openai.com/v1/models)"
           if [ "$code" != "200" ]; then
-            echo "OpenAI smoke test failed (HTTP ${code})"
+            echo "OpenAI smoke test failed (HTTP $code)"
             rm -f /tmp/openai.json
             exit 1
           fi
