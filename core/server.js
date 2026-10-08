@@ -768,8 +768,12 @@ server.headersTimeout = REQUEST_TIMEOUT_MS + 5000;
 
 function shutdown(signal) {
   console.log(JSON.stringify({ event: "shutdown", signal }));
+  // Force idle/keep-alive connections closed so CI and tests cannot wait on
+  // lingering HTTP sockets after the application server is asked to stop.
+  if (typeof server.closeIdleConnections === "function") server.closeIdleConnections();
+  if (typeof server.closeAllConnections === "function") server.closeAllConnections();
   server.close(() => process.exit(0));
-  setTimeout(() => process.exit(1), 10000).unref();
+  setTimeout(() => process.exit(1), 5000).unref();
 }
 process.once("SIGTERM", () => shutdown("SIGTERM"));
 process.once("SIGINT", () => shutdown("SIGINT"));
