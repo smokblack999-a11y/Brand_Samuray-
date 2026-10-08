@@ -43,7 +43,14 @@ jobs:
         run: GO111MODULE=off go test -run '^TestValidateAllocs$' -count=10 .
 
       - name: Benchmarks
-        run: GO111MODULE=off go test -bench=. -benchmem -count=10 . | tee benchmark.txt
+        run: GO111MODULE=off go test -bench=. -benchmem -count=20 . | tee benchmark.txt
+
+      - name: Install benchstat
+        run: go install golang.org/x/perf/cmd/benchstat@latest
+
+      - name: Statistical A/B comparison
+        run: |
+          "${HOME}/go/bin/benchstat" -col /impl -row .name -filter '.name:ArbiterSnapshot' benchmark.txt | tee benchstat.txt
 
       - name: Escape analysis
         run: GO111MODULE=off go test -gcflags='-m=2' . 2>&1 | tee escape-analysis.txt
@@ -54,4 +61,5 @@ jobs:
           name: x41-evidence
           path: |
             core/x41/benchmark.txt
+            core/x41/benchstat.txt
             core/x41/escape-analysis.txt
