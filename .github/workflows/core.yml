@@ -115,11 +115,17 @@ jobs:
       - name: X39-X44 deterministic risk-control tests
         working-directory: core
         run: go test -race ./...
-      - name: Unit tests
+      - name: Unit tests (isolated file diagnosis)
         shell: bash
         run: |
           set -euo pipefail
-          timeout --signal=TERM --kill-after=10s 180s node --test --test-concurrency=1 --test-timeout=60000
+          mapfile -d '' test_files < <(find . -type f -name '*test.js' -print0 | sort -z)
+          test -n "${#test_files[@]}" || { echo "No test files found"; exit 1; }
+          for file in "${test_files[@]}"; do
+            echo "===== TEST FILE: ${file} ====="
+            timeout --signal=TERM --kill-after=5s 45s node --test --test-concurrency=1 --test-timeout=30000 "${file}"
+            echo "===== PASS FILE: ${file} ====="
+          done
       - name: Install X33 PostgreSQL test driver
         run: npm install --no-save --package-lock=false pg@8.23.1
       - name: X33 PostgreSQL adversarial tests
