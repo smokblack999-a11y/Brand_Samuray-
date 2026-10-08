@@ -1,0 +1,65 @@
+name: X41 Deterministic Risk Core Evidence
+
+on:
+  pull_request:
+    paths:
+      - "core/x41/**"
+      - ".github/workflows/x41-evidence.yml"
+  push:
+    branches:
+      - "x41/deterministic-risk-core-v1"
+
+permissions:
+  contents: read
+
+jobs:
+  evidence:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: core/x41
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+
+      - name: Unit tests
+        run: GO111MODULE=off go test -count=1 .
+
+      - name: Repeated tests
+        run: GO111MODULE=off go test -count=100 .
+
+      - name: Race
+        run: GO111MODULE=off go test -race -count=1 .
+
+      - name: Vet
+        run: GO111MODULE=off go vet .
+
+      - name: Allocation checks
+        run: GO111MODULE=off go test -run '^TestValidateAllocs$' -count=10 .
+
+      - name: Benchmarks
+        run: GO111MODULE=off go test -bench=. -benchmem -count=20 . | tee benchmark.txt
+
+      - name: Install benchstat
+        run: go install golang.org/x/perf/cmd/benchstat@latest
+
+      - name: Statistical A/B comparison
+        run: |
+          "${HOME}/go/bin/benchstat" -col /impl -row .name -filter '.name:ArbiterSnapshot' benchmark.txt | tee benchstat.txt
+
+      - name: Escape analysis
+        run: GO111MODULE=off go test -gcflags='-m=2' . 2>&1 | tee escape-analysis.txt
+
+      - name: Upload evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: x41-evidence
+          path: |
+            core/x41/benchmark.txt
+            core/x41/benchstat.txt
+            core/x41/escape-analysis.txt
