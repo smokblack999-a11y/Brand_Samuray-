@@ -74,6 +74,26 @@ test('protected API rejects missing key', async () => {
   assert.equal(r.status, 401);
 });
 
+test('X33 reservation endpoint fails closed when economic consistency is disabled', async () => {
+  const old = process.env.X33_ENABLED;
+  delete process.env.X33_ENABLED;
+  const r = await api('/api/x33/reserve', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'X-Tenant-Id': 'pilot-x33' },
+    body: JSON.stringify({
+      tenant_id: 'pilot-x33',
+      event_id: 'event-1',
+      estimate_micro: '1000000',
+      ttl_ms: 60000
+    })
+  });
+  assert.equal(r.status, 503);
+  const body = await r.json();
+  assert.equal(body.error.code, 'X33_DISABLED');
+  if (old == null) delete process.env.X33_ENABLED;
+  else process.env.X33_ENABLED = old;
+});
+
 test('lead analysis persists and stats update', async () => {
   const r = await api('/api/lead/analyze', {
     method: 'POST',
