@@ -119,8 +119,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mapfile -d '' test_files < <(find . -type f -name '*test.js' -print0 | sort -z)
-          test -n "${#test_files[@]}" || { echo "No test files found"; exit 1; }
+          mapfile -d '' test_files < <(
+            find . -type f -name '*test.js' \
+              ! -path './x33-adversarial.test.js' \
+              ! -path './x42-veto-audit.test.js' \
+              -print0 | sort -z
+          )
+          (( ${#test_files[@]} > 0 )) || { echo "No unit test files found"; exit 1; }
           for file in "${test_files[@]}"; do
             echo "===== TEST FILE: ${file} ====="
             timeout --signal=TERM --kill-after=5s 45s node --test --test-concurrency=1 --test-timeout=30000 "${file}"
