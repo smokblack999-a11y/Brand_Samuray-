@@ -28,6 +28,20 @@ func BenchmarkArbiterD(b *testing.B) {
 	benchmarkValidate(b, a)
 }
 
+// BenchmarkArbiterSnapshot emits A/C under the same benchmark body with an
+// explicit implementation dimension so benchstat can perform a statistical
+// A/B comparison from one benchmark binary.
+func BenchmarkArbiterSnapshot(b *testing.B) {
+	b.Run("impl=A", func(b *testing.B) {
+		a, _ := NewArbiterA(Limits{1000, 1000, 10})
+		benchmarkValidate(b, a)
+	})
+	b.Run("impl=C", func(b *testing.B) {
+		a, _ := NewArbiterC(Limits{1000, 1000, 10})
+		benchmarkValidate(b, a)
+	})
+}
+
 func BenchmarkArbiterAParallel(b *testing.B) {
 	a, _ := NewArbiterA(Limits{1000, 1000, 10})
 	b.RunParallel(func(pb *testing.PB) {
