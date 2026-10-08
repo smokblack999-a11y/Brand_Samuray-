@@ -31,27 +31,33 @@ func BenchmarkArbiterD(b *testing.B) {
 func BenchmarkArbiterAParallel(b *testing.B) {
 	a, _ := NewArbiterA(Limits{1000, 1000, 10})
 	b.RunParallel(func(pb *testing.PB) {
+		var sink uint8
 		for pb.Next() {
-			benchmarkResult = a.Validate(benchmarkVolume, benchmarkPrice, benchmarkRisk)
+			sink ^= a.Validate(benchmarkVolume, benchmarkPrice, benchmarkRisk).Reasons
 		}
+		benchmarkResult.Reasons = sink
 	})
 }
 
 func BenchmarkArbiterCParallel(b *testing.B) {
 	a, _ := NewArbiterC(Limits{1000, 1000, 10})
 	b.RunParallel(func(pb *testing.PB) {
+		var sink uint8
 		for pb.Next() {
-			benchmarkResult = a.Validate(benchmarkVolume, benchmarkPrice, benchmarkRisk)
+			sink ^= a.Validate(benchmarkVolume, benchmarkPrice, benchmarkRisk).Reasons
 		}
+		benchmarkResult.Reasons = sink
 	})
 }
 
 func BenchmarkArbiterDParallel(b *testing.B) {
 	a, _ := NewArbiterD(Limits{1000, 1000, 10})
 	b.RunParallel(func(pb *testing.PB) {
+		var sink uint8
 		for pb.Next() {
-			benchmarkResult = a.Validate(benchmarkVolume, benchmarkPrice, benchmarkRisk)
+			sink ^= a.Validate(benchmarkVolume, benchmarkPrice, benchmarkRisk).Reasons
 		}
+		benchmarkResult.Reasons = sink
 	})
 }
 
