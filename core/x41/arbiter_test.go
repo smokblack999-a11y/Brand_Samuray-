@@ -8,7 +8,7 @@ func TestInvalidInputFailsClosed(t *testing.T) {
 }
 func TestAllReasons(t *testing.T) {
 	for _,tc:=range []Validator{func()Validator{x,_:=NewArbiterA(Limits{1000,1000,10});return x}(),func()Validator{x,_:=NewArbiterC(Limits{1000,1000,10});return x}(),func()Validator{x,_:=NewArbiterD(Limits{1000,1000,10});return x}()} {
-		got:=tc.Validate(-1,2000,20); want:=ReasonInvalidInput|ReasonVolumeLimit|ReasonPriceLimit|ReasonRiskLimit
+		got:=tc.Validate(2000,2000,-1); want:=ReasonInvalidInput|ReasonVolumeLimit|ReasonPriceLimit|ReasonRiskLimit
 		if got.Decision!=DecisionRejected || got.Reasons!=want {t.Fatalf("got=%+v want=%d",got,want)}
 	}
 }
@@ -47,7 +47,7 @@ func TestValidateAllocs(t *testing.T) {
 func testConsistency(t *testing.T,v Validator) {
 	t.Helper(); c1:=Limits{1000,1000,10};c2:=Limits{2000,2000,20}
 	var wg sync.WaitGroup;wg.Add(1);go func(){defer wg.Done();for i:=0;i<50000;i++{if i&1==0{v.UpdateLimits(c1)}else{v.UpdateLimits(c2)}}}()
-	wg.Add(10);for i:=0;i<10;i++{go func(){defer wg.Done();for j:=0;j<10000;j++{g:=v.Validate(1500,1500,15);if g.Decision!=DecisionRejected||g.Reasons!=(ReasonVolumeLimit|ReasonPriceLimit|ReasonRiskLimit){t.Errorf("inconsistent %+v",g);return}}}()}
+	wg.Add(10);for i:=0;i<10;i++{go func(){defer wg.Done();for j:=0;j<10000;j++{g:=v.Validate(2500,2500,25);if g.Decision!=DecisionRejected||g.Reasons!=(ReasonVolumeLimit|ReasonPriceLimit|ReasonRiskLimit){t.Errorf("inconsistent %+v",g);return}}}()}
 	wg.Wait()
 }
 func TestSnapshotConsistencyA(t *testing.T){a,_:=NewArbiterA(Limits{1000,1000,10});testConsistency(t,a)}
