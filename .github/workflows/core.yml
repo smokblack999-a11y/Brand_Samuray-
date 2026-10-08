@@ -128,7 +128,7 @@ jobs:
           (( ${#test_files[@]} > 0 )) || { echo "No unit test files found"; exit 1; }
           for file in "${test_files[@]}"; do
             echo "===== TEST FILE: ${file} ====="
-            timeout --signal=TERM --kill-after=5s 45s node --test --test-concurrency=1 --test-timeout=30000 "${file}"
+            timeout --signal=TERM --kill-after=5s 45s node --test --test-concurrency=1 --test-timeout=30000 --test-force-exit "${file}"
             echo "===== PASS FILE: ${file} ====="
           done
       - name: Install X33 PostgreSQL test driver
