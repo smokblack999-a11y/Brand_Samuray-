@@ -101,6 +101,10 @@ jobs:
           node --check x33-economic-consistency.js
           node --check x33-service.js
           node --check autonomous-revenue-orchestrator.js
+          node --check autonomous-revenue-scheduler.js
+          node --check apollo-outreach-executor.js
+          node --check revenue-execution-gate.js
+          node --check revenue-execution-gate.test.js
           node --check samurai-verification-engine.js
           node --check samurai-verification-engine.test.js
           node --check revenue-rollout-policy.js
@@ -112,7 +116,7 @@ jobs:
         working-directory: core
         run: go test -race ./...
       - name: Unit tests
-        run: npm test
+        run: node --test --test-concurrency=1 --test-timeout=60000
       - name: Install X33 PostgreSQL test driver
         run: npm install --no-save --package-lock=false pg@8.23.1
       - name: X33 PostgreSQL adversarial tests
