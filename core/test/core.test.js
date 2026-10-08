@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
+const { once } = require('node:events');
 
 const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'samurai-core-'));
 const port = 18000 + Math.floor(Math.random() * 1000);
@@ -49,7 +50,18 @@ test.before(async () => {
   });
 });
 
-test.after(() => child?.kill('SIGTERM'));
+test.after(async () => {
+  if (!child || child.exitCode !== null) return;
+  child.kill('SIGTERM');
+  try {
+    await Promise.race([
+      once(child, 'exit'),
+      new Promise(resolve => setTimeout(resolve, 2000))
+    ]);
+  } finally {
+    if (child.exitCode === null) child.kill('SIGKILL');
+  }
+});
 
 test('health endpoint', async () => {
   const r = await fetch(`http://127.0.0.1:${port}/health`);
