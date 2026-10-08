@@ -22,6 +22,7 @@ const stripeWebhook = require("./stripe-webhook");
 const apolloRevenue = require("./apollo-revenue-adapter");
 const autonomousRevenueScheduler = require("./autonomous-revenue-scheduler");
 const autonomousRevenueOrchestrator = require("./autonomous-revenue-orchestrator");
+const x33Service = require("./x33-service");
 
 const app = express();
 const PORT = Number(process.env.PORT || 8787);
@@ -376,6 +377,51 @@ app.post("/api/revenue/cost", requireApiKey, leadRateLimit, (req, res) => {
   } catch (error) {
     const status = /required/.test(String(error.message || "")) ? 400 : 500;
     return res.status(status).json(errorBody(error.code || "REVENUE_COST_FAILED", status === 400 ? error.message : "Revenue cost failed", req.requestId));
+  }
+});
+
+app.post("/api/x33/reserve", requireApiKey, leadRateLimit, async (req, res) => {
+  try {
+    const headerTenant = String(req.get("X-Tenant-Id") || "").trim().slice(0, 128);
+    const bodyTenant = String(req.body?.tenant_id || "").trim().slice(0, 128);
+    if (!headerTenant || !bodyTenant) {
+      return res.status(400).json(errorBody("X33_TENANT_REQUIRED", "X-Tenant-Id and tenant_id are required", req.requestId));
+    }
+    if (headerTenant !== bodyTenant) {
+      return res.status(403).json(errorBody("X33_TENANT_MISMATCH", "Tenant header and body do not match", req.requestId));
+    }
+    if (!x33Service.enabled()) {
+      return res.status(503).json(errorBody("X33_DISABLED", "X33 economic reservation is disabled", req.requestId));
+    }
+    const eventId = String(req.body?.event_id || "").trim().slice(0, 256);
+    const estimateMicro = req.body?.estimate_micro;
+    const ttlMs = Number(req.body?.ttl_ms);
+    if (!eventId || !/^(?:0|[1-9]\d*)$/.test(String(estimateMicro ?? "")) || !Number.isSafeInteger(ttlMs)) {
+      return res.status(400).json(errorBody("X33_INVALID_RESERVATION", "event_id, integer estimate_micro and integer ttl_ms are required", req.requestId));
+    }
+    const result = await x33Service.authorize({
+      tenantId: headerTenant,
+      eventId,
+      estimateMicro: String(estimateMicro),
+      ttlMs
+    });
+    if (!result.authorized || !result.reservation?.reservationId) {
+      return res.status(503).json(errorBody("X33_RESERVATION_NOT_AUTHORIZED", "X33 reservation was not authorized", req.requestId));
+    }
+    return res.status(result.reservation.idempotentReplay ? 200 : 201).json({
+      ok: true,
+      reservation: result.reservation,
+      requestId: req.requestId
+    });
+  } catch (error) {
+    const status = /required|outside|must be|invalid/i.test(String(error.message || "")) ? 400 :
+      /BUDGET_EXCEEDED|AUTONOMY_TRIPPED/.test(String(error.code || "")) ? 409 : 503;
+    console.error(JSON.stringify({
+      event: "x33_reservation_failed",
+      requestId: req.requestId,
+      code: error.code || "X33_RESERVE_FAILED"
+    }));
+    return res.status(status).json(errorBody(error.code || "X33_RESERVE_FAILED", status === 503 ? "X33 reservation unavailable" : error.message, req.requestId));
   }
 });
 
