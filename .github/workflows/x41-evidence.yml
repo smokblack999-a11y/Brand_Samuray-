@@ -43,7 +43,7 @@ jobs:
         run: GO111MODULE=off go test -run '^TestValidateAllocs$' -count=10 .
 
       - name: Benchmarks
-        run: GO111MODULE=off go test -bench=. -benchmem -count=10 .
+        run: GO111MODULE=off go test -bench=. -benchmem -count=10 . | tee benchmark.txt
 
       - name: Escape analysis
         run: GO111MODULE=off go test -gcflags='-m=2' . 2>&1 | tee escape-analysis.txt
@@ -52,4 +52,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: x41-evidence
-          path: core/x41/escape-analysis.txt
+          path: |
+            core/x41/benchmark.txt
+            core/x41/escape-analysis.txt
