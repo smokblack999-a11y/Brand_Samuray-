@@ -149,3 +149,31 @@ func TestEvaluateClaim_RejectsInvalidNaNProbability(t *testing.T) {
 		t.Fatalf("unexpected decision: %+v", got)
 	}
 }
+
+func TestValidatePolicy_RejectsNonFiniteThresholds(t *testing.T) {
+	cases := []struct {
+		name string
+		set  func(*Policy)
+	}{
+		{"min probability NaN", func(p *Policy) { p.MinProbability = math.NaN() }},
+		{"min confidence positive infinity", func(p *Policy) { p.MinConfidence = math.Inf(1) }},
+		{"max risk negative infinity", func(p *Policy) { p.MaxRiskScore = math.Inf(-1) }},
+		{"max Kelly NaN", func(p *Policy) { p.MaxKellyFraction = math.NaN() }},
+		{"min Kelly positive infinity", func(p *Policy) { p.MinKellyFraction = math.Inf(1) }},
+		{"risk reward NaN", func(p *Policy) { p.MinRiskReward = math.NaN() }},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			p := testPolicy()
+			tc.set(&p)
+			if _, err := NewArbiter(p); err == nil {
+				t.Fatal("expected non-finite policy threshold to be rejected")
+			}
+			now := time.Unix(1_800_000_000, 0)
+			got := EvaluateClaim(baseClaim(now), p, now, 0)
+			if got.Execute || got.Reason != "invalid_policy" || got.VetoLevel != VetoBlack {
+				t.Fatalf("policy must fail closed, got %+v", got)
+			}
+		})
+	}
+}
