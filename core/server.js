@@ -486,7 +486,7 @@ app.get("/api/revenue/loop/snapshot", requireApiKey, (req, res) => {
 });
 
 app.post("/api/revenue/decision", requireApiKey, leadRateLimit, (req, res) => {
-  try { const result = revenueRuntime.decide(revenueTenantId(req), req.body || {}); return res.status(result.inserted ? 201 : 200).json({ ok: true, decision: result.record, inserted: result.inserted, requestId: req.requestId }); }
+  try { const result = revenueRuntime.decide(revenueTenantId(req), req.body || {}); const decision = result.record || result.decision || result; if (!decision || !decision.decisionId) throw Object.assign(new Error("Decision record is incomplete"), { code: "REVENUE_DECISION_INCOMPLETE" }); return res.status(result.inserted ? 201 : 200).json({ ok: true, decision, inserted: result.inserted, requestId: req.requestId }); }
   catch (error) { const status = /required/.test(String(error.message || "")) ? 400 : 500; return res.status(status).json(errorBody(error.code || "REVENUE_DECISION_FAILED", status === 400 ? error.message : "Revenue decision failed", req.requestId)); }
 });
 app.post("/api/revenue/webhook/:provider", leadRateLimit, (req, res) => {
