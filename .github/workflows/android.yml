@@ -61,9 +61,13 @@ jobs:
           set -euo pipefail
           APK="app/build/outputs/apk/debug/app-debug.apk"
           test -s "$APK"
-          zipalign -c -v 4 "$APK"
-          apksigner verify --verbose --print-certs "$APK"
-          aapt dump badging "$APK" | grep -F "package: name='com.samuraios.app'"
+          BUILD_TOOLS="$ANDROID_HOME/build-tools/35.0.0"
+          test -x "$BUILD_TOOLS/zipalign"
+          test -x "$BUILD_TOOLS/apksigner"
+          test -x "$BUILD_TOOLS/aapt"
+          "$BUILD_TOOLS/zipalign" -c -v 4 "$APK"
+          "$BUILD_TOOLS/apksigner" verify --verbose --print-certs "$APK"
+          "$BUILD_TOOLS/aapt" dump badging "$APK" | grep -F "package: name='com.samuraios.app'"
           ls -lh "$APK"
 
       - name: Upload APK
