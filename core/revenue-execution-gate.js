@@ -33,7 +33,7 @@ function policy() {
   };
 }
 
-function claimFromPlan(plan) {
+function claimFromPlan(plan, nowMs = Date.now()) {
   const opportunity = plan?.opportunity || {};
   const costKZT = Math.max(1, Number(opportunity.expectedExecutionCostKZT || plan?.allocation?.allocationKZT || 0));
   const profitKZT = Math.max(1, Number(opportunity.expectedGrossProfitKZT || opportunity.expectedNetProfitKZT || 0));
@@ -54,7 +54,7 @@ function claimFromPlan(plan) {
     expectedProfitMicro: microKzt(profitKZT, "expectedProfitKZT").toString(),
     maxLossMicro: microKzt(costKZT, "maxLossKZT").toString(),
     capitalReqMicro: microKzt(capitalKZT, "capitalReqKZT").toString(),
-    dataTimestamp: new Date().toISOString(),
+    dataTimestamp: new Date(nowMs).toISOString(),
     policyVersion: Math.max(1, Number(process.env.X39_POLICY_VERSION || 1)),
     probability,
     confidence
@@ -70,7 +70,7 @@ async function authorizePlan(plan, { x33Service = x33, nowMs = Date.now() } = {}
     return { authorized: false, reason: "EXECUTION_SWITCHES_OFF" };
   }
 
-  const claim = claimFromPlan(plan);
+  const claim = claimFromPlan(plan, nowMs);
   const decision = x41.evaluateClaim(claim, policy(), nowMs);
   if (decision.decision !== x41.DECISION.EXECUTE) {
     return { authorized: false, reason: decision.reason, decision };
