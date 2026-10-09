@@ -122,6 +122,8 @@ jobs:
           set -euo pipefail
           mapfile -d '' test_files < <(
             find . -type f -name '*test.js' \
+              ! -path './node_modules/*' \
+              ! -path './node_modules/**' \
               ! -path './x33-adversarial.test.js' \
               ! -path './x42-veto-audit.test.js' \
               -print0 | sort -z
