@@ -67,17 +67,17 @@ async function fetchPublic(url) {
 }
 
 function stripHtml(html) {
-  return html.replace(/<script[\\s\\S]*?<\\/script>/gi, " ")
-    .replace(/<style[\\s\\S]*?<\\/style>/gi, " ")
+  return html.replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
     .replace(/<[^>]+>/g, " ")
     .replace(/&nbsp;/gi, " ").replace(/&amp;/gi, "&")
-    .replace(/\\s+/g, " ").trim();
+    .replace(/\s+/g, " ").trim();
 }
 
 function emails(text) {
-  const found = text.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\\.[A-Z]{2,}/gi) || [];
+  const found = text.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi) || [];
   return [...new Set(found.map(x => x.toLowerCase()).filter(x =>
-    !/(example\\.com|noreply|no-reply|privacy|unsubscribe|donotreply)/i.test(x)))].slice(0, 10);
+    !/(example\.com|noreply|no-reply|privacy|unsubscribe|donotreply)/i.test(x)))].slice(0, 10);
 }
 
 function qualify(text) {
@@ -94,7 +94,7 @@ function qualify(text) {
 async function crawlCompany(company, tenantId, dealValueKZT, grossMarginRate) {
   const root = clean(company.domain || company.website || "", 512);
   if (!root) return null;
-  const base = /^https?:\\/\\//i.test(root) ? new URL(root) : new URL(`https://${root}`);
+  const base = /^https?:\/\//i.test(root) ? new URL(root) : new URL(`https://${root}`);
   const origin = base.origin;
   const queue = [origin];
   const visited = new Set();
@@ -109,7 +109,7 @@ async function crawlCompany(company, tenantId, dealValueKZT, grossMarginRate) {
       const page = await fetchPublic(u.href);
       combined += " " + stripHtml(page.text);
       sources.push(page.url);
-      const links = [...page.text.matchAll(/href=[\\"']([^\\"']+)[\\"']/gi)].map(m => m[1]);
+      const links = [...page.text.matchAll(/href=["']([^"']+)["']/gi)].map(m => m[1]);
       for (const link of links) {
         try {
           const x = new URL(link, origin);
