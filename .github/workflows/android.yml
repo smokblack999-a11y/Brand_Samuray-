@@ -56,10 +56,15 @@ jobs:
 
       - name: Verify APK
         working-directory: android
+        shell: bash
         run: |
           set -euo pipefail
-          test -f app/build/outputs/apk/debug/app-debug.apk
-          ls -lh app/build/outputs/apk/debug/app-debug.apk
+          APK="app/build/outputs/apk/debug/app-debug.apk"
+          test -s "$APK"
+          zipalign -c -v 4 "$APK"
+          apksigner verify --verbose --print-certs "$APK"
+          aapt dump badging "$APK" | grep -F "package: name='com.samuraios.app'"
+          ls -lh "$APK"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
