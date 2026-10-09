@@ -89,7 +89,6 @@ async function recordExecution(input = {}) {
   return { execution, economicGate };
 }
 
-async 
 function recordPayment(input = {}) {
   const tenantId = text(input.tenantId, 128);
   const paymentId = text(input.paymentId, 256);
