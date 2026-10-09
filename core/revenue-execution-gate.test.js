@@ -41,9 +41,10 @@ test("execution gate rejects when X33 is disabled", async () => {
 test("execution gate rejects an incomplete economic claim", async () => {
   const p = plan();
   delete p.opportunity.purchaseProbability;
-  const result = await gate.authorizePlan(p);
-  assert.equal(result.authorized, false);
-  assert.equal(result.reason, "EXECUTION_GATE_EVIDENCE_INCOMPLETE");
+  await assert.rejects(
+    () => gate.authorizePlan(p),
+    error => error.code === "EXECUTION_GATE_EVIDENCE_INCOMPLETE"
+  );
 });
 
 test("execution gate issues authorization only after X33 reservation", async () => {
