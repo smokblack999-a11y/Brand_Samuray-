@@ -46,7 +46,7 @@ jobs:
           go-version: '1.23.x'
 
       - name: Install Gitleaks
-        run: go install github.com/gitleaks/gitleaks/v8@v8.24.2
+        run: go install github.com/zricethezav/gitleaks/v8@v8.24.2
 
       - name: Scan full Git history for secrets
         working-directory: .
