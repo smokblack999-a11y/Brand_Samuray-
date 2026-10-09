@@ -17,16 +17,22 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: Secret pattern scan
+      - name: Set up Go for Gitleaks
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+
+      - name: Install Gitleaks
+        run: go install github.com/gitleaks/gitleaks/v8@v8.24.2
+
+      - name: Scan full Git history for secrets
         shell: bash
         run: |
           set -euo pipefail
-          if git grep -nE 'sk-(proj|svcacct)-[A-Za-z0-9_-]{20,}'; then
-            echo "Potential OpenAI API key found in tracked files"
-            exit 1
-          fi
-          echo "Secret scan: PASS"
+          "$(go env GOPATH)/bin/gitleaks" git --redact --verbose .
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
