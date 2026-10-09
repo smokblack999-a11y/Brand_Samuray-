@@ -8,7 +8,7 @@ function analyzeLeadLoss(events=[],input={}){
   const normalized=(Array.isArray(events)?events:[]).map(classifyEvent).sort((a,b)=>Date.parse(a.ts||0)-Date.parse(b.ts||0));
   const customer=normalized.filter(e=>e.type.includes("customer")&&e.type.includes("message"));
   const responses=normalized.filter(e=>e.type.includes("manager")||e.type.includes("agent")||e.type.includes("ai.response")||e.type==="ai.response");
-  const objections=normalized.filter(e=>["objection","price","budget","competitor","trust"].includes(e.intent)||/(дорог|цена|дорого|бюджет|конкурент|не довер|сомнева)/i.test(e.text));
+  const objections=normalized.filter(e=>e.type.includes("customer")||e.type==="objection").filter(e=>["objection","price","budget","competitor","trust"].includes(e.intent)||/(дорог|цена|дорого|бюджет|конкурент|не довер|сомнева)/i.test(e.text));
   const firstCustomer=customer[0]||null;
   const firstResponse=responses[0]||null;
   const latencyMinutes=firstCustomer&&firstResponse?minutesBetween(firstCustomer.ts,firstResponse.ts):firstCustomer?minutesBetween(firstCustomer.ts,input.analyzedAt||new Date().toISOString()):null;
