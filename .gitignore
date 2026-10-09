@@ -19,6 +19,7 @@ pnpm-debug.log*
 
 # SamuraiOS runtime logs
 *.log
+build-error*.log
 core/samuraios.log
 
 # Android / Gradle
