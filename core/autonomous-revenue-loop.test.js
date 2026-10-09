@@ -13,10 +13,10 @@ test("autonomous revenue loop exposes the complete economic stages", () => {
   assert.equal(typeof loop.snapshot, "function");
 });
 
-test("outcome status is fail-closed", () => {
+test("outcome status is fail-closed", async () => {
   const loop = require("./autonomous-revenue-loop");
-  assert.throws(
-    () => loop.recordOutcome({ tenantId: "t1", eventId: "e1", status: "MAYBE" }),
+  await assert.rejects(
+    loop.recordOutcome({ tenantId: "t1", eventId: "e1", status: "MAYBE" }),
     error => error && error.code === "INVALID_OUTCOME_STATUS"
   );
 });
