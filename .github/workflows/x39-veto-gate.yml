@@ -1,0 +1,54 @@
+name: X39 Veto Gate Evidence
+
+on:
+  pull_request:
+    paths:
+      - "core/x39/**"
+      - "core/x41/**"
+      - ".github/workflows/x39-veto-gate.yml"
+  push:
+    branches:
+      - "x39/veto-gate-integration-v1"
+
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+
+      - name: X39 unit tests
+        working-directory: core/x39
+        run: GO111MODULE=off go test -count=1 .
+
+      - name: X39 repeated tests
+        working-directory: core/x39
+        run: GO111MODULE=off go test -count=100 .
+
+      - name: X39 race detector
+        working-directory: core/x39
+        run: GO111MODULE=off go test -race -count=1 .
+
+      - name: X39 vet
+        working-directory: core/x39
+        run: GO111MODULE=off go vet .
+
+      - name: X41 and X39 adapter tests
+        working-directory: core/x41
+        run: GO111MODULE=off go test -count=100 .
+
+      - name: X41 and X39 adapter race detector
+        working-directory: core/x41
+        run: GO111MODULE=off go test -race -count=1 .
+
+      - name: X41 and X39 adapter vet
+        working-directory: core/x41
+        run: GO111MODULE=off go vet .
