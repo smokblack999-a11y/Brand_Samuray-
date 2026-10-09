@@ -49,6 +49,7 @@ jobs:
         run: go install github.com/gitleaks/gitleaks/v8@v8.24.2
 
       - name: Scan full Git history for secrets
+        working-directory: .
         shell: bash
         run: |
           set -euo pipefail
