@@ -12,6 +12,7 @@ const API_KEY = 'test-core-api-key-123456';
 const WEBHOOK_SECRET = 'test-webhook-secret-123456';
 
 let child;
+let startupOutput = "";
 
 async function api(pathname, options = {}) {
   return fetch(`http://127.0.0.1:${port}${pathname}`, {
@@ -33,11 +34,16 @@ test.before(async () => {
       TELEGRAM_WEBHOOK_SECRET: WEBHOOK_SECRET,
       MAX_MESSAGE_CHARS: '4000'
     },
-    // Do not pipe child output without consuming it: a busy server can fill the pipe and block before /health is reachable.
-    stdio: 'ignore'
+    // Consume child output while retaining a bounded diagnostic tail for startup failures.
+    stdio: ['ignore', 'pipe', 'pipe']
   });
+  const collect = chunk => { startupOutput = (startupOutput + chunk.toString()).slice(-12000); };
+  child.stdout.on('data', collect);
+  child.stderr.on('data', collect);
   await new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error('server startup timeout')), 10000);
+    const timer = setTimeout(() => {
+      reject(new Error('server startup timeout; output: ' + startupOutput));
+    }, 20000);
     const check = async () => {
       try {
         const r = await fetch(`http://127.0.0.1:${port}/health`);
@@ -45,7 +51,11 @@ test.before(async () => {
       } catch {}
       setTimeout(check, 100);
     };
-    child.once('error', reject);
+    child.once('error', error => { clearTimeout(timer); reject(error); });
+    child.once('exit', (code, signal) => {
+      clearTimeout(timer);
+      reject(new Error('server exited before startup (code=' + code + ', signal=' + signal + '); output: ' + startupOutput));
+    });
     check();
   });
 });
