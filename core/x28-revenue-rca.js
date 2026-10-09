@@ -18,7 +18,7 @@ function analyzeLeadLoss(events=[],input={}){
   const hypotheses=[];
   function add(code,evidence,confidence,action){hypotheses.push({code,evidence:evidence.slice(0,8),confidencePct:Math.round(Math.max(0,Math.min(99,confidence))),recommendedAction:action});}
   if(firstCustomer&&!firstResponse&&latencyMinutes!==null&&latencyMinutes>responseSlaMinutes)add("RESPONSE_DELAY",["No agent response observed within the SLA window."],Math.min(95,60+latencyMinutes/10),"ACTIVATE_SPEED_TO_LEAD");
-  if(firstCustomer&&firstResponse&&latencyMinutes!==null&&latencyMinutes>responseSlaMinutes)add("RESPONSE_DELAY",["First response exceeded configured SLA: "+latencyMinutes+" minutes."],Math.min(92,55+latencyMinutes/12),"REDUCE_RESPONSE_LATENCY");
+  if(firstCustomer&&firstResponse&&latencyMinutes!==null&&latencyMinutes>responseSlaMinutes)add("RESPONSE_DELAY",["First response exceeded configured SLA: "+latencyMinutes+" minutes."],Math.min(95,75+latencyMinutes/10),"REDUCE_RESPONSE_LATENCY");
   if(objections.length&&!answeredObjection)add("UNHANDLED_OBJECTION",objections.map(e=>e.intent||e.text).filter(Boolean),86,"RUN_OBJECTION_PLAYBOOK");
   if(firstCustomer&&!hasFollowup&&responses.length>0)add("NO_FOLLOWUP",["A customer message was answered but no follow-up event was observed."],78,"TRIGGER_FOLLOWUP_SEQUENCE");
   if(objections.some(e=>e.intent==="price"||/дорог|цена|бюджет/i.test(e.text)))add("PRICE_FRICTION",objections.filter(e=>e.intent==="price"||/дорог|цена|бюджет/i.test(e.text)).map(e=>e.text||"price objection"),74,"RUN_VALUE_OR_SCOPE_REFRAME");
