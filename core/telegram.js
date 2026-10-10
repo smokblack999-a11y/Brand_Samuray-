@@ -6,7 +6,7 @@ const os = require("node:os");
 const path = require("node:path");
 const crypto = require("node:crypto");
 
-const { TelegramClient } = require("telegram");
+const { Api, TelegramClient } = require("telegram");
 const { StringSession } = require("telegram/sessions");
 
 const MAX_PHOTO_BYTES = 10 * 1024 * 1024;
@@ -157,23 +157,46 @@ async function sendPhotoBase64({ chatId, fileName, caption, base64, latitude, lo
   let finalCaption = String(caption || "SamuraiOS").slice(0, 900);
   const lat = latitude == null || latitude === "" ? null : Number(latitude);
   const lon = longitude == null || longitude === "" ? null : Number(longitude);
-  if (Number.isFinite(lat) && Number.isFinite(lon) && Math.abs(lat) <= 90 && Math.abs(lon) <= 180) {
+  const hasValidLocation = Number.isFinite(lat) && Number.isFinite(lon) &&
+    Math.abs(lat) <= 90 && Math.abs(lon) <= 180;
+  if (hasValidLocation) {
     finalCaption = `${finalCaption}\nGPS: ${lat}, ${lon}`.slice(0, 1024);
   }
 
   try {
     await fs.writeFile(tempPath, bytes, { flag: "wx", mode: 0o600 });
     const result = await telegram.sendFile(normalizedChatId, { file: tempPath, caption: finalCaption });
+    let locationSent = false;
+
+    if (hasValidLocation) {
+      try {
+        await telegram.invoke(new Api.messages.SendMedia({
+          peer: await telegram.getInputEntity(normalizedChatId),
+          media: new Api.InputMediaGeoPoint({
+            geoPoint: new Api.InputGeoPoint({ lat, long: lon })
+          }),
+          message: "",
+          randomId: BigInt(crypto.randomInt(1, Number.MAX_SAFE_INTEGER))
+        }));
+        locationSent = true;
+      } catch (error) {
+        console.error(JSON.stringify({
+          event: "telegram_location_send_failed",
+          code: String(error?.code || "TELEGRAM_LOCATION_SEND_FAILED")
+        }));
+      }
+    }
+
     return {
       chatId: normalizedChatId,
       messageId: result?.id ? String(result.id) : null,
-      caption: finalCaption
+      caption: finalCaption,
+      locationSent
     };
   } finally {
     await fs.rm(tempPath, { force: true }).catch(() => {});
   }
 }
-
 const exported = {
   connectTelegram,
   telegramStatus,
