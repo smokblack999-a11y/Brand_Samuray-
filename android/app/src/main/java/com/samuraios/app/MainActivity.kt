@@ -246,7 +246,7 @@ class MainActivity : ComponentActivity() {
                     return@thread
                 }
                 val bytes = photo.readBytes(); val base64 = Base64.encodeToString(bytes, Base64.NO_WRAP); val meta = Vault.metadata(photo)
-                val caption = if (meta?.has("latitude") == true && !meta.isNull("latitude") && !meta.isNull("longitude")) "SamuraiOS | ${meta.optDouble("latitude")}, ${meta.optDouble("longitude")} | ±${meta.optDouble("accuracyMeters", 0.0)}m" else "SamuraiOS | ${photo.name}"
+                val caption = if (meta?.has("latitude") == true && !meta.isNull("latitude") && !meta.isNull("longitude")) "SamuraiOS | GPS fix" else "SamuraiOS | ${photo.name}"
                 val latitude = meta?.takeIf { !it.isNull("latitude") }?.optDouble("latitude")
                 val longitude = meta?.takeIf { !it.isNull("longitude") }?.optDouble("longitude")
                 val json = "{\"chatId\":\"${jsonEscape(chatId)}\",\"fileName\":\"${jsonEscape(photo.name)}\",\"caption\":\"${jsonEscape(caption)}\",\"base64\":\"$base64\",\"latitude\":" + (latitude?.toString() ?: "null") + ",\"longitude\":" + (longitude?.toString() ?: "null") + "}"
