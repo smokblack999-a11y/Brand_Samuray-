@@ -311,7 +311,11 @@ app.post("/api/telegram/send", requireApiKey, async (req, res) => {
     const result = await telegramUser().sendMessage(chatId, message);
     return res.json({ ok: true, result, requestId: req.requestId });
   } catch (error) {
-    return res.status(502).json(errorBody(error.code || "TELEGRAM_SEND_FAILED", "Telegram send failed", req.requestId));
+    const status = error.code === "TELEGRAM_NOT_CONFIGURED" ? 503 :
+      ["INVALID_CHAT_ID", "INVALID_MESSAGE"].includes(error.code) ? 400 : 502;
+    const message = status === 503 ? "Telegram user session is not configured" :
+      status === 400 ? error.message : "Telegram send failed";
+    return res.status(status).json(errorBody(error.code || "TELEGRAM_SEND_FAILED", message, req.requestId));
   }
 });
 
