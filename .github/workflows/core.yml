@@ -2,7 +2,7 @@ name: SamuraiOS Core CI
 
 on:
   push:
-    branches: [ "main", "master" ]
+    branches: [ "main", "master", "x10think-e2e-sandbox-integration" ]
     paths:
       - 'core/**'
       - 'docker-compose.yml'
