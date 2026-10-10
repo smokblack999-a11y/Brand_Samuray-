@@ -47,4 +47,4 @@ function monthlyCostKZT(tenantId){
 function summary(tenantId){return ledger.summary(tenant(tenantId));}
 function list(tenantId,type){return ledger.list(tenant(tenantId),type);}
 function integrity(tenantId){return ledger.integrity(tenant(tenantId));}
-module.exports={tenant,decide,recordExecution,recordExecutionCost,recordObservation,summary,list,integrity,historicalStats,monthlyCostKZT};
+module.exports={tenant,decide,recordExecution,recordExecutionCost,recordObservation,recordOutcome,summary,list,integrity,historicalStats,monthlyCostKZT};
