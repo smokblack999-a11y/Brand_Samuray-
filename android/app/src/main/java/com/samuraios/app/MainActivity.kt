@@ -40,8 +40,10 @@ import java.util.concurrent.Executors
 import kotlin.concurrent.thread
 
 class MainActivity : ComponentActivity() {
-    private val coreUrl = BuildConfig.CORE_BASE_URL.trimEnd('/')
-    private val coreApiKey = BuildConfig.CORE_API_KEY.trim()
+    private var coreUrl = BuildConfig.CORE_BASE_URL.trimEnd('/')
+    private var coreApiKey = ""
+    private lateinit var coreUrlInput: EditText
+    private lateinit var coreApiKeyInput: EditText
     private val permissionRequest = 100
     private lateinit var previewView: PreviewView
     private lateinit var statusText: TextView
@@ -65,6 +67,9 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        val savedConfig = CoreConfigStore.load(this)
+        coreUrl = savedConfig.baseUrl
+        coreApiKey = savedConfig.apiKey
         cameraExecutor = Executors.newSingleThreadExecutor()
         buildUi()
         if (hasCameraPermission()) startCamera() else ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.CAMERA, Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION), permissionRequest)
@@ -94,6 +99,32 @@ class MainActivity : ComponentActivity() {
         val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(24, 24, 24, 24); setBackgroundColor(Color.rgb(5, 8, 17)) }
         statusText = TextView(this).apply { text = "SamuraiOS: запуск..."; textSize = 20f; setTextColor(Color.rgb(0, 255, 136)); setPadding(0, 0, 0, 12) }
         root.addView(statusText)
+        root.addView(TextView(this).apply {
+            text = "ПОДКЛЮЧЕНИЕ CORE • HTTPS"
+            textSize = 16f
+            setTextColor(Color.WHITE)
+            setPadding(0, 12, 0, 4)
+        })
+        coreUrlInput = EditText(this).apply {
+            hint = "https://адрес-вашего-core"
+            setSingleLine(true)
+            setTextColor(Color.WHITE)
+            setHintTextColor(Color.GRAY)
+            setText(coreUrl.takeUnless { it.isBlank() || it.contains(".invalid") } ?: "")
+        }
+        root.addView(coreUrlInput, LinearLayout.LayoutParams(-1, -2))
+        coreApiKeyInput = EditText(this).apply {
+            hint = "API-ключ Core (пусто — сохранить текущий)"
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
+            setSingleLine(true)
+            setTextColor(Color.WHITE)
+            setHintTextColor(Color.GRAY)
+        }
+        root.addView(coreApiKeyInput, LinearLayout.LayoutParams(-1, -2))
+        root.addView(Button(this).apply {
+            text = "СОХРАНИТЬ CORE НАСТРОЙКИ"
+            setOnClickListener { saveCoreConfig() }
+        })
         previewView = PreviewView(this).apply { scaleType = PreviewView.ScaleType.FILL_CENTER }
         root.addView(previewView, LinearLayout.LayoutParams(-1, 520))
         root.addView(Button(this).apply { text = "СНЯТЬ ФОТО + GPS"; setOnClickListener { capturePhoto() } })
@@ -168,7 +199,27 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun checkCoreStatus() = apiGet("/health") { result -> mainHandler.post { if (result.startsWith("ERROR:")) statusText.text = "Core: OFFLINE" else statusText.text = "Camera/Gallery + Core ONLINE"; outputText.text = result } }
+    private fun saveCoreConfig() {
+        try {
+            val url = CoreConfigStore.normalizeHttpsBaseUrl(coreUrlInput.text.toString())
+            val enteredApiKey = coreApiKeyInput.text.toString()
+            CoreConfigStore.save(this, url, enteredApiKey.ifBlank { null })
+            val config = CoreConfigStore.load(this)
+            coreUrl = config.baseUrl
+            coreApiKey = config.apiKey
+            coreApiKeyInput.setText("")
+            outputText.text = "Настройки Core сохранены защищённо. Проверяем соединение..."
+            checkCoreStatus()
+        } catch (error: Exception) {
+            showToast(error.message ?: "Не удалось сохранить настройки Core")
+        }
+    }
+
+    private fun checkCoreStatus() = apiGet("/health") { result -> mainHandler.post {
+        if (result.startsWith("ERROR:")) statusText.text = "Core: OFFLINE"
+        else statusText.text = "Core: ONLINE"
+        outputText.text = result
+    } }
     private fun loadMe() = apiGet("/api/telegram/me") { result -> mainHandler.post { outputText.text = result } }
     private fun loadDialogs() = apiGet("/api/telegram/dialogs?limit=20") { result -> mainHandler.post { outputText.text = result } }
 
