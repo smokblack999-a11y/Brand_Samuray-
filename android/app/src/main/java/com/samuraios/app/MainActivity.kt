@@ -51,7 +51,6 @@ class MainActivity : ComponentActivity() {
     private lateinit var galleryContainer: LinearLayout
     private var imageCapture: ImageCapture? = null
     private var selectedPhoto: File? = null
-    private var pendingTimestamp: Long = 0L
     private var cameraExecutor: ExecutorService? = null
     private val mainHandler = Handler(Looper.getMainLooper())
     private val locationClient by lazy { LocationServices.getFusedLocationProviderClient(this) }
@@ -68,22 +67,27 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         cameraExecutor = Executors.newSingleThreadExecutor()
         buildUi()
-        if (hasPermissions()) startCamera() else ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.CAMERA, Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION), permissionRequest)
+        if (hasCameraPermission()) startCamera() else ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.CAMERA, Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION), permissionRequest)
         refreshGallery()
         checkCoreStatus()
     }
 
     override fun onDestroy() { cameraExecutor?.shutdown(); super.onDestroy() }
 
-    private fun hasPermissions(): Boolean =
-        ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED &&
-        (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
-         ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED)
+    private fun hasCameraPermission(): Boolean =
+        ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == permissionRequest && hasPermissions()) startCamera()
-        else showToast("Для камеры и GPS нужны разрешения")
+        if (requestCode != permissionRequest) return
+        if (hasCameraPermission()) {
+            startCamera()
+            val hasLocation = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
+                ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+            if (!hasLocation) showToast("Камера доступна; GPS можно включить отдельно")
+        } else {
+            showToast("Для работы камеры нужно разрешение на камеру")
+        }
     }
 
     private fun buildUi() {
@@ -129,10 +133,10 @@ class MainActivity : ComponentActivity() {
     private fun capturePhoto() {
         val capture = imageCapture ?: run { showToast("Камера ещё не готова"); return }
         val file = Vault.createPhotoFile(this)
-        pendingTimestamp = System.currentTimeMillis()
+        val timestamp = System.currentTimeMillis()
         capture.takePicture(ImageCapture.OutputFileOptions.Builder(file).build(), cameraExecutor!!, object : ImageCapture.OnImageSavedCallback {
             override fun onError(exception: ImageCaptureException) { file.delete(); mainHandler.post { showToast("Ошибка камеры: ${exception.message}") } }
-            override fun onImageSaved(outputFileResults: ImageCapture.OutputFileResults) { fetchLocationAndSaveMetadata(file, pendingTimestamp) }
+            override fun onImageSaved(outputFileResults: ImageCapture.OutputFileResults) { fetchLocationAndSaveMetadata(file, timestamp) }
         })
     }
 
@@ -186,6 +190,10 @@ class MainActivity : ComponentActivity() {
         outputText.text = "Подготовка фото..."
         thread {
             try {
+                if (photo.length() > 10L * 1024L * 1024L) {
+                    mainHandler.post { outputText.text = "ERROR: Фото превышает лимит отправки 10 МБ" }
+                    return@thread
+                }
                 val bytes = photo.readBytes(); val base64 = Base64.encodeToString(bytes, Base64.NO_WRAP); val meta = Vault.metadata(photo)
                 val caption = if (meta != null) "SamuraiOS | ${meta.optDouble("latitude", Double.NaN)}, ${meta.optDouble("longitude", Double.NaN)} | ±${meta.optDouble("accuracyMeters", 0.0)}m" else "SamuraiOS | ${photo.name}"
                 val latitude = meta?.takeIf { !it.isNull("latitude") }?.optDouble("latitude")
