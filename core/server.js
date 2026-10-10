@@ -34,7 +34,15 @@ if (process.env.NODE_ENV === "production") {
 app.disable("x-powered-by");
 app.set("trust proxy", process.env.TRUST_PROXY === "true" ? 1 : false);
 app.use(cors(CORS_ORIGIN ? { origin: CORS_ORIGIN } : { origin: false }));
-app.use(express.json({ limit: "16mb", verify: (req, _res, buf) => { req.rawBody = Buffer.from(buf); } }));
+app.use(express.json({
+  limit: "16mb",
+  verify: (req, _res, buf) => {
+    // Preserve exact bytes only for the HMAC-verified GitHub webhook; photo uploads do not need a duplicate body buffer.
+    if (req.originalUrl.split("?")[0] === "/api/agent-control/github/webhook") {
+      req.rawBody = Buffer.from(buf);
+    }
+  }
+}));
 
 function errorBody(code, message, requestId) {
   return { ok: false, error: { code, message, requestId } };
