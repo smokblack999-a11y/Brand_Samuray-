@@ -333,7 +333,7 @@ app.post("/api/telegram/send-photo", requireApiKey, async (req, res) => {
       latitude,
       longitude,
     });
-    return res.json({ ok: true, result, locationSent: latitude != null && longitude != null, requestId: req.requestId });
+    return res.json({ ok: true, result, coordinatesIncludedInCaption: result.caption.includes("GPS: "), requestId: req.requestId });
   } catch (error) {
     const status = error.code === "TELEGRAM_NOT_CONFIGURED" ? 503 :
       ["INVALID_CHAT_ID", "INVALID_PHOTO", "INVALID_PHOTO_SIZE"].includes(error.code) ? 400 : 502;
