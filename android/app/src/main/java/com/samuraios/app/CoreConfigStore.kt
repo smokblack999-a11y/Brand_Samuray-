@@ -62,7 +62,12 @@ object CoreConfigStore {
         require(uri.userInfo == null && uri.query == null && uri.fragment == null) {
             "URL Core не должен содержать логин, пароль, query или fragment"
         }
-        require(!uri.host.lowercase().endsWith(".invalid") && uri.host.lowercase() != "example.invalid") {
+        val host = uri.host.lowercase()
+        require(
+            !host.endsWith(".invalid") &&
+            !host.endsWith(".example") &&
+            host !in setOf("example.com", "example.net", "example.org", "localhost")
+        ) {
             "Замените демонстрационный домен на реальный адрес Core"
         }
         return candidate
