@@ -331,8 +331,10 @@ app.post("/api/telegram/send-photo", requireApiKey, async (req, res) => {
     });
     return res.json({ ok: true, result, locationSent: latitude != null && longitude != null, requestId: req.requestId });
   } catch (error) {
-    const status = ["TELEGRAM_NOT_CONFIGURED", "INVALID_CHAT_ID", "INVALID_PHOTO", "INVALID_PHOTO_SIZE"].includes(error.code) ? 400 : 502;
-    return res.status(status).json(errorBody(error.code || "TELEGRAM_PHOTO_FAILED", status === 400 ? (error.message || "Invalid Telegram photo request") : "Telegram photo send failed", req.requestId));
+    const status = error.code === "TELEGRAM_NOT_CONFIGURED" ? 503 :
+      ["INVALID_CHAT_ID", "INVALID_PHOTO", "INVALID_PHOTO_SIZE"].includes(error.code) ? 400 : 502;
+    return res.status(status).json(errorBody(error.code || "TELEGRAM_PHOTO_FAILED", status === 503 ? "Telegram user session is not configured" :
+      status === 400 ? (error.message || "Invalid Telegram photo request") : "Telegram photo send failed", req.requestId));
   }
 });
 
