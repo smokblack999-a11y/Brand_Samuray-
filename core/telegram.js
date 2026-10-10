@@ -176,7 +176,7 @@ async function sendPhotoBase64({ chatId, fileName, caption, base64, latitude, lo
             geoPoint: new Api.InputGeoPoint({ lat, long: lon })
           }),
           message: "",
-          randomId: BigInt(crypto.randomInt(1, Number.MAX_SAFE_INTEGER))
+          randomId: BigInt(crypto.randomInt(1, 2 ** 48))
         }));
         locationSent = true;
       } catch (error) {
