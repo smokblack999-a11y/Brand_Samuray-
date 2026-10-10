@@ -223,7 +223,7 @@ test('X27 revenue loop persists decision, attributes outcome and deduplicates ou
     actualCostKZT: 5000
   };
   const first = await api('/api/revenue/outcome', { method: 'POST', headers, body: JSON.stringify(payload) });
-  assert.equal(first.status, 201);
+  assert.equal(first.status, 201, `outcome response: ${await first.clone().text()}`);
   const firstBody = await first.json();
   assert.equal(firstBody.attribution.attributableGrossProfitKZT, 150000);
   assert.equal(firstBody.learning.actualCostKZT, 5000);
