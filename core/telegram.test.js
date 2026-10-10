@@ -5,11 +5,11 @@ const assert = require("node:assert/strict");
 
 const TELEGRAM_ENV = ["TELEGRAM_API_ID", "TELEGRAM_API_HASH", "TELEGRAM_SESSION"];
 
-function withMissingTelegramConfig(run) {
-  const saved = new Map(TELEGRAM_ENV.map((key) => [key, process.env[key]]);
+async function withMissingTelegramConfig(run) {
+  const saved = new Map(TELEGRAM_ENV.map((key) => [key, process.env[key]]));
   for (const key of TELEGRAM_ENV) process.env[key] = "";
   try {
-    return run();
+    return await run();
   } finally {
     for (const [key, value] of saved) {
       if (value === undefined) delete process.env[key];
