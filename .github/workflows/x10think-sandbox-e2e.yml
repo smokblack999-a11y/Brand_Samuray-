@@ -15,6 +15,7 @@ on:
       - "core/agent-control.test.js"
       - "core/github-webhook.test.js"
       - ".github/workflows/x10think-sandbox-e2e.yml"
+      - ".github/workflows/core.yml"
   pull_request:
 
 permissions:
