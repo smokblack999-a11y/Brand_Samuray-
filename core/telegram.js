@@ -12,7 +12,11 @@ const apiId = Number(process.env.TELEGRAM_API_ID);
 const apiHash = process.env.TELEGRAM_API_HASH;
 const session = process.env.TELEGRAM_SESSION;
 
-if (!apiId || !apiHash || !session) throw new Error("Telegram ENV не настроен");
+if (!apiId || !apiHash || !session) {
+  const error = new Error("Telegram user session is not configured");
+  error.code = "TELEGRAM_NOT_CONFIGURED";
+  throw error;
+}
 
 const client = new TelegramClient(new StringSession(session), apiId, apiHash, { connectionRetries: 5 });
 
