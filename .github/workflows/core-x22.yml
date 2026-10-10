@@ -2,7 +2,7 @@ name: SamuraiOS Core X22 CI
 
 on:
   push:
-    branches: [ "main", "master", "x22-core-ci" ]
+    branches: [ "main", "master", "x22-core-ci", "x10think-e2e-sandbox-integration" ]
   pull_request:
   workflow_dispatch:
 

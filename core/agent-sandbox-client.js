@@ -26,9 +26,19 @@ async function reproduceRepair(input = {}) {
     throw error;
   }
 
+  const apiToken = String(process.env.SANDBOX_API_TOKEN || "").trim();
+  if (!apiToken) {
+    const error = new Error("X10THINK_SANDBOX_API_TOKEN_MISSING");
+    error.code = "X10THINK_SANDBOX_API_TOKEN_MISSING";
+    throw error;
+  }
+
   const response = await fetch(sandboxUrl() + "/v1/run", {
     method: "POST",
-    headers: {"Content-Type": "application/json"},
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": "Bearer " + apiToken
+    },
     body: JSON.stringify({
       run_id: String(runId),
       incident_id: String(incidentId),
