@@ -159,7 +159,7 @@ jobs:
           if test -f /tmp/x10-apparmor-userns.original; then sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns="$(cat /tmp/x10-apparmor-userns.original)" || true; fi
 
   openai-smoke:
-    if: github.event_name != 'pull_request'
+    if: github.event_name != 'pull_request' && vars.RUN_OPENAI_SMOKE == 'true'
     needs: test
     runs-on: ubuntu-latest
     timeout-minutes: 5
