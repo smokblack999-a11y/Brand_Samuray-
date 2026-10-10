@@ -1,9 +1,11 @@
 import asyncio
 import hashlib
+import hmac
 import os
 import tempfile
 from pathlib import Path
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 import uvicorn
 
@@ -12,6 +14,15 @@ MAX_TIMEOUT = int(os.getenv("SANDBOX_TIMEOUT_SECONDS", "300"))
 COMMAND_TIMEOUT = max(10, min(MAX_TIMEOUT, 900))
 ACTIVE = {}
 app = FastAPI(title="SamuraiOS X10 Sandbox", version="1.2.0")
+
+@app.middleware("http")
+async def require_api_token(request: Request, call_next):
+    if request.url.path.startswith("/v1/"):
+        expected = os.getenv("SANDBOX_API_TOKEN", "")
+        provided = request.headers.get("authorization", "")
+        if not expected or not hmac.compare_digest(provided, "Bearer " + expected):
+            return JSONResponse(status_code=401, content={"detail": "unauthorized"})
+    return await call_next(request)
 
 class RunIn(BaseModel):
     run_id: str
