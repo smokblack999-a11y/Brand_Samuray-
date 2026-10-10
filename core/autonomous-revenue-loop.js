@@ -138,13 +138,15 @@ async function recordOutcome(input = {}) {
       })
     : { enabled: x33.enabled(), skipped: true, reason: "NO_RESERVATION_ID" };
 
-  return revenueRuntime.recordOutcome(tenantId, {
+  const revenueKZT = positiveNumber(
+    input.revenueKZT,
+    positiveNumber(input.amountKZT, positiveNumber(input.attributableRevenueKZT, 0))
+  );
+  const result = revenueRuntime.recordOutcome(tenantId, {
     eventId,
-    actionId: text(input.decisionId, 256),
+    actionId: text(input.decisionId || input.actionId, 256),
     status,
-    amountKZT: positiveNumber(input.amountKZT, 0),
-    attributableRevenueKZT: positiveNumber(input.attributableRevenueKZT, 0),
-    attributableGrossProfitKZT: positiveNumber(input.attributableGrossProfitKZT, 0),
+    revenueKZT,
     grossMarginRate: positiveNumber(input.grossMarginRate, 0),
     actualCostKZT: positiveNumber(input.actualCostKZT, 0),
     baselineConversionProbability: positiveNumber(input.baselineConversionProbability, 0),
@@ -155,7 +157,8 @@ async function recordOutcome(input = {}) {
     costId: text(input.costId, 256),
     source: text(input.source, 64) || "autonomous-revenue-loop",
     correlationId: text(input.correlationId, 256)
-  }).then(result => ({ ...result, economicSettlement }));
+  });
+  return { ...result, economicSettlement };
 }
 
 function snapshot(tenantId) {
