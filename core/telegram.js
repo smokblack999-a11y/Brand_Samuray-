@@ -174,8 +174,7 @@ async function sendPhotoBase64({ chatId, fileName, caption, base64, latitude, lo
   }
 }
 
-module.exports = {
-  client: null,
+const exported = {
   connectTelegram,
   telegramStatus,
   getMe,
@@ -185,3 +184,5 @@ module.exports = {
   sendPhoto,
   sendPhotoBase64
 };
+Object.defineProperty(exported, "client", { enumerable: true, get: () => client });
+module.exports = exported;
