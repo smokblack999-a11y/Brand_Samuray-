@@ -15,6 +15,7 @@ function createSessionStore({ filePath, key }) {
   if (!filePath) throw new Error("session file path is required");
   const resolved = path.resolve(filePath);
   const encryptionKey = Buffer.isBuffer(key) ? key : keyFromEnv(key);
+  if (encryptionKey.length !== 32) throw new Error("session encryption key must be exactly 32 bytes");
 
   function save(session) {
     if (typeof session !== "string" || session.length < 10) throw new Error("invalid Telegram session");
