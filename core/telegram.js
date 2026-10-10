@@ -1,6 +1,9 @@
 "use strict";
 
 require("dotenv").config();
+const fs = require("node:fs/promises");
+const os = require("node:os");
+const path = require("node:path");
 
 const { TelegramClient } = require("telegram");
 const { StringSession } = require("telegram/sessions");
@@ -60,6 +63,39 @@ async function sendPhoto(chatId, filePath, caption = "SamuraiOS") {
   if (!chatId) throw new Error("chatId обязателен");
   const result = await client.sendFile(String(chatId), { file: filePath, caption: String(caption) });
   return { chatId: String(chatId), messageId: result?.id ? String(result.id) : null, caption: String(caption) };
+}
+
+async function sendPhotoBase64({ chatId, fileName, caption, base64, latitude, longitude }) {
+  await ensureConnected();
+  if (!String(chatId || "").trim()) {
+    const error = new Error("chatId обязателен");
+    error.code = "INVALID_CHAT_ID";
+    throw error;
+  }
+  if (typeof base64 !== "string" || !base64.trim()) {
+    const error = new Error("base64 фото обязательно");
+    error.code = "INVALID_PHOTO";
+    throw error;
+  }
+  const bytes = Buffer.from(base64, "base64");
+  if (!bytes.length || bytes.length > 10 * 1024 * 1024) {
+    const error = new Error("Фото пустое или превышает лимит 10 МБ");
+    error.code = "INVALID_PHOTO_SIZE";
+    throw error;
+  }
+  const safeName = path.basename(String(fileName || "photo.jpg")).replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 100) || "photo.jpg";
+  const tempPath = path.join(os.tmpdir(), `samurai-${Date.now()}-${safeName}`);
+  let finalCaption = String(caption || "SamuraiOS");
+  if (Number.isFinite(Number(latitude)) && Number.isFinite(Number(longitude))) {
+    finalCaption = `${finalCaption}\nGPS: ${Number(latitude)}, ${Number(longitude)}`;
+  }
+  try {
+    await fs.writeFile(tempPath, bytes, { flag: "wx", mode: 0o600 });
+    const result = await client.sendFile(String(chatId), { file: tempPath, caption: finalCaption });
+    return { chatId: String(chatId), messageId: result?.id ? String(result.id) : null, caption: finalCaption };
+  } finally {
+    await fs.rm(tempPath, { force: true }).catch(() => {});
+  }
 }
 
 module.exports = { client, connectTelegram, telegramStatus, getMe, getDialogs, getMessages, sendMessage, sendPhoto };
