@@ -101,6 +101,12 @@ jobs:
             echo "kernel.apparmor_restrict_unprivileged_userns unavailable"
           fi
 
+      - name: Create ephemeral sandbox API token
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf 'SANDBOX_API_TOKEN=%s\n' "$(openssl rand -hex 32)" >> "$GITHUB_ENV"
+
       - name: Start sandbox
         env:
           SANDBOX_WORKSPACE_ROOT: /tmp/x10-workspaces
@@ -116,6 +122,13 @@ jobs:
           done
           cat /tmp/x10-sandbox.log
           exit 1
+
+      - name: Verify sandbox rejects unauthenticated control requests
+        run: |
+          set -euo pipefail
+          code="$(curl -sS -o /tmp/x10-unauthenticated.json -w '%{http_code}' -X POST http://127.0.0.1:8891/v1/cancel-all)"
+          test "$code" = "401"
+          rm -f /tmp/x10-unauthenticated.json
 
       - name: Prepare exact-head workspace
         env:
