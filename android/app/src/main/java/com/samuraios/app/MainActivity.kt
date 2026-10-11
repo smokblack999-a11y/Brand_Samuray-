@@ -1,4 +1,4 @@
-package com.samuraios.app
+рpackage com.samuraios.app
 
 import android.Manifest
 import android.content.pm.PackageManager
