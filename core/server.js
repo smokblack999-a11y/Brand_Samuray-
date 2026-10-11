@@ -13,6 +13,7 @@ const { createRateLimiter } = require("./rate-limit");
 const dualAI = require("./dual-ai/engine");
 const agentControl = require("./agent-control");
 const agentControlGithub = require("./agent-control-github");
+const { SamuraiCore } = require("./samurai-core");
 
 const app = express();
 const PORT = Number(process.env.PORT || 8787);
@@ -74,9 +75,21 @@ app.use((req, res, next) => {
 
 const leadRateLimit = createRateLimiter({ windowMs: LEAD_RATE_LIMIT_WINDOW_MS, max: LEAD_RATE_LIMIT_MAX });
 const dualRateLimit = createRateLimiter({ windowMs: Math.max(1000, Number(process.env.DUAL_AI_RATE_LIMIT_WINDOW_MS || 60000)), max: Math.max(1, Number(process.env.DUAL_AI_RATE_LIMIT_MAX || 10)) });
+
+const samuraiCore = new SamuraiCore({ version: "0.1.0" });
+samuraiCore.modules.register({
+  name: "telegram-client",
+  health: () => ({ ok: Boolean(process.env.TELEGRAM_API_ID && process.env.TELEGRAM_API_HASH && process.env.TELEGRAM_SESSION) })
+});
+samuraiCore.modules.register({
+  name: "android-media",
+  health: () => ({ ok: true, capabilities: ["camera", "gps", "gallery"] })
+});
+void samuraiCore.start().catch((error) => console.error(JSON.stringify({ event: "samurai_core_start_failed", error: error.message })));
 app.use("/dual-ai", express.static(path.join(__dirname, "dual-ai", "public"), { index: "index.html" }));
 
 app.get("/health", (_req, res) => res.json({ ok: true, service: "SamuraiOS Core", version: "2.7.0" }));
+app.get("/api/samurai-core/health", requireApiKey, (_req, res) => res.json({ ok: true, core: samuraiCore.health() }));
 app.get("/ready", (req, res) => {
   try {
     const current = stats();

@@ -65,6 +65,9 @@ jobs:
           node --check dual-ai/store.js
           node --check dual-ai/engine.js
           node --check agent-control.js
+          node --check samurai-core/event-bus.js
+          node --check samurai-core/module-registry.js
+          node --check samurai-core/index.js
 
       - name: Unit tests
         run: npm test
