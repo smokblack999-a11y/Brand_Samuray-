@@ -1,0 +1,27 @@
+name: IESC
+
+on:
+  push:
+    paths:
+      - "iesc/**"
+      - ".github/workflows/iesc.yml"
+  pull_request:
+    paths:
+      - "iesc/**"
+      - ".github/workflows/iesc.yml"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: iesc
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+          cache-dependency-path: iesc/go.sum
+      - run: go test ./...
+      - run: go vet ./...
+      - run: go test ./... -race
