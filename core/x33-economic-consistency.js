@@ -18,6 +18,8 @@ function ledgerHash(packet,previousHash){return crypto.createHash("sha256").upda
 function allocateSettlement(input){
   let limit=asMicro(input.limit,"limit"),spent=asMicro(input.spent,"spent"),committed=asMicro(input.committed,"committed"),reserved=asMicro(input.reserved,"reserved"),actual=asMicro(input.actual,"actual");
   if([limit,spent,committed,reserved,actual].some(n=>n<0n))throw codeError(Err.INVARIANT_VIOLATION,"negative settlement input");
+  // Check signed BIGINT arithmetic before reservation-release invariants so overflow is never masked by a secondary underflow.
+  if(actual>MAX_INT64-spent)throw codeError(Err.INVARIANT_VIOLATION,"settlement BIGINT overflow");
   const committedAfterRelease=committed-(input.wasExpired?0n:reserved);
   if(committedAfterRelease<0n)throw codeError(Err.INVARIANT_VIOLATION,"committed underflow");
   const availableAuthorized=limit-spent-committedAfterRelease;
