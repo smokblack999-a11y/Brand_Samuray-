@@ -67,6 +67,14 @@ Telegram Bot API поддерживает `business_connection` и `business_mes
 
 Главное правило: один исходный SHA должен однозначно связываться с проверенным артефактом. Повторная сборка может использовать content-addressed cache.
 
+## Kill Critic Policy Enforcement
+
+Kill Critic now exposes a deterministic policy state machine in `core/kill-critic/policy-engine.js`:
+
+`NORMAL → SUSPICIOUS → HIGH_RISK → QUARANTINED → VERIFIED/BLOCKED`
+
+The gate classifies changed paths, requires reproduction + causality evidence, forces sandbox proof for security-sensitive paths, requires tests and post-repair CI evidence, and emits a deterministic audit record containing the diff SHA-256 and decision hash. This is an enforcement layer around the existing evidence/sandbox/PR flow; it does not enable autonomous merge.
+
 ## Безопасность
 
 Ключи и секреты не коммитить. Использовать GitHub Secrets или переменные окружения.
