@@ -196,3 +196,12 @@ class LauncherActivity : Activity() {
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
 }
+
+
+private class SimpleTextWatcher(private val onChanged: (String) -> Unit) : android.text.TextWatcher {
+    override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+    override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+        onChanged(s?.toString().orEmpty())
+    }
+    override fun afterTextChanged(s: android.text.Editable?) = Unit
+}
