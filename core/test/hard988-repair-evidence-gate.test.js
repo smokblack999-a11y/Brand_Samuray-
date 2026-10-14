@@ -131,7 +131,10 @@ test("evidence signature cannot be reused after artifact digest mutation", () =>
 });
 
 test("malformed commit identities fail closed", () => {
-  const result = hard988.evaluateHard988(validInput({ beforeSha: "abc", afterSha: "def" }), { secret: SECRET });
+  const input = validInput();
+  input.beforeSha = "abc";
+  input.afterSha = "def";
+  const result = hard988.evaluateHard988(input, { secret: SECRET });
   assert.equal(result.decision, "BLOCK");
   assert.ok(result.reasons.includes("before_after_commit_sha_invalid"));
 });
