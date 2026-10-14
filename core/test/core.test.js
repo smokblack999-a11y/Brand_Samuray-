@@ -210,6 +210,7 @@ test('X27 revenue loop persists decision, attributes outcome and deduplicates ou
   assert.equal(decisionResponse.status, 201);
   const decisionBody = await decisionResponse.json();
   assert.equal(decisionBody.ok, true);
+  assert.equal(decisionBody.inserted, true);
   assert.ok(decisionBody.decision.decisionId);
 
   const payload = {
