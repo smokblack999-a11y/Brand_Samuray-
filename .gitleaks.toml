@@ -1,0 +1,15 @@
+title = "SamuraiOS Gitleaks configuration"
+
+[[allowlists]]
+description = "Exact fingerprints for verified synthetic credentials used only as test fixtures in historical commits. Do not add broad path or rule exclusions."
+fingerprints = [
+  "d25a371900151a15d2479d2a89bb4c99b72eeb7a:core/test/x10thinc-diff-critic.test.js:generic-api-key:8",
+  "d1c72660f53783aee2b2defffb3cc890a111d6bc:core/test/x10thinc-solver.test.js:generic-api-key:29",
+  "e57fe28013e910e5459282036ff4aba05c2ebc47:core/x10thinc-diff-critic.test.js:generic-api-key:9",
+  "2e57017f03975ebd5792abac0f37d7e918c2e617:core/test/recovery-proposer.test.js:generic-api-key:29",
+  "2e57017f03975ebd5792abac0f37d7e918c2e617:core/test/recovery-proposer.test.js:private-key:31",
+  "bbcfe2dcfa486d01950986bcbd34ef5e062b7052:core/test/recovery-proposer.test.js:private-key:32",
+  "bbcfe2dcfa486d01950986bcbd34ef5e062b7052:core/test/recovery-proposer.test.js:generic-api-key:30",
+  "e1c4574752da74d99a8c4b5dfa5b52846798327b:core/nexus-kill-critic.test.js:generic-api-key:41",
+  "1e8d67ed2d408db6b261bfeed5975373687c0e42:core/nexus-patch-proposal.test.js:generic-api-key:46"
+]

@@ -51,7 +51,6 @@ class MainActivity : ComponentActivity() {
     private lateinit var galleryContainer: LinearLayout
     private var imageCapture: ImageCapture? = null
     private var selectedPhoto: File? = null
-    private var pendingTimestamp: Long = 0L
     private var cameraExecutor: ExecutorService? = null
     private val mainHandler = Handler(Looper.getMainLooper())
     private val locationClient by lazy { LocationServices.getFusedLocationProviderClient(this) }
@@ -129,10 +128,11 @@ class MainActivity : ComponentActivity() {
     private fun capturePhoto() {
         val capture = imageCapture ?: run { showToast("Камера ещё не готова"); return }
         val file = Vault.createPhotoFile(this)
-        pendingTimestamp = System.currentTimeMillis()
-        capture.takePicture(ImageCapture.OutputFileOptions.Builder(file).build(), cameraExecutor!!, object : ImageCapture.OnImageSavedCallback {
+        val capturedAt = System.currentTimeMillis()
+        val executor = cameraExecutor ?: run { file.delete(); showToast("Камера закрывается"); return }
+        capture.takePicture(ImageCapture.OutputFileOptions.Builder(file).build(), executor, object : ImageCapture.OnImageSavedCallback {
             override fun onError(exception: ImageCaptureException) { file.delete(); mainHandler.post { showToast("Ошибка камеры: ${exception.message}") } }
-            override fun onImageSaved(outputFileResults: ImageCapture.OutputFileResults) { fetchLocationAndSaveMetadata(file, pendingTimestamp) }
+            override fun onImageSaved(outputFileResults: ImageCapture.OutputFileResults) { fetchLocationAndSaveMetadata(file, capturedAt) }
         })
     }
 
@@ -164,7 +164,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun checkCoreStatus() = apiGet("/health") { result -> mainHandler.post { if (result.startsWith("ERROR:")) statusText.text = "Core: OFFLINE" else statusText.text = "Camera/Gallery + Core ONLINE"; outputText.text = result } }
+    private fun checkCoreStatus() = apiGet("/api/stats") { result -> mainHandler.post { if (result.startsWith("ERROR:")) statusText.text = "Core/API: OFFLINE OR UNAUTHORIZED" else statusText.text = "Camera/Gallery + Core API ONLINE"; outputText.text = result } }
     private fun loadMe() = apiGet("/api/telegram/me") { result -> mainHandler.post { outputText.text = result } }
     private fun loadDialogs() = apiGet("/api/telegram/dialogs?limit=20") { result -> mainHandler.post { outputText.text = result } }
 

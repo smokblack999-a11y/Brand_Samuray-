@@ -17,16 +17,22 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: Secret pattern scan
+      - name: Set up Go for Gitleaks
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+
+      - name: Install Gitleaks
+        run: go install github.com/zricethezav/gitleaks/v8@v8.24.2
+
+      - name: Scan full Git history for secrets
         shell: bash
         run: |
           set -euo pipefail
-          if git grep -nE 'sk-(proj|svcacct)-[A-Za-z0-9_-]{20,}'; then
-            echo "Potential OpenAI API key found in tracked files"
-            exit 1
-          fi
-          echo "Secret scan: PASS"
+          "$(go env GOPATH)/bin/gitleaks" git --redact --verbose .
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -48,12 +54,41 @@ jobs:
         working-directory: android
         run: ./gradlew clean assembleDebug --stacktrace
 
-      - name: Verify APK
+      - name: Verify release build is blocked until secure auth exists
         working-directory: android
+        shell: bash
         run: |
           set -euo pipefail
-          test -f app/build/outputs/apk/debug/app-debug.apk
-          ls -lh app/build/outputs/apk/debug/app-debug.apk
+          set +e
+          OUTPUT="$(./gradlew assembleRelease --stacktrace 2>&1)"
+          STATUS=$?
+          set -e
+          if [ "$STATUS" -eq 0 ]; then
+            echo "ERROR: assembleRelease unexpectedly succeeded."
+            exit 1
+          fi
+          if ! grep -F "Release build blocked: implement and verify per-user/device authentication first." <<<"$OUTPUT" >/dev/null; then
+            printf '%s\\n' "$OUTPUT"
+            echo "ERROR: release build failed for an unexpected reason."
+            exit 1
+          fi
+          echo "PASS: release build is intentionally blocked until secure client authentication is implemented."
+
+      - name: Verify APK
+        working-directory: android
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="app/build/outputs/apk/debug/app-debug.apk"
+          test -s "$APK"
+          BUILD_TOOLS="$ANDROID_HOME/build-tools/35.0.0"
+          test -x "$BUILD_TOOLS/zipalign"
+          test -x "$BUILD_TOOLS/apksigner"
+          test -x "$BUILD_TOOLS/aapt"
+          "$BUILD_TOOLS/zipalign" -c -v 4 "$APK"
+          "$BUILD_TOOLS/apksigner" verify --verbose --print-certs "$APK"
+          "$BUILD_TOOLS/aapt" dump badging "$APK" | grep -F "package: name='com.samuraios.app'"
+          ls -lh "$APK"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4

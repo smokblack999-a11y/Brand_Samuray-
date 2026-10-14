@@ -30,6 +30,23 @@ android {
         }
         release {
             minifyEnabled false
+            // Never ship the shared Core API key in a distributable APK.
+            buildConfigField 'String', 'CORE_API_KEY', '""'
+        }
+    }
+
+    // Release distribution is intentionally blocked until the client uses
+    // per-user/device authentication with revocable, short-lived credentials.
+    // This guard does not affect assembleDebug used by CI and local development.
+    gradle.taskGraph.whenReady { graph ->
+        def requestedRelease = graph.allTasks.any { task ->
+            task.project == project && task.name.toLowerCase().contains('release')
+        }
+        if (requestedRelease) {
+            throw new GradleException(
+                'Release build blocked: implement and verify per-user/device authentication first. ' +
+                'Do not embed CORE_API_KEY in an APK.'
+            )
         }
     }
 

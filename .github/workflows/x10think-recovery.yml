@@ -53,5 +53,9 @@ jobs:
             -H "Content-Type: application/json" \
             -H "X-API-Key: ${RECOVERY_API_KEY}" \
             --data "${PAYLOAD}")"
-          cat /tmp/recovery.json
-          test "${code}" -ge 200 -a "${code}" -lt 300
+          rm -f /tmp/recovery.json
+          if [[ "$code" -lt 200 || "$code" -ge 300 ]]; then
+            echo "Recovery request failed (HTTP ${code})"
+            exit 1
+          fi
+          echo "Recovery request accepted (HTTP ${code})"
