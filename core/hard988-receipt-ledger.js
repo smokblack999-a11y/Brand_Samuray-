@@ -71,7 +71,8 @@ async function appendReceipt(filePath, receipt) {
   const prior = queues.get(target) || Promise.resolve();
   let release;
   const current = new Promise(resolve => { release = resolve; });
-  queues.set(target, prior.then(() => current));
+  const queued = prior.then(() => current);
+  queues.set(target, queued);
   await prior;
 
   try {
@@ -90,7 +91,7 @@ async function appendReceipt(filePath, receipt) {
     return entry;
   } finally {
     release();
-    if (queues.get(target) === current) queues.delete(target);
+    if (queues.get(target) === queued) queues.delete(target);
   }
 }
 
