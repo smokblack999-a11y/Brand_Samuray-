@@ -210,6 +210,23 @@ func clamp(v, lo, hi float64) float64 {
 }
 
 func validatePolicy(p Policy) error {
+	// JSON cannot represent NaN or infinity, but internal callers, tests, and
+	// decoded custom configuration can still construct these values in Go.
+	// Reject non-finite thresholds so comparisons cannot silently fail open.
+	floatFields := []float64{
+		p.MinProbability,
+		p.MinConfidence,
+		p.MaxRiskScore,
+		p.MaxKellyFraction,
+		p.MinKellyFraction,
+		p.MinRiskReward,
+	}
+	for _, value := range floatFields {
+		if math.IsNaN(value) || math.IsInf(value, 0) {
+			return ErrInvalidPolicy
+		}
+	}
+
 	if p.Version <= 0 ||
 		p.MaxLossPerAction <= 0 ||
 		p.DailyLossBudget <= 0 ||
