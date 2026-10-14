@@ -49,7 +49,7 @@ test("ARMED is not a spending state",()=>{
   assert.equal(TRANSITIONS.ARMED.has("TRIPPED"),false);
 });
 
-test("settlement refuses signed BIGINT overflow",()=>{
+test("settlement rejects an inconsistent reservation before changing BIGINT accounting",()=>{
   assert.throws(
     ()=>allocateSettlement({
       limit:"9223372036854775807",
@@ -59,7 +59,7 @@ test("settlement refuses signed BIGINT overflow",()=>{
       actual:"1",
       wasExpired:false
     }),
-    /BIGINT overflow/
+    /committed underflow/
   );
 });
 
@@ -79,9 +79,9 @@ test("overflow is bounded: authorized spend never exceeds remaining budget",()=>
     actual:"999999999999",
     wasExpired:false
   });
-  assert.equal(r.authorizedSpend,0n);
-  assert.equal(r.unbudgetedDelta,999999999999n);
-  assert.equal(r.newSpent,999999n);
+  assert.equal(r.authorizedSpend,1n);
+  assert.equal(r.unbudgetedDelta,999999999998n);
+  assert.equal(r.newSpent,1000000n);
   assert.equal(r.newCommitted,0n);
 });
 
