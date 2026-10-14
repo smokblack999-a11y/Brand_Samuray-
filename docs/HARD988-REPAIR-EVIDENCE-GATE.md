@@ -14,9 +14,9 @@ Each evidence record binds:
 - trusted runner identity;
 - start and finish timestamps;
 - SHA-256 digest of the produced log/artifact;
-- HMAC-SHA256 signature over the canonical evidence fields.
+- HMAC-SHA256 signature over the canonical evidence fields and a candidate binding containing the resource, before/after commit SHAs, normalized changed-file digest, and exact diff digest.
 
-The evaluator checks the signature, required check names, pass status, zero exit codes, timestamp ordering, distinct before/after commits, resource identity, and existing NEXUS policy decision. Any missing or invalid requirement returns `BLOCK`.
+The evaluator checks the signature, candidate-binding equality for every check, required check names, pass status, zero exit codes, timestamp ordering, distinct before/after commits, resource identity, and existing NEXUS policy decision. Evidence from a different patch, commit pair, file set, or resource is rejected. Any missing or invalid requirement returns `BLOCK`.
 
 ## Trust boundary
 
@@ -31,7 +31,7 @@ Only the trusted sandbox/CI adapter may sign evidence, after it has actually exe
 - `mergeAllowed` is always `false`. HARD988 never approves a merge or deployment.
 - `manualReviewRequired` is always `true`.
 
-The receipt hash is a deterministic integrity digest over the returned decision body. It is not a digital signature and does not replace a durable append-only ledger.
+The receipt hash is a deterministic integrity digest over the returned decision body. It is not a digital signature and does not replace a durable append-only ledger. Candidate binding prevents accidental/cross-candidate evidence reuse; it does not make a compromised signing runner trustworthy.
 
 ## Usage
 
@@ -60,8 +60,8 @@ node --test test/hard988-repair-evidence-gate.test.js test/nexus-resource-policy
 
 1. Connect the trusted sandbox adapter so it hashes actual log artifacts and signs results only after process completion.
 2. Keep the HMAC secret outside candidate execution and outside any pull-request-controlled workflow context.
-3. Persist receipts to the existing NEXUS ledger with access controls and append-only semantics.
-4. Add an integration test that executes a real disposable fixture repository.
+3. Add durable receipt persistence behind the deployment's database/ledger adapter; a local file alone is not production durability.
+4. Add a trusted runner integration test that executes a disposable fixture repository without exposing the signing secret to candidate code.
 5. Validate signature rotation and secret revocation before multi-tenant production use.
 
 Until these integrations and tests run in the deployment environment, HARD988 is a tested-by-design candidate implementation, not a claim of production readiness.
