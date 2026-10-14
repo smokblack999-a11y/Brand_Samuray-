@@ -5,6 +5,8 @@ on:
     paths:
       - "core/hard988-repair-evidence-gate.js"
       - "core/nexus-resource-policy.js"
+      - "core/hard988-receipt-ledger.js"
+      - "core/test/hard988-receipt-ledger.test.js"
       - "core/test/hard988-repair-evidence-gate.test.js"
       - "core/test/nexus-resource-policy.test.js"
       - ".github/workflows/hard988-repair-gate.yml"
@@ -34,4 +36,4 @@ jobs:
           node-version: "22"
       - name: Run HARD988 and NEXUS policy tests
         working-directory: core
-        run: node --test test/hard988-repair-evidence-gate.test.js test/nexus-resource-policy.test.js
+        run: node --test test/hard988-repair-evidence-gate.test.js test/hard988-receipt-ledger.test.js test/nexus-resource-policy.test.js
