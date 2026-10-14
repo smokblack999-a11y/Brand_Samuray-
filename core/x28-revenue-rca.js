@@ -11,7 +11,7 @@ function analyzeLeadLoss(events=[],input={}){
   const objections=normalized.filter(e=>e.type.includes("customer")||e.type==="objection").filter(e=>["objection","price","budget","competitor","trust"].includes(e.intent)||/(дорог|цена|дорого|бюджет|конкурент|не довер|сомнева)/i.test(e.text));
   const firstCustomer=customer[0]||null;
   const firstResponse=responses[0]||null;
-  const latencyMinutes=firstCustomer&&firstResponse?minutesBetween(firstCustomer.ts,firstResponse.ts):firstCustomer?minutesBetween(firstCustomer.ts,input.analyzedAt||new Date().toISOString()):null;
+  const latencyMinutes=firstCustomer&&firstResponse?minutesBetween(firstCustomer.ts,firstResponse.ts):firstCustomer&&input.analyzedAt?minutesBetween(firstCustomer.ts,input.analyzedAt):null;
   const responseSlaMinutes=Math.max(1,num(input.responseSlaMinutes,15));
   const hasFollowup=normalized.some(e=>/follow.?up|reminder|followup/i.test(e.type)||e.intent==="follow_up");
   const answeredObjection=objections.length>0&&normalized.some(e=>responses.includes(e)&&Date.parse(e.ts||0)>Date.parse(objections[0].ts||0));
@@ -20,7 +20,7 @@ function analyzeLeadLoss(events=[],input={}){
   if(firstCustomer&&!firstResponse&&latencyMinutes!==null&&latencyMinutes>responseSlaMinutes)add("RESPONSE_DELAY",["No agent response observed within the SLA window."],Math.min(95,60+latencyMinutes/10),"ACTIVATE_SPEED_TO_LEAD");
   if(firstCustomer&&firstResponse&&latencyMinutes!==null&&latencyMinutes>responseSlaMinutes)add("RESPONSE_DELAY",["First response exceeded configured SLA: "+latencyMinutes+" minutes."],Math.min(92,55+latencyMinutes/12),"REDUCE_RESPONSE_LATENCY");
   if(objections.length&&!answeredObjection)add("UNHANDLED_OBJECTION",objections.map(e=>e.intent||e.text).filter(Boolean),86,"RUN_OBJECTION_PLAYBOOK");
-  if(firstCustomer&&!hasFollowup&&responses.length>0)add("NO_FOLLOWUP",["A customer message was answered but no follow-up event was observed."],78,"TRIGGER_FOLLOWUP_SEQUENCE");
+  if(firstCustomer&&!hasFollowup&&responses.length>0)add("NO_FOLLOWUP",["A customer message was answered but no follow-up event was observed."],50,"TRIGGER_FOLLOWUP_SEQUENCE");
   if(objections.some(e=>e.intent==="price"||/дорог|цена|бюджет/i.test(e.text)))add("PRICE_FRICTION",objections.filter(e=>e.intent==="price"||/дорог|цена|бюджет/i.test(e.text)).map(e=>e.text||"price objection"),74,"RUN_VALUE_OR_SCOPE_REFRAME");
   if(objections.some(e=>e.intent==="trust"||/не довер|сомнева/i.test(e.text)))add("TRUST_FRICTION",objections.map(e=>e.text||"trust objection"),72,"PROVIDE_EVIDENCE_AND_HUMAN_ESCALATION");
   if(!hypotheses.length)add("UNKNOWN",["Available telemetry does not establish a strong failure pattern."],35,"COLLECT_MORE_TELEMETRY");
