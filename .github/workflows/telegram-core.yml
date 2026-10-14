@@ -1,0 +1,38 @@
+name: Telegram Core CI
+
+on:
+  push:
+    branches: [main, feat/telegram-core-standalone]
+    paths:
+      - "telegram-core/**"
+      - ".github/workflows/telegram-core.yml"
+  pull_request:
+    paths:
+      - "telegram-core/**"
+      - ".github/workflows/telegram-core.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: telegram-core
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: telegram-core/package.json
+      - run: npm install --ignore-scripts
+      - run: npm test
+      - name: Syntax-check runtime files
+        run: |
+          node --check src/server.js
+          node --check src/session-store.js
+          node --check src/telegram-service.js
