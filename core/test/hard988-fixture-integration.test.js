@@ -8,6 +8,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
 const hard988 = require("../hard988-repair-evidence-gate");
+const { appendReceipt, verifyLedger } = require("../hard988-receipt-ledger");
 
 const SECRET = "hard988-fixture-only-secret-not-for-production";
 
@@ -94,6 +95,12 @@ test("disposable Git fixture binds real commits, sandbox syntax check and passin
     assert.equal(result.beforeSha, beforeSha);
     assert.equal(result.afterSha, afterSha);
     assert.equal(result.evidence.length, 2);
+
+    const ledgerPath = path.join(dir, "hard988-receipts.jsonl");
+    await appendReceipt(ledgerPath, result);
+    const ledgerState = await verifyLedger(ledgerPath);
+    assert.equal(ledgerState.valid, true);
+    assert.equal(ledgerState.entries, 1);
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
   }
