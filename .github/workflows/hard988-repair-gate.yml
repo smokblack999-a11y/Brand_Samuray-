@@ -13,8 +13,11 @@ on:
   push:
     branches:
       - "feat/hard988-repair-evidence-gate"
+      - "feat/hard988-bound-evidence-ledger"
     paths:
       - "core/hard988-repair-evidence-gate.js"
+      - "core/hard988-receipt-ledger.js"
+      - "core/test/hard988-receipt-ledger.test.js"
       - "core/nexus-resource-policy.js"
       - "core/test/hard988-repair-evidence-gate.test.js"
       - "core/test/nexus-resource-policy.test.js"
