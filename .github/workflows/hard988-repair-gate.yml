@@ -20,6 +20,7 @@ on:
       - "core/hard988-receipt-ledger.js"
       - "core/test/hard988-receipt-ledger.test.js"
       - "core/nexus-resource-policy.js"
+      - "core/test/hard988-fixture-integration.test.js"
       - "core/test/hard988-repair-evidence-gate.test.js"
       - "core/test/nexus-resource-policy.test.js"
       - ".github/workflows/hard988-repair-gate.yml"
