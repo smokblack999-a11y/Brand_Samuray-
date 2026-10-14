@@ -58,7 +58,7 @@ test("missing trusted secret fails closed", () => {
 
 test("unsigned or tampered evidence fails closed", () => {
   const input = validInput();
-  input.checks[0] = { ...input.checks[0], status: "PASS", exitCode: 0 };
+  input.checks[0] = { ...input.checks[0], status: "FAIL" };
   const result = hard988.evaluateHard988(input, { secret: SECRET });
   assert.equal(result.decision, "BLOCK");
   assert.ok(result.reasons.includes("check_signature_invalid:sandbox"));
