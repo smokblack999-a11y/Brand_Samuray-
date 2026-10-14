@@ -12,7 +12,13 @@ const T1 = "2026-10-14T10:01:00.000Z";
 const T2 = "2026-10-14T10:02:00.000Z";
 const T3 = "2026-10-14T10:03:00.000Z";
 
-function signedCheck(name, overrides = {}) {
+function signedCheck(name, overrides = {}, binding = hard988.createCandidateBinding({
+  resource: "github://example/project/pull/17",
+  beforeSha: BEFORE,
+  afterSha: AFTER,
+  files: ["src/fix.js"],
+  diff: "+ return safeResult();"
+})) {
   const base = {
     checkId: name + "-run-001",
     name,
@@ -24,11 +30,11 @@ function signedCheck(name, overrides = {}) {
     artifactSha256: (name === "sandbox" ? "c" : "d").repeat(64),
     ...overrides
   };
-  return hard988.signEvidence(base, SECRET);
+  return hard988.signEvidence(base, SECRET, binding);
 }
 
 function validInput(overrides = {}) {
-  return {
+  const input = {
     resource: "github://example/project/pull/17",
     fromState: "CI_PASSED",
     toState: "READY_FOR_REVIEW",
@@ -36,9 +42,13 @@ function validInput(overrides = {}) {
     diff: "+ return safeResult();",
     beforeSha: BEFORE,
     afterSha: AFTER,
-    checks: [signedCheck("sandbox"), signedCheck("ci")],
     ...overrides
   };
+  if (!Object.prototype.hasOwnProperty.call(overrides, "checks")) {
+    const binding = hard988.createCandidateBinding(input);
+    input.checks = [signedCheck("sandbox", {}, binding), signedCheck("ci", {}, binding)];
+  }
+  return input;
 }
 
 test("valid signed sandbox and CI evidence reaches human review, never merge", () => {
@@ -66,7 +76,7 @@ test("unsigned or tampered evidence fails closed", () => {
 
 test("failed CI cannot be presented as a successful repair", () => {
   const input = validInput();
-  input.checks[1] = signedCheck("ci", { status: "FAIL", exitCode: 1 });
+  input.checks[1] = signedCheck("ci", { status: "FAIL", exitCode: 1 }, hard988.createCandidateBinding(input));
   const result = hard988.evaluateHard988(input, { secret: SECRET });
   assert.equal(result.decision, "BLOCK");
   assert.ok(result.reasons.includes("check_not_passed:ci"));
@@ -74,16 +84,19 @@ test("failed CI cannot be presented as a successful repair", () => {
 });
 
 test("missing sandbox evidence fails closed", () => {
-  const result = hard988.evaluateHard988(validInput({ checks: [signedCheck("ci")] }), { secret: SECRET });
+  const input = validInput();
+  input.checks = [signedCheck("ci", {}, hard988.createCandidateBinding(input))];
+  const result = hard988.evaluateHard988(input, { secret: SECRET });
   assert.equal(result.decision, "BLOCK");
   assert.ok(result.reasons.includes("required_check_missing:sandbox"));
 });
 
 test("CI must start after sandbox has finished", () => {
   const input = validInput();
+  const binding = hard988.createCandidateBinding(input);
   input.checks = [
-    signedCheck("sandbox", { startedAt: T2, finishedAt: T3 }),
-    signedCheck("ci", { startedAt: T0, finishedAt: T1 })
+    signedCheck("sandbox", { startedAt: T2, finishedAt: T3 }, binding),
+    signedCheck("ci", { startedAt: T0, finishedAt: T1 }, binding)
   ];
   const result = hard988.evaluateHard988(input, { secret: SECRET });
   assert.equal(result.decision, "BLOCK");
@@ -118,7 +131,25 @@ test("evidence signature cannot be reused after artifact digest mutation", () =>
 });
 
 test("malformed commit identities fail closed", () => {
-  const result = hard988.evaluateHard988(validInput({ beforeSha: "abc", afterSha: "def" }), { secret: SECRET });
+  const input = validInput();
+  input.beforeSha = "abc";
+  input.afterSha = "def";
+  const result = hard988.evaluateHard988(input, { secret: SECRET });
   assert.equal(result.decision, "BLOCK");
   assert.ok(result.reasons.includes("before_after_commit_sha_invalid"));
+});
+
+test("signed evidence is bound to resource, commits, files and exact diff", () => {
+  const input = validInput();
+  input.diff = "+ return differentResult();";
+  const result = hard988.evaluateHard988(input, { secret: SECRET });
+  assert.equal(result.decision, "BLOCK");
+  assert.ok(result.reasons.includes("candidate_binding_mismatch:sandbox"));
+  assert.ok(result.reasons.includes("candidate_binding_mismatch:ci"));
+});
+
+test("candidate binding cannot be omitted by a signer", () => {
+  assert.throws(() => hard988.signEvidence({
+    checkId: "sandbox-1", name: "sandbox", status: "PASS", exitCode: 0
+  }, SECRET), /hard988_candidate_binding_invalid/);
 });
