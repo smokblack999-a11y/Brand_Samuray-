@@ -15,7 +15,7 @@ For one agreed inbound channel and one team, configure a measurable workflow tha
 ## 2. Ideal first customer
 
 Qualify a business only if all are true:
-- It receives recurring inbound enquiries through a channel the pilot can actually access.
+- It receives recurring inbound enquiries through a **Telegram Business bot/webhook workflow** that can be demonstrated end to end in the customer's environment. This is the initial channel hypothesis, not a claim that every Telegram account type is supported.
 - A human currently loses time triaging, drafting, or remembering follow-ups.
 - One owner can approve the workflow and provide anonymized test examples.
 - It can define a baseline and review results weekly.
@@ -26,7 +26,7 @@ Disqualify customers requiring unsupported channels, sensitive/high-risk automat
 ## 3. Scope and exclusions
 
 ### Included in the first pilot
-- One channel and one business workflow, agreed before setup.
+- One Telegram Business bot/webhook workflow and one business process, agreed before setup. Do not sell Telegram user-account/MTProto integration as production-ready until its credentials, permissions, and real-account end-to-end behavior are verified.
 - Lead record: source, timestamp, status, priority, next action, owner.
 - AI-assisted reply draft with human approval.
 - Follow-up queue and missed-lead view.
@@ -109,7 +109,7 @@ Before real customer data is used:
 - Keep autonomous sending disabled until explicit customer approval and end-to-end tests.
 - Verify backups/retention/deletion and incident contact.
 - Test duplicate delivery, invalid signatures, timeouts, provider failures, and retry behavior.
-- Confirm the chosen channel's current API permissions and terms.
+- Confirm the chosen Telegram Business integration's current API permissions and terms; verify whether the customer needs a bot/webhook or a user-account session before quoting.
 - Record evidence for each check; mark untested items **BLOCKED**, not PASS.
 
 ## 8. Go / no-go decision
