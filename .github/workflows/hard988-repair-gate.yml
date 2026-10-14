@@ -1,0 +1,37 @@
+name: HARD988 Repair Evidence Gate
+
+on:
+  pull_request:
+    paths:
+      - "core/hard988-repair-evidence-gate.js"
+      - "core/nexus-resource-policy.js"
+      - "core/test/hard988-repair-evidence-gate.test.js"
+      - "core/test/nexus-resource-policy.test.js"
+      - ".github/workflows/hard988-repair-gate.yml"
+  push:
+    branches:
+      - "feat/hard988-repair-evidence-gate"
+    paths:
+      - "core/hard988-repair-evidence-gate.js"
+      - "core/nexus-resource-policy.js"
+      - "core/test/hard988-repair-evidence-gate.test.js"
+      - "core/test/nexus-resource-policy.test.js"
+      - ".github/workflows/hard988-repair-gate.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  test-hard988:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Run HARD988 and NEXUS policy tests
+        working-directory: core
+        run: node --test test/hard988-repair-evidence-gate.test.js test/nexus-resource-policy.test.js
