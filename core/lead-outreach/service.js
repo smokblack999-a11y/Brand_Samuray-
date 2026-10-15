@@ -51,8 +51,7 @@ class LeadOutreachService {
       const scored = scoreLead(candidate);
       saved.push(await this.store.upsert({
         ...candidate,
-        ...scored,
-        stage: undefined
+        ...scored
       }));
     }
     return saved;
