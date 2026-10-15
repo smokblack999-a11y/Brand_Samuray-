@@ -1,6 +1,6 @@
 "use strict";
 
-const { LeadOutreachService } = require("./service");
+const { LeadOutreachService, scoreLead, ALLOWED_STAGES } = require("./service");
 const { JsonLeadStore } = require("./store");
 const { ApolloAdapter } = require("./apollo");
 
@@ -51,4 +51,4 @@ function createLeadOutreachRouter(options = {}) {
   return router;
 }
 
-module.exports = { createLeadOutreach, createLeadOutreachRouter, LeadOutreachService, JsonLeadStore, ApolloAdapter };
+module.exports = { createLeadOutreach, createLeadOutreachRouter, LeadOutreachService, JsonLeadStore, ApolloAdapter, scoreLead, ALLOWED_STAGES };
