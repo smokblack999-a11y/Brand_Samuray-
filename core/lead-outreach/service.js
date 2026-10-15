@@ -36,10 +36,10 @@ class LeadOutreachService {
       personTitles: Array.isArray(filters.personTitles) ? filters.personTitles.map((x) => cleanText(x, 100)).filter(Boolean).slice(0, 10) : [],
       locations: Array.isArray(filters.locations) ? filters.locations.map((x) => cleanText(x, 100)).filter(Boolean).slice(0, 10) : [],
       domains: Array.isArray(filters.domains) ? filters.domains.map((x) => cleanText(x, 253)).filter(Boolean).slice(0, 25) : [],
-      industries: Array.isArray(filters.industries) ? filters.industries.map((x) => cleanText(x, 100)).filter(Boolean).slice(0, 20) : [],
+      industryTagIds: Array.isArray(filters.industryTagIds) ? filters.industryTagIds.map((x) => cleanText(x, 100)).filter(Boolean).slice(0, 20) : [],
       limit: Math.max(1, Math.min(Number(filters.limit) || 10, 25))
     };
-    if (!normalized.personTitles.length && !normalized.locations.length && !normalized.domains.length && !normalized.industries.length) {
+    if (!normalized.personTitles.length && !normalized.locations.length && !normalized.domains.length && !normalized.industryTagIds.length) {
       const error = new Error("At least one search filter is required");
       error.code = "SEARCH_FILTER_REQUIRED";
       error.statusCode = 400;
