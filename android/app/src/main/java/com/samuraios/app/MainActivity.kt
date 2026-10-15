@@ -216,10 +216,11 @@ class MainActivity : ComponentActivity() {
         var bitmap: Bitmap? = null
         val temp = File(photo.parentFile, photo.nameWithoutExtension + ".stamped.tmp")
         return try {
-            bitmap = BitmapFactory.decodeFile(photo.absolutePath) ?: return false
-            val canvas = Canvas(bitmap)
-            val width = bitmap.width.toFloat()
-            val height = bitmap.height.toFloat()
+            val decoded = BitmapFactory.decodeFile(photo.absolutePath) ?: return false
+            bitmap = decoded
+            val canvas = Canvas(decoded)
+            val width = decoded.width.toFloat()
+            val height = decoded.height.toFloat()
             val margin = (width * 0.025f).coerceAtLeast(12f)
             val textSize = (width * 0.026f).coerceIn(22f, 64f)
             val titlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -245,7 +246,7 @@ class MainActivity : ComponentActivity() {
             canvas.drawText(firstLine, margin, top + margin + textSize, titlePaint)
             canvas.drawText(secondLine, margin, top + margin + textSize + lineHeight, detailPaint)
             FileOutputStream(temp).use { stream ->
-                if (!bitmap.compress(Bitmap.CompressFormat.JPEG, 95, stream)) return false
+                if (!decoded.compress(Bitmap.CompressFormat.JPEG, 95, stream)) return false
                 stream.fd.sync()
             }
             FileInputStream(temp).use { input ->
