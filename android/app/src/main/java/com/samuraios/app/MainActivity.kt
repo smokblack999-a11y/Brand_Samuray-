@@ -284,9 +284,9 @@ class MainActivity : ComponentActivity() {
         val lon = metadata?.optDouble("longitude", Double.NaN) ?: Double.NaN
         val details = TextView(this).apply {
             text = if (lat.isFinite() && lon.isFinite()) {
-                photo.name + "\\nGPS " + String.format(Locale.US, "%.6f, %.6f", lat, lon)
+                photo.name + "\nGPS " + String.format(Locale.US, "%.6f, %.6f", lat, lon)
             } else {
-                photo.name + "\\nGPS недоступен"
+                photo.name + "\nGPS недоступен"
             }
             setTextColor(Color.WHITE)
             setPadding(0, 12, 0, 12)
