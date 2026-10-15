@@ -72,7 +72,7 @@ Example discovery request:
 {
   "personTitles": ["Founder", "Owner"],
   "locations": ["United States"],
-  "industries": [],
+  "industryTagIds": [],
   "limit": 10
 }
 ```
