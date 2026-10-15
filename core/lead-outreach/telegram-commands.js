@@ -15,7 +15,7 @@ function csvIds(value) {
 }
 
 function safe(value, max = 240) {
-  return String(value || "").replace(/[\u0000-\u001f]/g, " ").slice(0, max);
+  return String(value || "").replace(/[\u0000-\u0009\u000b-\u001f]/g, " ").slice(0, max);
 }
 
 function createTelegramLeadCommandHandler(options = {}) {
