@@ -11,6 +11,8 @@ const API_KEY = 'test-core-api-key-123456';
 const WEBHOOK_SECRET = 'test-webhook-secret-123456';
 
 let child;
+let childStdout = "";
+let childStderr = "";
 
 async function api(pathname, options = {}) {
   return fetch(`http://127.0.0.1:${port}${pathname}`, {
@@ -34,16 +36,40 @@ test.before(async () => {
     },
     stdio: ['ignore', 'pipe', 'pipe']
   });
+  child.stdout.setEncoding('utf8');
+  child.stderr.setEncoding('utf8');
+  child.stdout.on('data', chunk => { childStdout = (childStdout + chunk).slice(-8000); });
+  child.stderr.on('data', chunk => { childStderr = (childStderr + chunk).slice(-8000); });
+
   await new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error('server startup timeout')), 10000);
+    let settled = false;
+    const finish = error => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      child.off('error', onError);
+      child.off('exit', onExit);
+      if (error) reject(error);
+      else resolve();
+    };
+    const timer = setTimeout(() => finish(new Error(
+      `server startup timeout; stdout=${childStdout || '(empty)'}; stderr=${childStderr || '(empty)'}`
+    )), 10000);
+    const onError = error => finish(error);
+    const onExit = (code, signal) => finish(new Error(
+      `server exited before startup (code=${code}, signal=${signal}); stdout=${childStdout || '(empty)'}; stderr=${childStderr || '(empty)'}`
+    ));
+    child.once('error', onError);
+    child.once('exit', onExit);
+
     const check = async () => {
+      if (settled) return;
       try {
         const r = await fetch(`http://127.0.0.1:${port}/health`);
-        if (r.ok) { clearTimeout(timer); resolve(); return; }
+        if (r.ok) { finish(); return; }
       } catch {}
-      setTimeout(check, 100);
+      if (!settled) setTimeout(check, 100);
     };
-    child.once('error', reject);
     check();
   });
 });
@@ -103,14 +129,15 @@ test('message length is bounded before scoring or AI', async () => {
   });
   assert.equal(r.status, 400);
   const body = await r.json();
-  assert.match(body.error, /максимум 4000/);
+  assert.equal(body.error.code, 'MESSAGE_TOO_LONG');
+  assert.match(body.error.message, /максимум 4000/);
 });
 
 test('OpenAI health reports unconfigured without exposing secrets', async () => {
   const r = await api('/health/openai');
   assert.equal(r.status, 503);
   const body = await r.json();
-  assert.equal(body.configured, false);
+  assert.equal(body.error.code, 'OPENAI_NOT_CONFIGURED');
   assert.equal('apiKey' in body, false);
 });
 
