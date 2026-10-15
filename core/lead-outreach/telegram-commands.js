@@ -6,7 +6,8 @@ function parseCommand(text) {
   const raw = String(text || "").trim();
   if (!raw.startsWith("/")) return null;
   const first = raw.split(/\s+/, 1)[0].split("@", 1)[0].toLowerCase();
-  return COMMANDS.has(first) ? { command: first, args: raw.slice(raw.indexOf(" ") + 1).trim() } : null;
+  const separator = raw.indexOf(" ");
+  return COMMANDS.has(first) ? { command: first, args: separator === -1 ? "" : raw.slice(separator + 1).trim() } : null;
 }
 
 function csvIds(value) {
