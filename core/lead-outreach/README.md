@@ -12,6 +12,18 @@ Standalone, provider-neutral B2B prospecting and sales-follow-up module for Samu
 - All API routes must be mounted behind SamuraiOS Core's existing `requireApiKey` middleware.
 - Keep secrets in environment variables; never commit `.env`.
 
+## Telegram command integration
+
+The existing Core webhook now accepts regular `message` updates in addition to Telegram Business updates. Set `TELEGRAM_ADMIN_IDS` to a comma-separated allowlist of numeric Telegram user IDs, set `LEAD_OUTREACH_ENABLED=true`, and configure `APOLLO_API_KEY`. Re-run `npm run set-webhook` so Telegram sends `message` updates to the configured HTTPS webhook. Commands work only in private chats for allowlisted admins.
+
+Commands:
+- `/leads` — list the last eight saved leads.
+- `/discover Founder,Owner | Kazakhstan | 10` — discover up to ten leads; at least one explicit filter is required.
+- `/draft LEAD_ID | Subject | Reviewed body` — save a draft only.
+- `/stage LEAD_ID qualified` — update pipeline stage.
+
+The bot never sends prospecting emails. Use a full lead ID from `/leads`. Keep `LEAD_OUTREACH_ENABLED=false` until credentials and the admin allowlist are configured.
+
 ## Files
 
 - `index.js` — public module API and optional Express router factory.
