@@ -2,13 +2,21 @@ package com.samuraios.app
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.Paint
+import android.graphics.RectF
+import android.graphics.Typeface
 import android.location.Location
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.util.Base64
 import android.view.Gravity
+import android.view.ViewGroup
+import android.widget.FrameLayout
 import android.widget.Button
 import android.widget.EditText
 import android.widget.ImageView
@@ -29,7 +37,12 @@ import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
 import com.google.android.gms.tasks.CancellationTokenSource
 import java.io.File
+import java.io.FileInputStream
+import java.io.FileOutputStream
 import java.io.OutputStream
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
@@ -48,8 +61,8 @@ class MainActivity : ComponentActivity() {
     private lateinit var messageInput: EditText
     private lateinit var galleryContainer: LinearLayout
     private var imageCapture: ImageCapture? = null
+    private var boundCamera: androidx.camera.core.Camera? = null
     private var selectedPhoto: File? = null
-    private var pendingTimestamp: Long = 0L
     private var cameraExecutor: ExecutorService? = null
     private val mainHandler = Handler(Looper.getMainLooper())
     private val locationClient by lazy { LocationServices.getFusedLocationProviderClient(this) }
@@ -67,7 +80,8 @@ class MainActivity : ComponentActivity() {
 
     private fun hasPermissions(): Boolean =
         ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED &&
-        ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
+            ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED)
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
@@ -80,7 +94,17 @@ class MainActivity : ComponentActivity() {
         statusText = TextView(this).apply { text = "SamuraiOS: запуск..."; textSize = 20f; setTextColor(Color.rgb(0, 255, 136)); setPadding(0, 0, 0, 12) }
         root.addView(statusText)
         previewView = PreviewView(this).apply { scaleType = PreviewView.ScaleType.FILL_CENTER }
-        root.addView(previewView, LinearLayout.LayoutParams(-1, 520))
+        val cameraFrame = FrameLayout(this)
+        cameraFrame.addView(previewView, FrameLayout.LayoutParams(-1, -1))
+        val zoomControls = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.END
+            setPadding(8, 8, 8, 8)
+            addView(Button(this@MainActivity).apply { text = "−"; contentDescription = "Уменьшить масштаб"; setOnClickListener { adjustZoom(0.8f) } })
+            addView(Button(this@MainActivity).apply { text = "+"; contentDescription = "Увеличить масштаб"; setOnClickListener { adjustZoom(1.25f) } })
+        }
+        cameraFrame.addView(zoomControls, FrameLayout.LayoutParams(-2, -2, Gravity.END or Gravity.TOP))
+        root.addView(cameraFrame, LinearLayout.LayoutParams(-1, 520))
         root.addView(Button(this).apply { text = "СНЯТЬ ФОТО + GPS"; setOnClickListener { capturePhoto() } })
         root.addView(TextView(this).apply { text = "Проектная галерея — приватное хранилище"; textSize = 18f; setTextColor(Color.WHITE); setPadding(0, 18, 0, 8) })
         galleryContainer = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
@@ -106,34 +130,46 @@ class MainActivity : ComponentActivity() {
             try {
                 val provider = future.get()
                 val preview = Preview.Builder().build().also { it.setSurfaceProvider(previewView.surfaceProvider) }
-                imageCapture = ImageCapture.Builder().setJpegQuality(85).build()
+                imageCapture = ImageCapture.Builder().setJpegQuality(95).build()
                 provider.unbindAll()
-                provider.bindToLifecycle(this, CameraSelector.DEFAULT_BACK_CAMERA, preview, imageCapture)
-                statusText.text = "SamuraiOS: CAMERA ONLINE"
-            } catch (e: Exception) { statusText.text = "Camera error: ${e.message}" }
+                boundCamera = provider.bindToLifecycle(this, CameraSelector.DEFAULT_BACK_CAMERA, preview, imageCapture)
+                statusText.text = "Камера готова · JPEG 95%"
+            } catch (e: Exception) { statusText.text = "Ошибка камеры: " + e.javaClass.simpleName + ": " + (e.message ?: "без подробностей") }
         }, ContextCompat.getMainExecutor(this))
+    }
+
+    private fun adjustZoom(factor: Float) {
+        val camera = boundCamera ?: run { showToast("Камера ещё не готова"); return }
+        val state = camera.cameraInfo.zoomState.value ?: return
+        val target = (state.zoomRatio * factor).coerceIn(state.minZoomRatio, state.maxZoomRatio)
+        camera.cameraControl.setZoomRatio(target)
     }
 
     private fun capturePhoto() {
         val capture = imageCapture ?: run { showToast("Камера ещё не готова"); return }
+        val executor = cameraExecutor ?: run { showToast("Камера занята"); return }
         val file = Vault.createPhotoFile(this)
-        pendingTimestamp = System.currentTimeMillis()
-        capture.takePicture(ImageCapture.OutputFileOptions.Builder(file).build(), cameraExecutor!!, object : ImageCapture.OnImageSavedCallback {
-            override fun onError(exception: ImageCaptureException) { file.delete(); mainHandler.post { showToast("Ошибка камеры: ${exception.message}") } }
-            override fun onImageSaved(outputFileResults: ImageCapture.OutputFileResults) { fetchLocationAndSaveMetadata(file, pendingTimestamp) }
+        val timestamp = System.currentTimeMillis()
+        capture.takePicture(ImageCapture.OutputFileOptions.Builder(file).build(), executor, object : ImageCapture.OnImageSavedCallback {
+            override fun onError(exception: ImageCaptureException) {
+                file.delete()
+                mainHandler.post { showToast("Ошибка камеры: " + (exception.message ?: exception.javaClass.simpleName)) }
+            }
+            override fun onImageSaved(outputFileResults: ImageCapture.OutputFileResults) {
+                fetchLocationAndSaveMetadata(file, timestamp)
+            }
         })
     }
 
     private fun fetchLocationAndSaveMetadata(photo: File, timestamp: Long) {
         if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-            Vault.saveMetadata(photo, null, null, null, timestamp); mainHandler.post { refreshGallery(); showToast("Фото сохранено, GPS без разрешения") }; return
+            finalizePhoto(photo, null, timestamp, "Фото сохранено, GPS без разрешения"); return
         }
         locationClient.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, CancellationTokenSource().token)
             .addOnSuccessListener { location: Location? ->
-                Vault.saveMetadata(photo, location?.latitude, location?.longitude, location?.accuracy, timestamp)
-                mainHandler.post { refreshGallery(); outputText.text = if (location != null) "Сохранено: %.6f, %.6f ± %.1fm".format(location.latitude, location.longitude, location.accuracy) else "Сохранено без GPS fix" }
+                finalizePhoto(photo, location, timestamp, if (location == null) "Фото сохранено без GPS fix" else null)
             }
-            .addOnFailureListener { Vault.saveMetadata(photo, null, null, null, timestamp); mainHandler.post { refreshGallery(); showToast("Фото сохранено, GPS недоступен") } }
+            .addOnFailureListener { finalizePhoto(photo, null, timestamp, "Фото сохранено, GPS недоступен") }
     }
 
     private fun refreshGallery() {
@@ -147,12 +183,122 @@ class MainActivity : ComponentActivity() {
             val meta = Vault.metadata(photo)
             val text = TextView(this).apply { text = if (meta?.has("latitude") == true && !meta.isNull("latitude")) "${photo.name}\nGPS: ${meta.optDouble("latitude")}, ${meta.optDouble("longitude")}\n± ${meta.optDouble("accuracyMeters", 0.0)} m" else photo.name + "\nGPS: нет fix"; setTextColor(Color.LTGRAY); setPadding(12, 0, 0, 0) }
             row.addView(text, LinearLayout.LayoutParams(0, -2, 1f))
-            row.setOnClickListener { selectedPhoto = photo; outputText.text = "Выбрано: ${photo.name}" }
+            row.setOnClickListener { selectedPhoto = photo; outputText.text = "Выбрано: " + photo.name; openPhotoViewer(photo) }
             galleryContainer.addView(row)
         }
     }
 
-    private fun checkCoreStatus() = apiGet("/health") { result -> mainHandler.post { if (result.startsWith("ERROR:")) statusText.text = "Core: OFFLINE" else statusText.text = "Camera/Gallery + Core ONLINE"; outputText.text = result } }
+
+    private fun finalizePhoto(photo: File, location: Location?, timestamp: Long, noGpsMessage: String? = null) {
+        val executor = cameraExecutor
+        if (executor == null) {
+            Vault.saveMetadata(photo, location?.latitude, location?.longitude, location?.accuracy, timestamp)
+            mainHandler.post { refreshGallery(); showToast(noGpsMessage ?: "Фото сохранено") }
+            return
+        }
+        executor.execute {
+            val stamped = stampPhoto(photo, location, timestamp)
+            Vault.saveMetadata(photo, location?.latitude, location?.longitude, location?.accuracy, timestamp)
+            mainHandler.post {
+                refreshGallery()
+                outputText.text = if (location != null) {
+                    "Фото сохранено · GPS " + String.format(Locale.US, "%.6f, %.6f ± %.1f м", location.latitude, location.longitude, location.accuracy) +
+                        " · отметка " + if (stamped) "на фото" else "не нанесена"
+                } else {
+                    "Фото сохранено · GPS недоступен · отметка " + if (stamped) "на фото" else "не нанесена"
+                }
+                if (noGpsMessage != null) showToast(noGpsMessage)
+            }
+        }
+    }
+
+    private fun stampPhoto(photo: File, location: Location?, timestamp: Long): Boolean {
+        var bitmap: Bitmap? = null
+        val temp = File(photo.parentFile, photo.nameWithoutExtension + ".stamped.tmp")
+        return try {
+            bitmap = BitmapFactory.decodeFile(photo.absolutePath) ?: return false
+            val canvas = Canvas(bitmap)
+            val width = bitmap.width.toFloat()
+            val height = bitmap.height.toFloat()
+            val margin = (width * 0.025f).coerceAtLeast(12f)
+            val textSize = (width * 0.026f).coerceIn(22f, 64f)
+            val titlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = Color.WHITE
+                this.textSize = textSize
+                typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
+            }
+            val detailPaint = Paint(titlePaint).apply {
+                textSize = textSize * 0.78f
+                typeface = Typeface.create("sans-serif", Typeface.NORMAL)
+            }
+            val time = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date(timestamp))
+            val firstLine = "SAMURAIOS  |  " + time
+            val secondLine = if (location != null) {
+                "GPS " + String.format(Locale.US, "%.6f, %.6f  ± %.1f m", location.latitude, location.longitude, location.accuracy)
+            } else {
+                "GPS unavailable"
+            }
+            val lineHeight = textSize * 1.25f
+            val boxHeight = margin * 2 + lineHeight * 2
+            val top = (height - boxHeight).coerceAtLeast(0f)
+            canvas.drawRect(RectF(0f, top, width, height), Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(190, 0, 0, 0) })
+            canvas.drawText(firstLine, margin, top + margin + textSize, titlePaint)
+            canvas.drawText(secondLine, margin, top + margin + textSize + lineHeight, detailPaint)
+            FileOutputStream(temp).use { stream ->
+                if (!bitmap.compress(Bitmap.CompressFormat.JPEG, 95, stream)) return false
+                stream.fd.sync()
+            }
+            FileInputStream(temp).use { input ->
+                FileOutputStream(photo, false).use { output ->
+                    input.copyTo(output)
+                    output.fd.sync()
+                }
+            }
+            true
+        } catch (_: OutOfMemoryError) {
+            false
+        } catch (_: Exception) {
+            false
+        } finally {
+            bitmap?.recycle()
+            temp.delete()
+        }
+    }
+
+    private fun openPhotoViewer(photo: File) {
+        val dialog = android.app.Dialog(this)
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(16, 16, 16, 16)
+            setBackgroundColor(Color.BLACK)
+        }
+        val image = ImageView(this).apply {
+            setImageURI(android.net.Uri.fromFile(photo))
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            adjustViewBounds = true
+            contentDescription = "Фото " + photo.name
+        }
+        content.addView(image, LinearLayout.LayoutParams(-1, 0, 1f))
+        val metadata = Vault.metadata(photo)
+        val lat = metadata?.optDouble("latitude", Double.NaN) ?: Double.NaN
+        val lon = metadata?.optDouble("longitude", Double.NaN) ?: Double.NaN
+        val details = TextView(this).apply {
+            text = if (lat.isFinite() && lon.isFinite()) {
+                photo.name + "\\nGPS " + String.format(Locale.US, "%.6f, %.6f", lat, lon)
+            } else {
+                photo.name + "\\nGPS недоступен"
+            }
+            setTextColor(Color.WHITE)
+            setPadding(0, 12, 0, 12)
+        }
+        content.addView(details)
+        content.addView(Button(this).apply { text = "ЗАКРЫТЬ"; setOnClickListener { dialog.dismiss() } })
+        dialog.setContentView(content)
+        dialog.show()
+        dialog.window?.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+    }
+
+    private fun checkCoreStatus() = apiGet("/health") { result -> mainHandler.post { outputText.text = if (result.startsWith("ERROR:")) "Core OFFLINE\n" + result else "Core ONLINE\n" + result } }
     private fun loadMe() = apiGet("/api/telegram/me") { result -> mainHandler.post { outputText.text = result } }
     private fun loadDialogs() = apiGet("/api/telegram/dialogs?limit=20") { result -> mainHandler.post { outputText.text = result } }
 
