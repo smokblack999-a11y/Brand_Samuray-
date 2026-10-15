@@ -24,8 +24,8 @@ class ApolloAdapter {
       page: 1,
       per_page: limit
     };
-    if (Array.isArray(filters.industries) && filters.industries.length) {
-      payload.organization_industry_tag_ids = filters.industries.slice(0, 20);
+    if (Array.isArray(filters.industryTagIds) && filters.industryTagIds.length) {
+      payload.organization_industry_tag_ids = filters.industryTagIds.slice(0, 20);
     }
 
     const response = await this.fetch(this.endpoint, {
