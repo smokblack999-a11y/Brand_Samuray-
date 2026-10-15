@@ -13,6 +13,19 @@ const { createRateLimiter } = require("./rate-limit");
 const dualAI = require("./dual-ai/engine");
 const agentControl = require("./agent-control");
 const agentControlGithub = require("./agent-control-github");
+const { createLeadOutreach } = require("./lead-outreach");
+const { createTelegramLeadCommandHandler } = require("./lead-outreach/telegram-commands");
+const leadOutreachEnabled = String(process.env.LEAD_OUTREACH_ENABLED || "").toLowerCase() === "true";
+const leadOutreachService = leadOutreachEnabled ? createLeadOutreach({
+  dataDir: process.env.LEAD_OUTREACH_DATA_DIR || "./data/lead-outreach",
+  apolloApiKey: process.env.APOLLO_API_KEY
+}) : null;
+const telegramLeadCommands = createTelegramLeadCommandHandler({
+  enabled: leadOutreachEnabled,
+  service: leadOutreachService,
+  adminIds: process.env.TELEGRAM_ADMIN_IDS,
+  sendMessage: telegramCamera.sendMessage
+});
 
 const app = express();
 const PORT = Number(process.env.PORT || 8787);
@@ -340,6 +353,7 @@ app.post("/api/telegram/webhook", requireWebhookSecret, async (req, res) => {
   res.sendStatus(200);
   try {
     const update = req.body || {};
+    if (update.message?.text && await telegramLeadCommands.handleMessage(update.message)) return;
     if (update.business_connection) {
       console.log(JSON.stringify({ event: "business_connection", id: update.business_connection.id, requestId: req.requestId }));
       return;
