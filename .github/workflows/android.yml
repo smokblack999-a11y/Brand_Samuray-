@@ -2,7 +2,7 @@ name: Build SamuraiOS APK
 
 on:
   push:
-    branches: [ "main", "master", "feat/x10thinc-hamylion-v3" ]
+    branches: [ "main", "master", "feat/x10thinc-hamylion-v3", "fix/android-sdk-tools-package" ]
   pull_request:
   workflow_dispatch:
 
@@ -37,6 +37,10 @@ jobs:
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          # The legacy "tools" SDK package no longer exists in Google's
+          # repository. Install only the still-supported platform-tools here.
+          packages: platform-tools
 
       - name: Install required Android SDK packages
         run: |
