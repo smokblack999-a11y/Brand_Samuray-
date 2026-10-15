@@ -5,6 +5,7 @@ const path = require("path");
 const express = require("express");
 const cors = require("cors");
 const { scoreLead } = require("./lead-engine");
+const { evaluatePilotEconomics } = require("./revenue-pilot");
 const { generateReply, checkOpenAI } = require("./openai");
 const { sendBusinessMessage } = require("./business-bot");
 const telegramCamera = require("./telegram-camera");
@@ -257,6 +258,17 @@ async function analyze(message, business) {
   const reply = process.env.OPENAI_API_KEY ? await generateReply({ business: business || process.env.BUSINESS_NAME, customerMessage: text, lead }) : null;
   return { lead, reply };
 }
+
+app.post("/api/revenue-pilot/evaluate", requireApiKey, leadRateLimit, (req, res) => {
+  try {
+    const result = evaluatePilotEconomics(req.body || {});
+    return res.json({ ok: true, result, requestId: req.requestId });
+  } catch (error) {
+    const status = error.code === "INVALID_METRIC" ? 400 : 500;
+    const message = status === 400 ? error.message : "Revenue pilot evaluation failed";
+    return res.status(status).json(errorBody(error.code || "REVENUE_PILOT_FAILED", message, req.requestId));
+  }
+});
 
 app.post("/api/lead/analyze", requireApiKey, leadRateLimit, async (req, res) => {
   try {
