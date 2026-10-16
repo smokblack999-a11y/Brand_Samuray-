@@ -225,11 +225,11 @@ class MainActivity : ComponentActivity() {
             val textSize = (width * 0.026f).coerceIn(22f, 64f)
             val titlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                 color = Color.WHITE
-                this.textSize = textSize
+                setTextSize(textSize)
                 typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
             }
             val detailPaint = Paint(titlePaint).apply {
-                textSize = textSize * 0.78f
+                setTextSize(textSize * 0.78f)
                 typeface = Typeface.create("sans-serif", Typeface.NORMAL)
             }
             val time = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date(timestamp))
