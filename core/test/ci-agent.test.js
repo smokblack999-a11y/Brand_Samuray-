@@ -61,7 +61,7 @@ test("GitHub signature verification rejects tampered body and wrong secret", () 
 });
 
 test("only completed failed workflow runs are normalized", () => {
-  assert.equal(normalizeWorkflowRun(failedRun()), null === undefined ? false : true);
+  assert.ok(normalizeWorkflowRun(failedRun()));
   assert.equal(normalizeWorkflowRun({ ...failedRun(), workflow_run: { ...failedRun().workflow_run, conclusion: "success" } }), null);
   assert.equal(normalizeWorkflowRun({ ...failedRun(), workflow_run: { ...failedRun().workflow_run, status: "in_progress" } }), null);
 });
