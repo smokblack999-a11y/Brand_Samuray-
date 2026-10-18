@@ -48,7 +48,6 @@ class MainActivity : ComponentActivity() {
     private lateinit var galleryContainer: LinearLayout
     private var imageCapture: ImageCapture? = null
     private var selectedPhoto: File? = null
-    private var pendingTimestamp: Long = 0L
     private var cameraExecutor: ExecutorService? = null
     private val mainHandler = Handler(Looper.getMainLooper())
     private val galleryPicker = registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
@@ -125,10 +124,10 @@ class MainActivity : ComponentActivity() {
     private fun capturePhoto() {
         val capture = imageCapture ?: run { showToast("Камера ещё не готова"); return }
         val file = Vault.createPhotoFile(this)
-        pendingTimestamp = System.currentTimeMillis()
+        val captureTimestamp = System.currentTimeMillis()
         capture.takePicture(ImageCapture.OutputFileOptions.Builder(file).build(), cameraExecutor!!, object : ImageCapture.OnImageSavedCallback {
             override fun onError(exception: ImageCaptureException) { file.delete(); mainHandler.post { showToast("Ошибка камеры: ${exception.message}") } }
-            override fun onImageSaved(outputFileResults: ImageCapture.OutputFileResults) { fetchLocationAndSaveMetadata(file, pendingTimestamp) }
+            override fun onImageSaved(outputFileResults: ImageCapture.OutputFileResults) { fetchLocationAndSaveMetadata(file, captureTimestamp) }
         })
     }
 
