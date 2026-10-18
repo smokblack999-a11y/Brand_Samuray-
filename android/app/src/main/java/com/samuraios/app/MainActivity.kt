@@ -70,15 +70,22 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() { cameraExecutor?.shutdown(); super.onDestroy() }
 
-    private fun hasPermissions(): Boolean =
-        ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED &&
-        (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
-         ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED)
+    private fun hasCameraPermission(): Boolean =
+        ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
+
+    private fun hasLocationPermission(): Boolean =
+        ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
+        ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == permissionRequest && hasPermissions()) startCamera()
-        else showToast("Для камеры и GPS нужны разрешения")
+        if (requestCode != permissionRequest) return
+        if (hasCameraPermission()) {
+            startCamera()
+            if (!hasLocationPermission()) showToast("Камера работает без GPS: разрешение геолокации не выдано")
+        } else {
+            showToast("Для съёмки необходимо разрешение камеры")
+        }
     }
 
     private fun buildUi() {
