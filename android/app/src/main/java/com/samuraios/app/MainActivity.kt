@@ -2,6 +2,8 @@ package com.samuraios.app
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.app.AlertDialog
+import android.text.InputType
 import android.graphics.Color
 import android.location.Location
 import android.os.Bundle
@@ -37,8 +39,9 @@ import java.util.concurrent.Executors
 import kotlin.concurrent.thread
 
 class MainActivity : ComponentActivity() {
-    private val coreUrl = BuildConfig.CORE_BASE_URL.trimEnd('/')
-    private val coreApiKey = BuildConfig.CORE_API_KEY.trim()
+    private val coreConfig by lazy { CoreConfigStore(this) }
+    private val coreUrl: String get() = coreConfig.baseUrl
+    private val coreApiKey: String get() = coreConfig.apiKey()
     private val permissionRequest = 100
     private lateinit var previewView: PreviewView
     private lateinit var statusText: TextView
@@ -100,7 +103,8 @@ class MainActivity : ComponentActivity() {
         galleryContainer = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         root.addView(galleryContainer)
         root.addView(TextView(this).apply { text = "Telegram"; textSize = 20f; setTextColor(Color.WHITE); setPadding(0, 24, 0, 8) })
-        root.addView(Button(this).apply { text = "Мой Telegram"; setOnClickListener { loadMe() } })
+        root.addView(Button(this).apply { text = "НАСТРОИТЬ CORE / API"; setOnClickListener { openCoreSettings() } })
+        root.addView(Button(this).apply { text = "Проверить Telegram-бота"; setOnClickListener { loadMe() } })
         root.addView(Button(this).apply { text = "Диалоги"; setOnClickListener { loadDialogs() } })
         chatIdInput = EditText(this).apply { hint = "Chat ID, например -100..."; setSingleLine(true); setTextColor(Color.WHITE); setHintTextColor(Color.GRAY) }
         root.addView(chatIdInput, LinearLayout.LayoutParams(-1, -2))
@@ -169,6 +173,50 @@ class MainActivity : ComponentActivity() {
             row.setOnClickListener { selectedPhoto = photo; outputText.text = "Выбрано: ${photo.name}" }
             galleryContainer.addView(row)
         }
+    }
+
+    private fun openCoreSettings() {
+        val form = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(32, 8, 32, 0)
+        }
+        val urlInput = EditText(this).apply {
+            hint = "Core HTTPS URL, например https://your-service.example"
+            setSingleLine(true)
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI
+            setText(coreUrl)
+        }
+        val keyInput = EditText(this).apply {
+            hint = "CORE_API_KEY"
+            setSingleLine(true)
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+            setText(coreApiKey)
+        }
+        form.addView(urlInput, LinearLayout.LayoutParams(-1, -2))
+        form.addView(keyInput, LinearLayout.LayoutParams(-1, -2))
+        AlertDialog.Builder(this)
+            .setTitle("Подключение SamuraiOS Core")
+            .setMessage("Ключ хранится зашифрованным через Android Keystore. Используйте HTTPS и не передавайте ключ посторонним.")
+            .setView(form)
+            .setNegativeButton("Отмена", null)
+            .setPositiveButton("Сохранить", null)
+            .create()
+            .also { dialog ->
+                dialog.setOnShowListener {
+                    dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                        val url = urlInput.text.toString().trim()
+                        val key = keyInput.text.toString()
+                        if (!coreConfig.save(url, key)) {
+                            urlInput.error = "Укажите корректный HTTPS URL Core"
+                            return@setOnClickListener
+                        }
+                        dialog.dismiss()
+                        outputText.text = if (url.isBlank()) "Core не настроен. Камера и локальная галерея остаются доступны." else "Настройки сохранены. Проверяю Core..."
+                        checkCoreStatus()
+                    }
+                }
+                dialog.show()
+            }
     }
 
     private fun checkCoreStatus() = apiGet("/health") { result -> mainHandler.post { if (result.startsWith("ERROR:")) statusText.text = "Core: OFFLINE" else statusText.text = "Camera/Gallery + Core ONLINE"; outputText.text = result } }
