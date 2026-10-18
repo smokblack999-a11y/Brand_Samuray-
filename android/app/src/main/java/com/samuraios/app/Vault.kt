@@ -2,6 +2,10 @@ package com.samuraios.app
 
 import android.content.Context
 import android.net.Uri
+import androidx.exifinterface.media.ExifInterface
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import java.io.File
 import org.json.JSONObject
 
@@ -38,6 +42,23 @@ object Vault {
             put("accuracyMeters", accuracy ?: JSONObject.NULL)
         }
         metadataFile(photo).writeText(json.toString())
+
+        // Keep GPS in standard JPEG EXIF as well as in the app's sidecar JSON.
+        // If no valid fix exists, do not fabricate coordinates.
+        if (latitude != null && longitude != null &&
+            latitude.isFinite() && longitude.isFinite() &&
+            latitude in -90.0..90.0 && longitude in -180.0..180.0
+        ) {
+            runCatching {
+                ExifInterface(photo.absolutePath).apply {
+                    setLatLong(latitude, longitude)
+                    val formatted = SimpleDateFormat("yyyy:MM:dd HH:mm:ss", Locale.US).format(Date(timestamp))
+                    setAttribute(ExifInterface.TAG_DATETIME, formatted)
+                    setAttribute(ExifInterface.TAG_DATETIME_ORIGINAL, formatted)
+                    saveAttributes()
+                }
+            }
+        }
     }
 
     fun metadata(photo: File): JSONObject? = runCatching {
