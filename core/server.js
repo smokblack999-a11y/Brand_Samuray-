@@ -16,6 +16,7 @@ const { emitHamylionEvent } = require("./hamylion-adapter");
 const dualAI = require("./dual-ai/engine");
 const { checkDraft } = require("./kill-critic");
 const { createCiAgent } = require("./ci-agent");
+const { fetchFailureLogs } = require("./github-actions-logs");
 
 const app = express();
 const PORT = Number(process.env.PORT || 8787);
@@ -98,6 +99,22 @@ app.post("/api/ci/events/:id/analyze", requireApiKey, dualRateLimit, async (req,
   } catch (error) {
     const status = error.code === "CI_EVENT_NOT_FOUND" ? 404 : error.code === "AI_NOT_CONFIGURED" ? 503 : 502;
     return res.status(status).json(errorBody(error.code || "CI_ANALYSIS_FAILED", status === 502 ? "CI analysis failed" : error.message, req.requestId));
+  }
+});
+
+app.post("/api/ci/events/:id/analyze-auto", requireApiKey, dualRateLimit, async (req, res) => {
+  const event = ciAgent.listEvents(200).find(item => item.id === String(req.params.id));
+  if (!event) return res.status(404).json(errorBody("CI_EVENT_NOT_FOUND", "CI event not found", req.requestId));
+  try {
+    const logs = await fetchFailureLogs(event);
+    const result = await ciAgent.analyze(req.params.id, logs);
+    return res.json({ ok: true, ...result, logsFetched: true, requestId: req.requestId });
+  } catch (error) {
+    const status = error.code === "GITHUB_TOKEN_NOT_CONFIGURED" ? 503
+      : error.code === "GITHUB_RUN_NOT_FOUND" || error.code === "GITHUB_EVENT_INVALID" ? 404
+      : error.code === "AI_NOT_CONFIGURED" ? 503 : 502;
+    const publicMessage = status === 503 ? error.message : status === 404 ? error.message : "Automatic CI log retrieval or analysis failed";
+    return res.status(status).json(errorBody(error.code || "CI_AUTO_ANALYSIS_FAILED", publicMessage, req.requestId));
   }
 });
 
