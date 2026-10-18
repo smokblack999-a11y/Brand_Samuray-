@@ -21,8 +21,8 @@ setup_password() {
     (("${#p1}" >= 10)) || { echo "Слишком короткий пароль."; continue; }
     read -r -s -p "Повторите пароль: " p2; printf '\n'
     [[ "$p1" == "$p2" ]] || { echo "Пароли не совпадают."; continue; }
-    salt="$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')"
-    hash="$(openssl passwd -6 -salt "$salt" "$p1")"
+    salt="$(od -An -N8 -tx1 /dev/urandom | tr -d ' \n')"
+    hash="$(openssl passwd -6 -rounds 100000 -salt "$salt" "$p1")"
     printf '%s\n%s\n' "$salt" "$hash" > "$CREDENTIAL"
     chmod 600 "$CREDENTIAL"
     unset p1 p2
@@ -39,7 +39,7 @@ authenticate() {
   [[ -n "$salt" && -n "$expected" ]] || die "Файл пароля повреждён: $CREDENTIAL"
   for tries in 1 2 3; do
     read -r -s -p "Пароль SAMURAI: " entered; printf '\n'
-    actual="$(openssl passwd -6 -salt "$salt" "$entered")"
+    actual="$(openssl passwd -6 -rounds 100000 -salt "$salt" "$entered")"
     unset entered
     if [[ "$actual" == "$expected" ]]; then
       echo "Доступ разрешён."
