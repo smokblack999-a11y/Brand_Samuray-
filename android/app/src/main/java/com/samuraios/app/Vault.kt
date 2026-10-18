@@ -51,7 +51,7 @@ object Vault {
         ) {
             runCatching {
                 ExifInterface(photo.absolutePath).apply {
-                    setLatLong(latitude, longitude)
+                    setLatLong(doubleArrayOf(latitude, longitude))
                     val formatted = SimpleDateFormat("yyyy:MM:dd HH:mm:ss", Locale.US).format(Date(timestamp))
                     setAttribute(ExifInterface.TAG_DATETIME, formatted)
                     setAttribute(ExifInterface.TAG_DATETIME_ORIGINAL, formatted)
