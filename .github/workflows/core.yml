@@ -55,6 +55,7 @@ jobs:
           node --check rate-limit.js
           node --check openai.js
           node --check ci-agent.js
+          node --check github-actions-logs.js
           node --check business-bot.js
           node --check store.js
           node --check lead-engine.js
