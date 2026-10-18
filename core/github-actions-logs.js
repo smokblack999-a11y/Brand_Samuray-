@@ -6,6 +6,17 @@ const MAX_ARCHIVE_BYTES = 10 * 1024 * 1024;
 const MAX_OUTPUT_BYTES = 1024 * 1024;
 const MAX_LOG_CHARS = 12000;
 
+function redactSecrets(input) {
+  return String(input || "")
+    .replace(/-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----[\\s\\S]*?-----END (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/g, "[REDACTED_PRIVATE_KEY]")
+    .replace(/\\bgh[pousr]_[A-Za-z0-9_]{20,}\\b/g, "[REDACTED_GITHUB_TOKEN]")
+    .replace(/\\bgithub_pat_[A-Za-z0-9_]{20,}\\b/g, "[REDACTED_GITHUB_TOKEN]")
+    .replace(/\\bsk-(?:proj|svcacct)-[A-Za-z0-9_-]{20,}\\b/g, "[REDACTED_API_KEY]")
+    .replace(/\\bAKIA[0-9A-Z]{16}\\b/g, "[REDACTED_AWS_ACCESS_KEY]")
+    .replace(/(authorization\\s*[:=]\\s*bearer\\s+)[^\\s"'<>]+/gi, "$1[REDACTED]")
+    .replace(/((?:password|passwd|secret|api[_-]?key|access[_-]?token|refresh[_-]?token)\\s*[:=]\\s*)[^\\s,;]+/gi, "$1[REDACTED]");
+}
+
 function extractZipText(zipBuffer) {
   if (!Buffer.isBuffer(zipBuffer) || zipBuffer.length > MAX_ARCHIVE_BYTES) {
     const error = new Error("GitHub log archive is missing or too large");
@@ -130,4 +141,4 @@ async function fetchFailureLogs(event, options = {}) {
   return logs;
 }
 
-module.exports = { fetchFailureLogs, extractZipText };
+module.exports = { fetchFailureLogs, extractZipText, redactSecrets };
