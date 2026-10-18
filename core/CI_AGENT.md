@@ -7,6 +7,7 @@ CI-AGENT receives signed GitHub Actions workflow-run events and produces an AI-a
 Set these on the SamuraiOS Core service:
 
 - `GITHUB_WEBHOOK_SECRET`: a long random secret shared with the GitHub webhook.
+- `GITHUB_TOKEN`: a fine-grained GitHub token with **Actions: read-only** access to the repository. Needed only for automatic log retrieval.
 - `CORE_API_KEY`: existing SamuraiOS API key protecting administrative endpoints.
 - `OPENAI_API_KEY`: required only for AI diagnosis.
 - `CI_AGENT_MODEL`: optional; overrides `OPENAI_MODEL` for CI diagnosis.
@@ -31,7 +32,14 @@ curl -fsS 'https://YOUR-DOMAIN/api/ci/events?limit=20' \
   -H 'X-API-Key: YOUR_CORE_API_KEY'
 ```
 
-Analyze a known event by supplying relevant logs (maximum 12,000 characters):
+Automatically fetch logs for a known failed run and analyze them (requires `GITHUB_TOKEN`):
+
+```sh
+curl -fsS -X POST 'https://YOUR-DOMAIN/api/ci/events/RUN_ID/analyze-auto' \\
+  -H 'X-API-Key: YOUR_CORE_API_KEY'
+```
+
+For manual analysis, you can still supply relevant logs (maximum 12,000 characters):
 
 ```sh
 curl -fsS -X POST 'https://YOUR-DOMAIN/api/ci/events/RUN_ID/analyze' \
@@ -49,7 +57,7 @@ The response status is `suggestion_only`. Review the diagnosis and proposed patc
 ## Current limitations
 
 - Events are held in process memory and disappear on restart; multiple replicas do not share event state.
-- The service records workflow metadata but does **not** fetch job logs automatically. A caller must supply the log excerpt to the analysis endpoint.
-- Log input is bounded, but callers should remove credentials, personal data, and other secrets before submitting logs to an external AI provider.
+- Automatic log retrieval uses the GitHub Actions Jobs API and requires `GITHUB_TOKEN` with Actions read-only access. It inspects up to 10 failed/timed-out/cancelled jobs, limits the downloaded archive to 10 MB and extracted log text to 12,000 characters. GitHub log archives are temporary and are not stored by this service.
+- Log input is bounded, but logs can still contain secrets or personal data. Review your repository's log output and access policy before sending logs to an external AI provider; automatic retrieval does not guarantee secret redaction.
 - A valid webhook signature authenticates the sender that knows the configured secret; use a unique, high-entropy secret and keep it private.
 - No automatic repository writes, commits, merges, or reruns are performed.
