@@ -63,7 +63,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         cameraExecutor = Executors.newSingleThreadExecutor()
         buildUi()
-        if (hasPermissions()) startCamera() else ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.CAMERA, Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION), permissionRequest)
+        if (hasCameraPermission()) { startCamera(); if (!hasLocationPermission()) ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION), permissionRequest) } else ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.CAMERA, Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION), permissionRequest)
         refreshGallery()
         checkCoreStatus()
     }
