@@ -46,14 +46,17 @@ class CoreConfigStore(context: Context) {
         }
 
         return runCatching {
-            val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-            cipher.init(Cipher.ENCRYPT_MODE, loadKey())
-            val encrypted = cipher.doFinal(apiKeyInput.trim().toByteArray(Charsets.UTF_8))
-            prefs.edit()
-                .putString(KEY_URL, url)
-                .putString(KEY_CIPHER, Base64.encodeToString(encrypted, Base64.NO_WRAP))
-                .putString(KEY_IV, Base64.encodeToString(cipher.iv, Base64.NO_WRAP))
-                .apply()
+            val editor = prefs.edit().putString(KEY_URL, url)
+            val newKey = apiKeyInput.trim()
+            // An empty password field means "keep the saved key", not "erase it".
+            if (newKey.isNotEmpty()) {
+                val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+                cipher.init(Cipher.ENCRYPT_MODE, loadKey())
+                val encrypted = cipher.doFinal(newKey.toByteArray(Charsets.UTF_8))
+                editor.putString(KEY_CIPHER, Base64.encodeToString(encrypted, Base64.NO_WRAP))
+                    .putString(KEY_IV, Base64.encodeToString(cipher.iv, Base64.NO_WRAP))
+            }
+            editor.apply()
             true
         }.getOrDefault(false)
     }
