@@ -3,7 +3,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const { deflateRawSync } = require("node:zlib");
-const { fetchFailureLogs, extractZipText } = require("../github-actions-logs");
+const { fetchFailureLogs, extractZipText, redactSecrets } = require("../github-actions-logs");
 
 function makeZip(name, text) {
   const filename = Buffer.from(name);
@@ -36,6 +36,21 @@ function makeZip(name, text) {
   eocd.writeUInt32LE(localRecord.length, 16);
   return Buffer.concat([localRecord, centralRecord, eocd]);
 }
+
+test("log redaction masks common API credentials before AI analysis", () => {
+  const input = [
+    "token=ghp_abcdefghijklmnopqrstuvwxyz1234567890",
+    "OPENAI_API_KEY=sk-proj-abcdefghijklmnopqrstuvwxyz1234567890",
+    "Authorization: Bearer very-secret-token",
+    "password=hunter2"
+  ].join("\\n");
+  const result = redactSecrets(input);
+  assert.doesNotMatch(result, /ghp_abcdefghijklmnopqrstuvwxyz/);
+  assert.doesNotMatch(result, /sk-proj-abcdefghijklmnopqrstuvwxyz/);
+  assert.doesNotMatch(result, /Bearer very-secret-token/);
+  assert.doesNotMatch(result, /password=hunter2/);
+  assert.match(result, /REDACTED/);
+});
 
 test("ZIP parser extracts text logs from a bounded GitHub archive", () => {
   const logs = extractZipText(makeZip("failed-job.txt", "Error: module not found"));
