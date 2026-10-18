@@ -187,10 +187,10 @@ class MainActivity : ComponentActivity() {
             setText(coreUrl)
         }
         val keyInput = EditText(this).apply {
-            hint = "CORE_API_KEY"
+            hint = "Новый CORE_API_KEY (пусто — оставить прежний)"
             setSingleLine(true)
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
-            setText(coreApiKey)
+            // Keep the existing secret out of the UI; leave blank to preserve it.
         }
         form.addView(urlInput, LinearLayout.LayoutParams(-1, -2))
         form.addView(keyInput, LinearLayout.LayoutParams(-1, -2))
