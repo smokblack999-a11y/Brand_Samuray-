@@ -399,13 +399,26 @@ app.post("/api/lead/analyze", requireApiKey, leadRateLimit, async (req, res) => 
 });
 
 app.post("/api/telegram/webhook", requireWebhookSecret, async (req, res) => {
+  const commerceUpdate = req.body || {};
+  if (commerceUpdate.callback_query || commerceUpdate.message) {
+    try {
+      const handled = await commerceTelegramBot.handleUpdate(commerceUpdate);
+      if (handled) return res.sendStatus(200);
+    } catch (error) {
+      console.error(JSON.stringify({
+        event: "commerce_telegram_update_failed",
+        requestId: req.requestId,
+        code: error.code || "TELEGRAM_UPDATE_FAILED"
+      }));
+      return res.sendStatus(500);
+    }
+  }
+
+  // The existing Telegram Business lead path keeps its immediate acknowledgement
+  // and event-claim behavior. Standard commerce Bot API updates are handled above.
   res.sendStatus(200);
   try {
     const update = req.body || {};
-    if (update.callback_query || update.message) {
-      const handled = await commerceTelegramBot.handleUpdate(update);
-      if (handled) return;
-    }
     if (update.business_connection) {
       console.log(JSON.stringify({ event: "business_connection", id: update.business_connection.id, requestId: req.requestId }));
       return;
