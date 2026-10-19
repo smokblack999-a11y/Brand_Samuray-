@@ -29,16 +29,27 @@ function itemSummary(order) {
 
 function createTelegramCommerceDelivery({
   sendMessage = payload => telegram("sendMessage", payload),
-  dispatchChatId = process.env.COMMERCE_DISPATCH_CHAT_ID || ""
+  sendPhoto = payload => telegram("sendPhoto", payload),
+  dispatchChatId = process.env.COMMERCE_DISPATCH_CHAT_ID || "",
+  courierChatIds = String(process.env.COMMERCE_COURIER_CHAT_IDS || "").split(",").map(x => x.trim()).filter(x => /^[1-9]\\d{0,19}$/.test(x)).slice(0, 10)
 } = {}) {
-  if (typeof sendMessage !== "function") throw fail("INVALID_TELEGRAM_SENDER", "sendMessage callback is required");
+  if (typeof sendMessage !== "function" || typeof sendPhoto !== "function") throw fail("INVALID_TELEGRAM_SENDER", "sendMessage and sendPhoto callbacks are required");
 
-  async function send(chatId, message) {
+  async function send(chatId, message, replyMarkup = null) {
     const recipient = cleanInline(chatId, 100);
     if (!recipient) throw fail("TELEGRAM_RECIPIENT_MISSING", "Telegram recipient is not configured");
     const text = String(message || "").trim().slice(0, 4096);
     if (!text) throw fail("TELEGRAM_MESSAGE_EMPTY", "Telegram message is empty");
-    await sendMessage({ chat_id: recipient, text });
+    const payload = { chat_id: recipient, text };
+    if (replyMarkup) payload.reply_markup = replyMarkup;
+    await sendMessage(payload);
+  }
+
+  async function sendProofPhoto(chatId, fileId, caption) {
+    const recipient = cleanInline(chatId, 100);
+    if (!recipient) throw fail("TELEGRAM_RECIPIENT_MISSING", "Telegram recipient is not configured");
+    if (!fileId || String(fileId).length > 512) throw fail("INVALID_DELIVERY_PROOF", "Telegram photo file ID is invalid");
+    await sendPhoto({ chat_id: recipient, photo: fileId, caption: String(caption || "").slice(0, 1024) });
   }
 
   async function deliver({ event, order }) {
@@ -66,30 +77,35 @@ function createTelegramCommerceDelivery({
         if (!cleanInline(dispatchChatId, 100)) {
           throw fail("COMMERCE_DISPATCH_NOT_CONFIGURED", "COMMERCE_DISPATCH_CHAT_ID is required for paid delivery orders");
         }
+        const courierKeyboard = courierChatIds.length ? { inline_keyboard: courierChatIds.map(id => [{ text: `Назначить курьера …${id.slice(-4)}`, callback_data: `a:${order.id}:${id}` }]) } : null;
         await send(dispatchChatId,
-          `Требуется курьер: ${heading}\nСумма: ${total}\nТовары:\n${lines}\nНазначьте курьера через защищённый API. Адрес и телефон будут переданы только назначенному курьеру.`);
+          `Требуется курьер: ${heading}\nСумма: ${total}\nТовары:\n${lines}\nВыберите курьера. Адрес и телефон будут переданы только назначенному курьеру.`, courierKeyboard);
         return;
       case "CourierAssigned":
         if (order.fulfilment !== "delivery" || !cleanInline(order.courierId, 100)) {
           throw fail("COMMERCE_COURIER_NOT_CONFIGURED", "A delivery order with an assigned courier is required");
         }
         await send(order.courierId,
-          `Вам назначена доставка ${cleanInline(order.id, 40)}.\nТовары:\n${lines}\nСумма заказа: ${total}\nАдрес: ${cleanInline(order.address, 900)}\nТелефон: ${cleanInline(order.phone || "не указан", 40)}\nКомментарий: ${cleanInline(order.note || "нет", 300)}\nПодтверждение завершения — через доверенный процесс доставки.`);
+          `Вам назначена доставка ${cleanInline(order.id, 40)}.\nТовары:\n${lines}\nСумма заказа: ${total}\nАдрес: ${cleanInline(order.address, 900)}\nТелефон: ${cleanInline(order.phone || "не указан", 40)}\nКомментарий: ${cleanInline(order.note || "нет", 300)}\nНажмите «Начать доставку», затем отправьте фото подтверждения.`,
+          { inline_keyboard: [[{ text: "Начать доставку", callback_data: `s:${order.id}` }]] });
         await send(customerId, `${heading}: назначен курьер. Сумма: ${total}.`);
         return;
       case "DeliveryStarted":
         await send(customerId, `Курьер выехал по заказу ${cleanInline(order.id, 40)}.`);
         return;
       case "PickupReady":
-        await send(customerId, `Заказ ${cleanInline(order.id, 40)} готов к самовывозу. Пункт выдачи: ${cleanInline(order.pickupPoint, 300)}.`);
+        await send(customerId, `Заказ ${cleanInline(order.id, 40)} готов к самовывозу. Пункт выдачи: ${cleanInline(order.pickupPoint, 300)}.`,
+          { inline_keyboard: [[{ text: "Я забрал заказ", callback_data: `p:${order.id}` }]] });
         return;
       case "OrderDelivered":
       case "OrderPickedUp": {
         const status = event.type === "OrderDelivered" ? "доставка завершена" : "самовывоз подтверждён";
         const proof = cleanInline(order.deliveryProof?.photoUrl, 2048);
+        const fileId = cleanInline(order.deliveryProof?.photoFileId, 512);
         const note = cleanInline(order.deliveryProof?.note, 300);
-        await send(customerId,
-          `Заказ ${cleanInline(order.id, 40)}: ${status}.${proof ? "\nПодтверждение: " + proof : ""}${note ? "\nКомментарий: " + note : ""}`);
+        const caption = `Заказ ${cleanInline(order.id, 40)}: ${status}.${note ? "\\nКомментарий: " + note : ""}`;
+        if (event.type === "OrderDelivered" && fileId) await sendProofPhoto(customerId, fileId, caption);
+        else await send(customerId, `${caption}${proof ? "\\nПодтверждение: " + proof : ""}`);
         return;
       }
       case "OrderCancelled":
