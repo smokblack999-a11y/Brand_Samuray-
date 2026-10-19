@@ -37,10 +37,18 @@ function createCiAgentStore(options = {}) {
       events: Array.isArray(snapshot?.events) ? snapshot.events.slice(-500) : [],
       deliveries: Array.isArray(snapshot?.deliveries) ? snapshot.deliveries.slice(-1000) : []
     }) + "\n";
+    let fd;
     try {
-      fs.writeFileSync(temporaryPath, payload, { encoding: "utf8", mode: 0o600 });
+      fd = fs.openSync(temporaryPath, "w", 0o600);
+      fs.writeFileSync(fd, payload, "utf8");
+      fs.fsyncSync(fd);
+      fs.closeSync(fd);
+      fd = undefined;
       fs.renameSync(temporaryPath, filePath);
     } catch (error) {
+      if (fd !== undefined) {
+        try { fs.closeSync(fd); } catch {}
+      }
       try { fs.rmSync(temporaryPath, { force: true }); } catch {}
       error.code = error.code || "CI_AGENT_STATE_WRITE_FAILED";
       throw error;
