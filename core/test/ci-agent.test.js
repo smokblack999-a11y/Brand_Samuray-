@@ -114,3 +114,54 @@ test("AI analysis returns a suggestion, never a fixed status", async () => {
   assert.equal(result.suggestion, "Check the import path.");
   await assert.rejects(ci.analyze("999", ""), { code: "CI_EVENT_NOT_FOUND" });
 });
+
+
+test("failed webhook queues background analysis and exposes suggestion-only result", async () => {
+  let calls = 0;
+  const ci = createCiAgent({
+    secret: "secret",
+    processFailure: async event => {
+      calls++;
+      assert.equal(event.id, "123");
+      return { suggestion: "Inspect the failing import.", logsFetched: true, critic: { decision: "REVIEW_REQUIRED", findings: [] } };
+    }
+  });
+  const res = response();
+  ci.webhook(request(failedRun(), "secret"), res);
+  assert.equal(res.statusCode, 202);
+  assert.equal(res.body.queued, true);
+  assert.ok(["queued", "running", "suggestion_only"].includes(res.body.event.analysis.status));
+
+  for (let i = 0; i < 30 && ci.listEvents()[0].analysis.status !== "suggestion_only"; i++) {
+    await new Promise(resolve => setTimeout(resolve, 10));
+  }
+  const event = ci.listEvents()[0];
+  assert.equal(event.analysis.status, "suggestion_only");
+  assert.equal(event.analysis.suggestion, "Inspect the failing import.");
+  assert.equal(event.analysis.critic.decision, "REVIEW_REQUIRED");
+  assert.equal(calls, 1);
+});
+
+test("background queue retries once and records a bounded failure state", async () => {
+  let calls = 0;
+  const ci = createCiAgent({
+    secret: "secret",
+    processFailure: async () => {
+      calls++;
+      const error = new Error("private details must not be stored");
+      error.code = "UPSTREAM_DOWN";
+      throw error;
+    }
+  });
+  const res = response();
+  ci.webhook(request(failedRun(), "secret"), res);
+  for (let i = 0; i < 50 && ci.listEvents()[0].analysis.status !== "failed"; i++) {
+    await new Promise(resolve => setTimeout(resolve, 20));
+  }
+  const event = ci.listEvents()[0];
+  assert.equal(event.analysis.status, "failed");
+  assert.equal(event.analysis.attempts, 2);
+  assert.equal(event.analysis.errorCode, "UPSTREAM_DOWN");
+  assert.equal(JSON.stringify(event.analysis).includes("private details"), false);
+  assert.equal(calls, 2);
+});

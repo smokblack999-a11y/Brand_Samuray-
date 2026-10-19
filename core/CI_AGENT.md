@@ -1,6 +1,6 @@
 # CI-AGENT setup and verification
 
-CI-AGENT receives signed GitHub Actions workflow-run events and produces an AI-assisted diagnosis for a human to review. It does **not** modify repository files, create commits, rerun workflows, or mark failures as fixed.
+CI-AGENT receives signed GitHub Actions workflow-run events, queues bounded background analysis, fetches failed job logs, redacts common credential patterns, and produces an AI-assisted diagnosis for a human to review. Kill Critic findings are attached for review; they do not authorize code changes. It does **not** modify repository files, create commits, rerun workflows, deploy, or mark failures as fixed.
 
 ## Required environment
 
@@ -10,7 +10,7 @@ Set these on the SamuraiOS Core service:
 - `GITHUB_TOKEN`: a fine-grained GitHub token with **Actions: read-only** access to the repository. Needed only for automatic log retrieval.
 - `CORE_API_KEY`: existing SamuraiOS API key protecting administrative endpoints.
 - `OPENAI_API_KEY`: required only for AI diagnosis.
-- `CI_AGENT_MODEL`: optional; overrides `OPENAI_MODEL` for CI diagnosis.
+- `CI_AGENT_MODEL`: model ID supported by this OpenAI account; overrides `OPENAI_MODEL`. At least one of these must be set for analysis. The service deliberately has no guessed default model.
 - `OPENAI_TIMEOUT_MS`: existing OpenAI timeout setting.
 
 Do not commit real values to the repository.
@@ -52,12 +52,12 @@ curl -fsS -X POST 'https://YOUR-DOMAIN/api/ci/events/RUN_ID/analyze' \
 JSON
 ```
 
-The response status is `suggestion_only`. Review the diagnosis and proposed patch before changing code.
+The webhook now queues analysis in the background and returns promptly. Check `GET /api/ci/events?limit=20` for each event's `analysis.status`: `queued`, `running`, `retrying`, `suggestion_only`, `failed`, or `queue_full`. The in-memory queue holds at most 50 waiting events and makes at most two attempts per event. Queue and event state are lost on process restart. The `suggestion_only` result is not a fix and never changes repository files. Kill Critic is run against the generated suggestion and its decision/findings are recorded for human review. The protected `/analyze-auto` endpoint remains available for manual retry/inspection.
 
 ## Current limitations
 
-- Events are held in process memory and disappear on restart; multiple replicas do not share event state.
+- Events, queue state, and analysis results are held in process memory and disappear on restart; multiple replicas do not share state. This in-process queue is a first production step, not a durable queue: use a persistent queue/database before horizontal scaling or relying on crash recovery.
 - Automatic log retrieval uses the GitHub Actions Jobs API and requires `GITHUB_TOKEN` with Actions read-only access. It inspects up to 10 failed/timed-out/cancelled jobs, limits the downloaded archive to 10 MB and extracted log text to 12,000 characters. GitHub log archives are temporary and are not stored by this service.
-- Log input is bounded, but logs can still contain secrets or personal data. Review your repository's log output and access policy before sending logs to an external AI provider; automatic retrieval does not guarantee secret redaction.
+- Log input is bounded and common credentials are redacted before analysis, but this cannot guarantee removal of every secret or personal datum. Review repository logs and data-handling policy before sending logs to an external AI provider.
 - A valid webhook signature authenticates the sender that knows the configured secret; use a unique, high-entropy secret and keep it private.
 - No automatic repository writes, commits, merges, or reruns are performed.

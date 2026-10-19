@@ -138,7 +138,7 @@ async function fetchFailureLogs(event, options = {}) {
     error.code = "GITHUB_LOGS_EMPTY";
     throw error;
   }
-  return logs;
+  return redactSecrets(logs);
 }
 
 module.exports = { fetchFailureLogs, extractZipText, redactSecrets };
