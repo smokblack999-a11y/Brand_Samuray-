@@ -158,16 +158,23 @@ test("unauthorized dispatcher callback cannot assign a courier", async t => {
   assert.match(lastMessage(c.calls).text, /Недостаточно прав|устарела|меню/);
 });
 
-test("sessions persist between bot instances and pickup can be confirmed without photo", async t => {
+test("in-progress checkout survives bot restart and pickup can be confirmed without photo", async t => {
   const c = setup({ paymentMode: "test", isProduction: false }); t.after(c.cleanup);
   await c.bot.handleUpdate(callback("12345", "q:" + c.product.id + ":1", "cb-q-pick"));
   await c.bot.handleUpdate(callback("12345", "f:p", "cb-f-pick"));
-  await c.bot.handleUpdate(message("12345", "Central pickup point"));
-  await c.bot.handleUpdate(message("12345", "-"));
-  const [brief] = c.commerce.listCustomerOrders({ customerId: "12345" });
   const reloaded = require("../commerce").createCommerceService({
     filePath: path.join(c.dir, "commerce.json")
   });
+  assert.equal(reloaded.getConversation("12345").stage, "awaiting_pickup_point");
+  const restartedBot = createCommerceTelegramBot({
+    commerce: reloaded,
+    paymentMode: "test",
+    isProduction: false,
+    callTelegram: async (method, payload) => c.calls.push({ method, payload })
+  });
+  await restartedBot.handleUpdate(message("12345", "Central pickup point"));
+  await restartedBot.handleUpdate(message("12345", "-"));
+  const [brief] = reloaded.listCustomerOrders({ customerId: "12345" });
   assert.equal(reloaded.getOrder(brief.id).fulfilment, "pickup");
   assert.equal(reloaded.getConversation("12345"), null);
   reloaded.confirmPayment({ orderId: brief.id, eventId: "pickup-test-payment", amountKzt: brief.totalKzt, method: "manual_review", trusted: true });
