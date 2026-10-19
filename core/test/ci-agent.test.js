@@ -3,6 +3,10 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const crypto = require("node:crypto");
+const os = require("node:os");
+const path = require("node:path");
+const fs = require("node:fs");
+const { createCiAgentStore } = require("../ci-agent-store");
 const { createCiAgent, verifyGitHubSignature, normalizeWorkflowRun } = require("../ci-agent");
 
 function signed(secret, body) {
@@ -164,4 +168,40 @@ test("background queue retries once and records a bounded failure state", async 
   assert.equal(event.analysis.errorCode, "UPSTREAM_DOWN");
   assert.equal(JSON.stringify(event.analysis).includes("private details"), false);
   assert.equal(calls, 2);
+});
+
+
+test("durable store restores queued work and remembers webhook deliveries", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ci-agent-store-"));
+  const stateFile = path.join(dir, "state.json");
+  const store = createCiAgentStore(stateFile);
+  const event = normalizeWorkflowRun(failedRun());
+  event.analysis = { status: "queued", attempts: 0, queuedAt: new Date().toISOString() };
+  store.save({ events: [event], deliveries: ["delivery-previous"] });
+
+  let calls = 0;
+  const ci = createCiAgent({
+    secret: "secret",
+    stateFile,
+    processFailure: async recovered => {
+      calls++;
+      assert.equal(recovered.id, "123");
+      return { suggestion: "Recovered after restart", logsFetched: true };
+    }
+  });
+
+  const duplicate = response();
+  ci.webhook(request(failedRun(), "secret", "delivery-previous"), duplicate);
+  assert.equal(duplicate.statusCode, 200);
+  assert.equal(duplicate.body.duplicate, true);
+
+  for (let i = 0; i < 40 && ci.listEvents()[0]?.analysis.status !== "suggestion_only"; i++) {
+    await new Promise(resolve => setTimeout(resolve, 10));
+  }
+  assert.equal(ci.listEvents()[0].analysis.status, "suggestion_only");
+  assert.equal(ci.listEvents()[0].analysis.suggestion, "Recovered after restart");
+  assert.equal(calls, 1);
+  const persisted = store.load();
+  assert.equal(persisted.events[0].analysis.status, "suggestion_only");
+  fs.rmSync(dir, { recursive: true, force: true });
 });
