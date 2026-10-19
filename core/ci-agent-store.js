@@ -5,7 +5,7 @@ const path = require("node:path");
 
 function createCiAgentStore(options = {}) {
   const dataDir = options.dataDir || process.env.DATA_DIR || path.join(__dirname, "data");
-  const filePath = options.filePath || path.join(dataDir, "ci-agent-state.json");
+  const filePath = options.filePath || process.env.CI_AGENT_STATE_FILE || path.join(dataDir, "ci-agent-state.json");
 
   function load() {
     if (!fs.existsSync(filePath)) return { events: [], deliveries: [] };
