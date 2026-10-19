@@ -1,52 +1,61 @@
 # AWS Builder review for Samurai Commerce
 
-Reviewed AWS Builder Center guidance on event-driven order processing, asynchronous bot pipelines, idempotency, practical AI agents, and failure recovery on 2026-10-20.
+Reviewed AWS Builder Center guidance on event-driven order processing, async bot pipelines, idempotency, practical AI agents and failure recovery on 2026-10-20.
 
-## Highest-value design changes for Brand_Samuray-
+## Architecture changes: implemented versus remaining
 
-### 1. Transactional outbox before automatic Telegram notifications
-Current commerce domain code persists order/payment state but does not yet publish notifications. When the Telegram integration is added, do not save an order and then rely on a best-effort direct send. Store an outbox event in the same durable transaction as the order transition. A worker sends the event and marks it delivered; retries reuse the same event ID. This prevents a process crash between order persistence and notification scheduling from silently losing the notification.
+### 1. Transactional outbox — implemented in the single-process MVP
 
-Required event types: OrderPlaced, PaymentConfirmed, CourierDeliveryRequested, CourierAssigned, DeliveryStarted, PickupReady, OrderDelivered, OrderPickedUp, OrderCancelled.
+Commerce state changes append outbox events in the same atomic JSON state replacement. Events include OrderPlaced, PaymentConfirmed, CourierDeliveryRequested, CourierAssigned, DeliveryStarted, PickupReady, OrderDelivered, OrderPickedUp and OrderCancelled. The worker processes pending events, preserves event IDs across retries, records bounded error details, and moves repeatedly failing events to dead_letter. A protected API can inspect and explicitly requeue dead-letter events.
 
-### 2. Idempotency at business-operation level
-Payment provider event IDs are not enough for every downstream effect. Give each notification/delivery command a stable event ID and make each consumer safe to process it more than once. Persist delivery attempts and last error. Never retry a payment charge without a stable provider-supported idempotency key and reconciliation path.
+This avoids the classic "order saved but event never scheduled" crash gap within the current single-process file-store model. It does not provide a distributed transaction or multi-process safety.
 
-### 3. Separate order acceptance from slow downstream work
-The customer request should synchronously validate product, price, stock, fulfilment and address/pickup details. After the order is durably accepted, send Telegram notifications, courier assignment messages, media processing, and analytics asynchronously. Report truthful states such as accepted, processing, delivered, or failed; do not say a task completed merely because it was queued.
+### 2. Idempotency — partly implemented
 
-### 4. Retries, dead-letter handling, and operational visibility
-If/when the system uses a managed queue, configure bounded retries, a dead-letter queue, alerting on backlog/age, and partial-batch failure handling. Ensure retry and visibility settings match the actual worker timeout. For the current single-process JSON MVP, implement a durable outbox/retry worker first; do not add AWS infrastructure until the workload and budget justify it.
+Provider/bank event IDs are checked for payment confirmation. Repeating the same courier assignment no longer appends another CourierAssigned event. Worker retries preserve the same outbox event ID. However, a crash after Telegram accepts a message and before the local delivered marker is saved can still produce a duplicate message: the Telegram Bot API does not supply a general idempotency key for outgoing messages. Delivery is at-least-once, not exactly-once.
 
-### 5. Keep the AI assistant outside payment authority
-AI can answer catalog questions, summarize orders and help staff triage exceptions. Deterministic server-side rules and verified provider/bank signals must control prices, stock, payment status, courier permissions and fulfilment. Apply least privilege, bounded AI actions, and cost limits.
+### 3. Separate order acceptance from slow downstream work — implemented for notifications
 
-## Proposed flow
+Product, price, stock, fulfilment type and required delivery/pickup details are validated synchronously. Order plus outbox state is committed before Telegram notification delivery is attempted. The outbox worker is optional and disabled by default; enable it only after configuring bot token, dispatcher chat and allowed courier IDs.
 
-Telegram customer -> Core API -> validate and persist order + outbox event -> outbox worker -> Telegram customer/admin/courier.
-Payment provider/bank -> verified webhook -> Core payment validation + durable payment event -> outbox worker -> notify customer and courier workflow.
-Courier identity + assigned order -> delivery state transition + proof reference -> outbox worker -> customer receives delivery proof.
+### 4. Bounded retries and dead letters — implemented; production observability remains
+
+The JSON outbox tracks attempts and last error with token-pattern redaction; repeated failures go to dead_letter and require explicit replay. There are not yet metrics/alerts for backlog age, a dedicated operator console, distributed locking, or a managed queue. AWS SQS/EventBridge/Lambda should be introduced only when traffic and deployment requirements justify them.
+
+### 5. Keep AI outside payment authority — enforced in the current flow by separation
+
+AI is not allowed to set prices, claim payment received, assign a courier or confirm fulfilment. The current payment simulation is explicitly test-only, creates no real payment, and is blocked in production configuration. Real payment processing requires signature-verified provider webhooks or a bank API, reconciliation and refund handling before the production state transition can be trusted.
+
+## Implemented flow
+
+Private Telegram customer -> catalog -> checkout -> order + outbox event -> optional notification worker -> Telegram customer/dispatcher/courier.
+
+The checkout supports delivery or pickup, computes totals server-side and stores private-chat conversation state. For test mode outside production, payment can be simulated with a clearly-labelled action; default payment mode is disabled. Dispatcher assignment buttons are shown only for configured courier chat IDs. Only the assigned courier can start and finish delivery through the bot; completion requires a Telegram photo file ID, which is sent to the customer by the outbox adapter.
+
+Internal commerce HTTP endpoints require CORE_API_KEY. They are privileged server/admin endpoints, not safe for client applications. Role-based staff authentication is not yet implemented. JSON state is for MVP/testing only and is unsafe for multiple replicas.
 
 ## Measurement and the 22% threshold
 
-No measured baseline, production traffic, or benchmark from this repository proves a 22% improvement today. Treat 22% as an acceptance threshold, not a claim.
+No production traffic, benchmark, or baseline from this repository proves a 22% gain today. Treat 22% as an acceptance threshold rather than a claim.
 
-Before/after benchmark targets:
-- Notification delivery completion rate within a defined time window.
+Measure before/after:
+- Notification delivery completion rate in a defined time window.
 - Lost notifications after simulated crashes.
 - Duplicate business effects per 1,000 replayed events.
 - p50/p95 time to acknowledge a valid order.
 - Mean time to recover failed notifications.
 - Cost per completed order.
 
-Test cases must include crash after persistence but before send, timeout after Telegram accepts a message, duplicate provider webhook, worker restart, and an unavailable Telegram API. Report measured results and sample size; only claim >=22% when the chosen metric improves by at least that amount without regressing payment/order correctness.
+Scenarios must include process crash after persistence but before send, timeout after Telegram accepts a message, duplicate payment webhook, worker restart, unavailable Telegram API and dead-letter replay. Report sample size and values. Claim >=22% only for a metric that actually improves by at least that amount without regressing payment/order correctness.
 
-## Current project limitations
+## Remaining production blockers
 
-- The commerce module is an isolated domain layer and is not yet wired to public HTTP or Telegram routes.
-- No production payment provider, signed webhook verification, role-based courier authorization, media upload, delivery fee calculation, refund workflow, or production database is implemented here.
-- JSON persistence is single-process MVP/test storage and is not safe for multi-replica use.
-- No AWS account/resource deployment or cost estimate has been verified in this repository.
+- Real payment provider and signed webhook verification, reconciliation, refunds and order expiry.
+- Dedicated role-based dispatcher/courier authentication and audit trail.
+- Production database and multi-process-safe queue/locking.
+- Operational metrics, dead-letter alerts, retention and real Telegram acceptance tests.
+- Delivery fee rules and durable media/photo retention beyond a Telegram file ID.
+- Live Telegram Bot API delivery has not been verified in this repository. No AWS resources were deployed or costed.
 
 ## Sources reviewed
 
