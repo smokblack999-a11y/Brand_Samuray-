@@ -122,8 +122,13 @@ object Vault {
         val temp = File(photo.parentFile, photo.name + ".stamp.tmp")
         temp.outputStream().use { out -> if (!bitmap.compress(Bitmap.CompressFormat.JPEG, 95, out)) throw IllegalStateException("JPEG stamp encoding failed") }
         bitmap.recycle()
+        val backup = File(photo.parentFile, photo.name + ".stamp.bak")
+        if (!photo.renameTo(backup)) { temp.delete(); throw IllegalStateException("Could not stage original photo") }
         if (!temp.renameTo(photo)) {
-            if (!photo.delete() || !temp.renameTo(photo)) { temp.delete(); throw IllegalStateException("Could not replace stamped photo") }
+            backup.renameTo(photo)
+            temp.delete()
+            throw IllegalStateException("Could not replace stamped photo")
         }
+        backup.delete()
     }
 }
