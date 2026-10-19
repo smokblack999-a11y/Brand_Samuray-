@@ -95,8 +95,10 @@ object Vault {
         BitmapFactory.decodeFile(photo.absolutePath, bounds)
         if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return
         val pixels = bounds.outWidth.toLong() * bounds.outHeight.toLong()
-        val sample = when { pixels > 48_000_000L -> 4; pixels > 24_000_000L -> 2; else -> 1 }
-        val options = BitmapFactory.Options().apply { inSampleSize = sample }
+        // Never downsample and overwrite the original: that would silently destroy photo resolution.
+        // Very large images keep their original pixels and still receive GPS EXIF + sidecar metadata.
+        if (pixels > 18_000_000L) return
+        val options = BitmapFactory.Options().apply { inSampleSize = 1 }
         val decoded = BitmapFactory.decodeFile(photo.absolutePath, options) ?: return
         val exif = runCatching { ExifInterface(photo.absolutePath) }.getOrNull()
         val orientation = exif?.getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL) ?: ExifInterface.ORIENTATION_NORMAL
