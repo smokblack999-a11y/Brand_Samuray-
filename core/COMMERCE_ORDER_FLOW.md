@@ -25,9 +25,15 @@ The worker is deliberately adapter-agnostic: no Telegram API token, customer/cou
 
 **Delivery semantics are at-least-once, not exactly-once.** If the remote system accepts a message but the process fails before the local delivered marker is persisted, the message may be sent again. Telegram Bot API sends do not provide a general idempotency key for outgoing messages, so a duplicate customer/courier notification remains possible in that failure window. The worker also prevents overlapping `runOnce()` calls only within one worker instance; it is not a distributed lock.
 
+## Telegram notification adapter
+
+Module: `core/commerce-telegram-adapter.js`. It uses the existing Telegram Bot API helper and formats the known order events. `OrderPlaced` goes to `order.customerId`; a paid delivery requires `COMMERCE_DISPATCH_CHAT_ID`; `CourierAssigned` sends delivery address/phone only to `order.courierId`, and sends the customer a status-only message. Proof is sent as a URL in text; this does not upload a photo. The dispatcher chat ID is documented in `core/.env.example`.
+
+Before use, verify that customer/courier IDs are reachable private chats for this bot and that courier assignment can only be performed by an authorized operator. The adapter and worker are tested with a fake sender, but the adapter is not started by `server.js` and no real Telegram send has been verified.
+
 ## Not included yet
 
-- HTTP routes and Telegram customer/admin/courier menus, plus a real Telegram delivery adapter.
+- Commerce HTTP routes and Telegram customer/admin/courier menus, plus wiring the notification adapter into the live server/worker lifecycle.
 - Automatically scheduled worker lifecycle, operational endpoint/metrics, and a protected dead-letter replay/admin endpoint.
 - Real payment-provider adapter or signature-verified webhook.
 - Role-based authorization for staff/couriers.
