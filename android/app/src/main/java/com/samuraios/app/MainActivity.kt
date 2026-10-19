@@ -13,6 +13,8 @@ import android.location.Location
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.system.Os
+import android.text.InputType
 import android.util.Base64
 import android.view.Gravity
 import android.view.ViewGroup
@@ -37,13 +39,13 @@ import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
 import com.google.android.gms.tasks.CancellationTokenSource
 import java.io.File
-import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.io.OutputStream
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.net.HttpURLConnection
+import java.net.URI
 import java.net.URL
 import java.net.URLEncoder
 import java.util.UUID
@@ -52,7 +54,8 @@ import java.util.concurrent.Executors
 import kotlin.concurrent.thread
 
 class MainActivity : ComponentActivity() {
-    private val coreUrl = BuildConfig.CORE_BASE_URL.trimEnd('/')
+    @Volatile private var coreUrl: String = ""
+    private lateinit var coreUrlInput: EditText
     private val permissionRequest = 100
     private lateinit var previewView: PreviewView
     private lateinit var statusText: TextView
@@ -70,6 +73,9 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         cameraExecutor = Executors.newSingleThreadExecutor()
+        val preferences = getSharedPreferences("samurai_settings", MODE_PRIVATE)
+        val initialUrl = preferences.getString("core_base_url", null) ?: BuildConfig.CORE_BASE_URL
+        coreUrl = validateCoreUrl(initialUrl) ?: ""
         buildUi()
         if (hasPermissions()) startCamera() else ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.CAMERA, Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION), permissionRequest)
         refreshGallery()
@@ -93,6 +99,30 @@ class MainActivity : ComponentActivity() {
         val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(24, 24, 24, 24); setBackgroundColor(Color.rgb(5, 8, 17)) }
         statusText = TextView(this).apply { text = "SamuraiOS: запуск..."; textSize = 20f; setTextColor(Color.rgb(0, 255, 136)); setPadding(0, 0, 0, 12) }
         root.addView(statusText)
+        root.addView(TextView(this).apply {
+            text = "Адрес Core API"
+            textSize = 16f
+            setTextColor(Color.WHITE)
+            setPadding(0, 4, 0, 4)
+        })
+        coreUrlInput = EditText(this).apply {
+            hint = "https://ваш-сервер или http://127.0.0.1:8787"
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI
+            setSingleLine(true)
+            setTextColor(Color.WHITE)
+            setHintTextColor(Color.GRAY)
+            setText(coreUrl)
+        }
+        root.addView(coreUrlInput, LinearLayout.LayoutParams(-1, -2))
+        root.addView(TextView(this).apply {
+            text = "Удалённый сервер: только HTTPS. HTTP разрешён только для localhost, 127.0.0.1 или Android Emulator 10.0.2.2."
+            textSize = 12f
+            setTextColor(Color.LTGRAY)
+        })
+        root.addView(Button(this).apply {
+            text = "СОХРАНИТЬ АДРЕС И ПРОВЕРИТЬ"
+            setOnClickListener { saveCoreUrl() }
+        })
         previewView = PreviewView(this).apply { scaleType = PreviewView.ScaleType.FILL_CENTER }
         val cameraFrame = FrameLayout(this)
         cameraFrame.addView(previewView, FrameLayout.LayoutParams(-1, -1))
@@ -249,12 +279,8 @@ class MainActivity : ComponentActivity() {
                 if (!decoded.compress(Bitmap.CompressFormat.JPEG, 95, stream)) return false
                 stream.fd.sync()
             }
-            FileInputStream(temp).use { input ->
-                FileOutputStream(photo, false).use { output ->
-                    input.copyTo(output)
-                    output.fd.sync()
-                }
-            }
+            // Atomic same-directory rename: if stamping fails, the original JPEG stays intact.
+            Os.rename(temp.absolutePath, photo.absolutePath)
             true
         } catch (_: OutOfMemoryError) {
             false
@@ -299,7 +325,46 @@ class MainActivity : ComponentActivity() {
         dialog.window?.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
     }
 
-    private fun checkCoreStatus() = apiGet("/health") { result -> mainHandler.post { outputText.text = if (result.startsWith("ERROR:")) "Core OFFLINE\n" + result else "Core ONLINE\n" + result } }
+    private fun checkCoreStatus() {
+        if (coreUrl.isBlank()) {
+            outputText.text = "Core не настроен. Укажи HTTPS-адрес сервера или локальный http://127.0.0.1:8787 и нажми «СОХРАНИТЬ АДРЕС И ПРОВЕРИТЬ»."
+            return
+        }
+        apiGet("/health") { result ->
+            mainHandler.post {
+                outputText.text = if (result.startsWith("ERROR:")) "Core OFFLINE\n" + result else "Core ONLINE\n" + result
+            }
+        }
+    }
+
+    private fun saveCoreUrl() {
+        val validated = validateCoreUrl(coreUrlInput.text.toString())
+        if (validated == null) {
+            showToast("URL недопустим: нужен HTTPS; HTTP только localhost/127.0.0.1/10.0.2.2")
+            return
+        }
+        coreUrl = validated
+        getSharedPreferences("samurai_settings", MODE_PRIVATE)
+            .edit()
+            .putString("core_base_url", validated)
+            .apply()
+        outputText.text = "Проверяю Core: $validated"
+        checkCoreStatus()
+    }
+
+    private fun validateCoreUrl(raw: String): String? {
+        val value = raw.trim().trimEnd('/')
+        if (value.isBlank()) return null
+        val uri = try { URI(value) } catch (_: Exception) { return null }
+        val scheme = uri.scheme?.lowercase(Locale.ROOT) ?: return null
+        val host = uri.host?.lowercase(Locale.ROOT) ?: return null
+        if (scheme != "https" && scheme != "http") return null
+        if (uri.rawUserInfo != null || uri.rawQuery != null || uri.rawFragment != null) return null
+        if (uri.port == 0 || uri.port > 65535) return null
+        if (host == "core.example.invalid" || host.endsWith(".example.invalid")) return null
+        if (scheme == "http" && host !in setOf("localhost", "127.0.0.1", "::1", "10.0.2.2")) return null
+        return value
+    }
     private fun loadMe() = apiGet("/api/telegram/me") { result -> mainHandler.post { outputText.text = result } }
     private fun loadDialogs() = apiGet("/api/telegram/dialogs?limit=20") { result -> mainHandler.post { outputText.text = result } }
 
@@ -330,10 +395,15 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun apiGet(path: String, callback: (String) -> Unit) {
+        val baseUrl = coreUrl
+        if (baseUrl.isBlank()) {
+            callback("ERROR: Core не настроен. Сначала укажи адрес сервера.")
+            return
+        }
         thread {
             var connection: HttpURLConnection? = null
             try {
-                connection = (URL(coreUrl + path).openConnection() as HttpURLConnection).apply {
+                connection = (URL(baseUrl + path).openConnection() as HttpURLConnection).apply {
                     requestMethod = "GET"; connectTimeout = 5000; readTimeout = 10000; useCaches = false
                     setRequestProperty("Accept", "application/json")
                     setRequestProperty("X-Request-ID", UUID.randomUUID().toString())
@@ -345,10 +415,15 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun apiPost(path: String, json: String, callback: (String) -> Unit) {
+        val baseUrl = coreUrl
+        if (baseUrl.isBlank()) {
+            callback("ERROR: Core не настроен. Сначала укажи адрес сервера.")
+            return
+        }
         thread {
             var connection: HttpURLConnection? = null
             try {
-                connection = (URL(coreUrl + path).openConnection() as HttpURLConnection).apply {
+                connection = (URL(baseUrl + path).openConnection() as HttpURLConnection).apply {
                     requestMethod = "POST"; connectTimeout = 5000; readTimeout = 30000; useCaches = false; doOutput = true
                     setRequestProperty("Content-Type", "application/json; charset=UTF-8"); setRequestProperty("Accept", "application/json")
                     setRequestProperty("X-Request-ID", UUID.randomUUID().toString())
