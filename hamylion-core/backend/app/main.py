@@ -19,6 +19,8 @@ app = FastAPI(title="HAMYLION Core", version="3.0.0")
 
 @app.on_event("startup")
 async def startup():
+    if not settings.DATABASE_URL:
+        raise RuntimeError("DATABASE_URL must be configured")
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     await ensure_bootstrap_project()
@@ -51,26 +53,39 @@ async def create_event(request: EventRequest, project_id: str = Depends(validate
         )
         found = result.scalar_one_or_none()
         if found:
-            return EventResponse(event_id=found.id, status=found.status)
-
-        event = Event(
-            id=f"evt_{uuid.uuid4().hex}",
-            project_id=project_id,
-            event_type=request.type,
-            payload=request.payload,
-            status="queued",
-            idempotency_key=idem,
-        )
-        session.add(event)
-        try:
+            # Preserve idempotency, but recover an event whose first queue write failed.
+            if found.status != "queue_error":
+                return EventResponse(event_id=found.id, status=found.status)
+            found.status = "queued"
+            found.last_error = None
+            found.next_attempt_at = None
+            event = found
             await session.commit()
-        except IntegrityError:
-            await session.rollback()
-            result = await session.execute(
-                select(Event).where(Event.project_id == project_id, Event.idempotency_key == idem)
+        else:
+            event = Event(
+                id=f"evt_{uuid.uuid4().hex}",
+                project_id=project_id,
+                event_type=request.type,
+                payload=request.payload,
+                status="queued",
+                idempotency_key=idem,
             )
-            found = result.scalar_one()
-            return EventResponse(event_id=found.id, status=found.status)
+            session.add(event)
+            try:
+                await session.commit()
+            except IntegrityError:
+                await session.rollback()
+                result = await session.execute(
+                    select(Event).where(Event.project_id == project_id, Event.idempotency_key == idem)
+                )
+                found = result.scalar_one()
+                if found.status != "queue_error":
+                    return EventResponse(event_id=found.id, status=found.status)
+                found.status = "queued"
+                found.last_error = None
+                found.next_attempt_at = None
+                event = found
+                await session.commit()
 
     try:
         await enqueue_event({

@@ -3,11 +3,11 @@ services:
     build: ./backend
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000
     environment:
-      DATABASE_URL: postgresql+asyncpg://hamylion:hamylion@postgres:5432/hamylion
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:?Set POSTGRES_USER}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:?Set POSTGRES_DB}
       REDIS_URL: redis://redis:6379/0
-      HAMYLION_API_KEY: ${HAMYLION_API_KEY}
+      HAMYLION_API_KEY: ${HAMYLION_API_KEY:?Set a strong unique HAMYLION_API_KEY}
     ports:
-      - "8000:8000"
+      - "${HAMYLION_BIND_ADDRESS:-127.0.0.1}:${HAMYLION_PORT:-8000}:8000"
     depends_on:
       - postgres
       - redis
@@ -16,7 +16,7 @@ services:
     build: ./backend
     command: python worker.py
     environment:
-      DATABASE_URL: postgresql+asyncpg://hamylion:hamylion@postgres:5432/hamylion
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:?Set POSTGRES_USER}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:?Set POSTGRES_DB}
       REDIS_URL: redis://redis:6379/0
     depends_on:
       - postgres
@@ -25,9 +25,9 @@ services:
   postgres:
     image: postgres:16
     environment:
-      POSTGRES_DB: hamylion
-      POSTGRES_USER: hamylion
-      POSTGRES_PASSWORD: hamylion
+      POSTGRES_DB: ${POSTGRES_DB:?Set POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER:?Set POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
     volumes:
       - pgdata:/var/lib/postgresql/data
 
