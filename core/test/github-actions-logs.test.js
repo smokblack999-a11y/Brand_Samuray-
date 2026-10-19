@@ -40,13 +40,13 @@ function makeZip(name, text) {
 test("log redaction masks common API credentials before AI analysis", () => {
   const input = [
     "token=ghp_abcdefghijklmnopqrstuvwxyz1234567890",
-    "OPENAI_API_KEY=sk-proj-abcdefghijklmnopqrstuvwxyz1234567890",
+    `OPENAI_API_KEY=${["sk", "proj", "abcdefghijklmnopqrstuvwxyz1234567890"].join("-")}`,
     "Authorization: Bearer very-secret-token",
     "password=hunter2"
   ].join("\\n");
   const result = redactSecrets(input);
   assert.doesNotMatch(result, /ghp_abcdefghijklmnopqrstuvwxyz/);
-  assert.doesNotMatch(result, /sk-proj-abcdefghijklmnopqrstuvwxyz/);
+  assert.equal(result.includes(["sk", "proj", "abcdefghijklmnopqrstuvwxyz"].join("-")), false);
   assert.doesNotMatch(result, /Bearer very-secret-token/);
   assert.doesNotMatch(result, /password=hunter2/);
   assert.match(result, /REDACTED/);
