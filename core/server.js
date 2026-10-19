@@ -8,6 +8,7 @@ const { scoreLead } = require("./lead-engine");
 const { generateReply, checkOpenAI } = require("./openai");
 const { sendBusinessMessage } = require("./business-bot");
 const telegramCamera = require("./telegram-camera");
+const commerce = require("./commerce");
 const { saveLead, claimEvent, updateLead, listLeads, stats } = require("./store");
 const { createRateLimiter } = require("./rate-limit");
 const dualAI = require("./dual-ai/engine");
@@ -349,6 +350,27 @@ app.post("/api/telegram/send-photo", requireApiKey, async (req, res) => {
   }
 });
 
+app.get("/api/commerce/products", requireApiKey, (req, res) => {
+  const products = commerce.listProducts({ includeInactive: req.query.includeInactive === "true" });
+  return res.json({ ok: true, products, paymentMode: commerce.PAYMENT_MODE, requestId: req.requestId });
+});
+
+app.put("/api/commerce/products/:sku", requireApiKey, (req, res) => {
+  try { const product = commerce.upsertProduct({ ...(req.body || {}), sku: req.params.sku }); return res.json({ ok: true, product, requestId: req.requestId }); }
+  catch (error) { return res.status(400).json(errorBody(error.code || "PRODUCT_INVALID", error.message, req.requestId)); }
+});
+
+app.get("/api/commerce/orders", requireApiKey, (req, res) => res.json({ ok: true, orders: commerce.listOrders({ limit: req.query.limit }), paymentMode: commerce.PAYMENT_MODE, requestId: req.requestId }));
+
+app.post("/api/commerce/orders", requireApiKey, (req, res) => {
+  try { const order = commerce.createOrder(req.body || {}); return res.status(201).json({ ok: true, order, message: "TEST ORDER ONLY: no real payment was taken", requestId: req.requestId }); }
+  catch (error) { const status = error.code === "PRODUCT_NOT_FOUND" ? 404 : error.code === "OUT_OF_STOCK" ? 409 : 400; return res.status(status).json(errorBody(error.code || "ORDER_CREATE_FAILED", error.message, req.requestId)); }
+});
+
+app.post("/api/commerce/orders/:id/test-pay", requireApiKey, (req, res) => {
+  try { const result = commerce.markTestPaid(req.params.id); return res.json({ ok: true, ...result, message: "TEST PAYMENT ONLY: this does not charge money", requestId: req.requestId }); }
+  catch (error) { const status = error.code === "ORDER_NOT_FOUND" ? 404 : error.code === "OUT_OF_STOCK" ? 409 : 400; return res.status(status).json(errorBody(error.code || "TEST_PAYMENT_FAILED", error.message, req.requestId)); }
+});
 app.post("/api/telegram/webhook", requireWebhookSecret, async (req, res) => {
   res.sendStatus(200);
   try {
@@ -361,6 +383,32 @@ app.post("/api/telegram/webhook", requireWebhookSecret, async (req, res) => {
     const message = update.business_message;
     if (!message?.text || !message.business_connection_id || !message.chat?.id || !Number.isInteger(message.message_id)) return;
     const eventKey = `telegram:${message.business_connection_id}:${message.chat.id}:${message.message_id}`;
+    const commerceEnabled = String(process.env.COMMERCE_BOT_ENABLED || "").toLowerCase() === "true";
+    const command = String(message.text).trim().match(/^\/(catalog|price|stock|buy)(?:@[A-Za-z0-9_]+)?(?:\s+([^\s]+))?(?:\s+(\d+))?\s*$/i);
+    if (commerceEnabled && command) {
+      const action = command[1].toLowerCase();
+      const sku = String(command[2] || "").toUpperCase();
+      let responseText = "";
+      const money = (minor, currency) => { const digits = new Intl.NumberFormat("en-US", { style: "currency", currency }).resolvedOptions().maximumFractionDigits; return new Intl.NumberFormat("ru-RU", { style: "currency", currency }).format(minor / (10 ** digits)); };
+      try {
+        if (action === "catalog") {
+          const products = commerce.listProducts();
+          responseText = products.length ? "Каталог:\n" + products.map(p => `${p.sku} — ${p.name} — ${money(p.priceMinor, p.currency)} (остаток: ${p.stock})`).join("\n") : "Каталог пока пуст. Администратор должен добавить товары.";
+        } else if (!sku) responseText = "Укажите SKU. Пример: /price ITEM-001";
+        else if (action === "price") { const p = commerce.getProduct(sku); responseText = p && p.active ? `${p.name}: ${money(p.priceMinor, p.currency)}` : "Товар не найден."; }
+        else if (action === "stock") { const p = commerce.getProduct(sku); responseText = p && p.active ? `Наличие ${p.name}: ${p.stock}` : "Товар не найден."; }
+        else {
+          const order = commerce.createOrder({ sku, quantity: command[3] ? Number(command[3]) : 1, customerId: message.from?.id, chatId: message.chat.id, eventKey });
+          responseText = `Тестовый заказ ${order.id}: ${order.productName}, количество ${order.quantity}, сумма ${money(order.totalMinor, order.currency)}. Статус: ${order.paymentStatus}. Реальные платежи не принимаются.`;
+        }
+      } catch (error) { responseText = error.code === "OUT_OF_STOCK" ? "Недостаточно товара в наличии." : error.code === "PRODUCT_NOT_FOUND" ? "Товар не найден." : "Не удалось выполнить команду. Проверьте SKU и количество."; }
+      if (String(process.env.AUTO_REPLY).toLowerCase() === "true") {
+        try { await sendBusinessMessage({ businessConnectionId: message.business_connection_id, chatId: message.chat.id, text: responseText }); }
+        catch (error) { console.error(JSON.stringify({ event: "commerce_command_reply_failed", requestId: req.requestId, code: error.code || "TELEGRAM_SEND_FAILED" })); }
+      }
+      console.log(JSON.stringify({ event: "commerce_command", action, chatId: message.chat.id, requestId: req.requestId }));
+      return;
+    }
     const claim = claimEvent(eventKey, { source: "telegram_business", businessConnectionId: message.business_connection_id, chatId: message.chat.id, messageId: message.message_id, customer: message.from?.id || null, message: message.text });
     if (!claim.claimed) {
       console.log(JSON.stringify({ event: "duplicate_telegram_event", eventKey, requestId: req.requestId }));
