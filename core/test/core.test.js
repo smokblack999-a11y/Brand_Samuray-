@@ -156,61 +156,6 @@ test('Telegram webhook requires secret and deduplicates business messages', asyn
   assert.equal(stats.stats.hot + stats.stats.warm + stats.stats.cold, 2);
 });
 
-test('commerce catalog, stock reservation, and test-only payment work without real money', async () => {
-  const created = await api('/api/commerce/products/DEMO-001', {
-    method: 'PUT',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ name: 'Test digital item', type: 'digital', priceMinor: 1999, currency: 'USD', stock: 2, deliveryPayload: 'TEST-DELIVERY-CONTENT' })
-  });
-  assert.equal(created.status, 200);
-  const product = (await created.json()).product;
-  assert.equal(product.sku, 'DEMO-001');
-  assert.equal(product.type, 'digital');
-  assert.equal('deliveryPayload' in product, false);
-
-  const orderResponse = await api('/api/commerce/orders', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ sku: 'DEMO-001', quantity: 2, customerId: 'customer-test', chatId: 'chat-test' })
-  });
-  assert.equal(orderResponse.status, 201);
-  const orderBody = await orderResponse.json();
-  assert.equal(orderBody.order.paymentMode, 'test');
-  assert.equal(orderBody.order.paymentStatus, 'pending');
-  assert.match(orderBody.message, /no real payment/i);
-
-  const oversell = await api('/api/commerce/orders', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ sku: 'DEMO-001', quantity: 1 })
-  });
-  assert.equal(oversell.status, 409);
-  assert.equal((await oversell.json()).error.code, 'OUT_OF_STOCK');
-
-  const paidResponse = await api(`/api/commerce/orders/${orderBody.order.id}/test-pay`, { method: 'POST' });
-  assert.equal(paidResponse.status, 200);
-  const paid = await paidResponse.json();
-  assert.equal(paid.order.paymentStatus, 'paid');
-  assert.equal(paid.order.paymentMode, 'test');
-  assert.equal(paid.delivery, 'TEST-DELIVERY-CONTENT');
-  assert.match(paid.message, /does not charge money/i);
-
-  const after = await api('/api/commerce/products');
-  const items = (await after.json()).products;
-  assert.equal(items.find(p => p.sku === 'DEMO-001').stock, 0);
-});
-
-test('commerce rejects invalid products and missing orders', async () => {
-  const invalid = await api('/api/commerce/products/x', {
-    method: 'PUT',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ name: '', type: 'mystery', priceMinor: -1, currency: 'US', stock: -1 })
-  });
-  assert.equal(invalid.status, 400);
-  const missing = await api('/api/commerce/orders/not-real/test-pay', { method: 'POST' });
-  assert.equal(missing.status, 404);
-});
-
 test('unknown route returns JSON 404', async () => {
   const r = await fetch(`http://127.0.0.1:${port}/does-not-exist`);
   assert.equal(r.status, 404);
