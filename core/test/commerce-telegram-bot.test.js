@@ -189,3 +189,22 @@ test("unknown updates are ignored and private chat identity is required", async 
   assert.equal(await c.bot.handleUpdate({ callback_query: { id: "cb-group", from: { id: 12345 }, message: { chat: { id: -100, type: "supergroup" } }, data: "o" } }), true);
   assert.equal(await c.bot.handleUpdate({ message: { chat: { id: -100, type: "group" }, from: { id: 12345 }, text: "/start" } }), false);
 });
+
+test("phone step rejects empty media and another user's contact rather than silently skipping", async t => {
+  const c = setup(); t.after(c.cleanup);
+  await c.bot.handleUpdate(callback("12345", "q:" + c.product.id + ":1", "cb-phone-q"));
+  await c.bot.handleUpdate(callback("12345", "f:d", "cb-phone-delivery"));
+  await c.bot.handleUpdate(message("12345", "Almaty, Test Street 2"));
+  await c.bot.handleUpdate(message("12345", "", { photo: [{ file_id: "unexpected-photo" }] }));
+  assert.equal(c.commerce.listCustomerOrders({ customerId: "12345" }).length, 0);
+  assert.match(lastMessage(c.calls).text, /Введите телефон/);
+  await c.bot.handleUpdate(message("12345", "", {
+    contact: { user_id: 99999, phone_number: "+77009999999" }
+  }));
+  assert.equal(c.commerce.listCustomerOrders({ customerId: "12345" }).length, 0);
+  assert.match(lastMessage(c.calls).text, /не принадлежит/);
+  await c.bot.handleUpdate(message("12345", "-"));
+  const orders = c.commerce.listCustomerOrders({ customerId: "12345" });
+  assert.equal(orders.length, 1);
+  assert.equal(c.commerce.getOrder(orders[0].id).phone, "");
+});
