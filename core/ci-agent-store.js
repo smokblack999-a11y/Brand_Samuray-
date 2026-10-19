@@ -27,6 +27,11 @@ function createCiAgentStore(filePath) {
   }
 
   function save(state) {
+    if (!state || !Array.isArray(state.events) || !Array.isArray(state.deliveries)) {
+      const error = new TypeError("CI-AGENT state must include events and deliveries arrays");
+      error.code = "CI_AGENT_STATE_INVALID";
+      throw error;
+    }
     fs.mkdirSync(path.dirname(target), { recursive: true, mode: 0o700 });
     const temp = target + "." + process.pid + "." + crypto.randomBytes(6).toString("hex") + ".tmp";
     const payload = JSON.stringify({
@@ -35,12 +40,29 @@ function createCiAgentStore(filePath) {
       events: state.events.slice(-500),
       deliveries: state.deliveries.slice(-1000)
     });
+    let renamed = false;
     try {
       fs.writeFileSync(temp, payload, { encoding: "utf8", mode: 0o600, flag: "wx" });
+      // Flush file contents before atomically publishing the new state.
+      const fileFd = fs.openSync(temp, "r");
+      try { fs.fsyncSync(fileFd); } finally { fs.closeSync(fileFd); }
       fs.renameSync(temp, target);
+      renamed = true;
       try { fs.chmodSync(target, 0o600); } catch (_error) { /* best-effort on supported filesystems */ }
+      // Best-effort directory sync persists the rename on filesystems that support it.
+      let dirFd;
+      try {
+        dirFd = fs.openSync(path.dirname(target), "r");
+        fs.fsyncSync(dirFd);
+      } catch (_error) {
+        // Some platforms/filesystems do not permit syncing directory handles.
+      } finally {
+        if (dirFd !== undefined) fs.closeSync(dirFd);
+      }
     } finally {
-      try { fs.unlinkSync(temp); } catch (_error) { /* already renamed or absent */ }
+      if (!renamed) {
+        try { fs.unlinkSync(temp); } catch (_error) { /* already absent */ }
+      }
     }
   }
 
