@@ -37,6 +37,7 @@ jobs:
         working-directory: core
         run: |
           node --check server.js
+          node --check commerce.js
           node --check rate-limit.js
           node --check openai.js
           node --check lead-engine.js
