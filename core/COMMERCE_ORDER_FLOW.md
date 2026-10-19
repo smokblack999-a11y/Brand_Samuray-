@@ -2,62 +2,64 @@
 
 ## Current implementation
 
-The commerce domain, protected internal HTTP API, durable JSON outbox, sequential worker, and Telegram notification adapter are implemented in the branch. The customer-facing Telegram catalog/checkout conversation and live payment provider are not yet integrated. No real Telegram send or real payment has been verified.
+The branch contains the commerce domain, protected internal HTTP API, persistent private-chat checkout, Telegram callback/message handler, Telegram notification adapter, and an optional durable outbox worker. Core behavior is covered with tests and GitHub Actions; live Telegram delivery has not been verified against a real bot account, and real payment processing is not implemented.
 
-Included:
-- Catalog products with server-side KZT pricing, stock controls, description and HTTPS media references.
-- Order creation with server-computed totals, stock reservation and delivery/pickup paths.
-- Trusted-payment guard, exact amount matching and payment event deduplication.
-- State transitions that enqueue outbox events in the same persisted operation.
-- Bounded retries, stored error details with token-pattern redaction, dead-letter state and explicit replay.
-- Optional outbox polling inside `server.js`; it is disabled by default.
+### Customer Telegram flow
 
-## Event flow
+The regular Telegram bot handles private chats:
+- /start or /menu opens the menu.
+- /catalog shows paginated products. Product detail can send the first configured HTTPS photo/video.
+- Customer chooses quantity, then delivery or pickup.
+- Delivery asks for address; pickup asks for pickup point. The bot then asks for a contact phone number or accepts "-" to skip. A contact is accepted only when it belongs to the same Telegram user.
+- Customer receives a server-computed KZT total and order ID.
+- In COMMERCE_PAYMENT_MODE=test outside production, a clearly-labelled simulation button can mark payment as test-confirmed and does not move real money. Otherwise, the bot warns that no payment method is connected and the customer must not transfer money.
+- /orders lists only that customer's order summaries. Unpaid pending orders can be cancelled.
+- After test-confirmed delivery payment, dispatch receives a courier assignment keyboard if courier IDs are configured. The assigned courier receives address/phone, starts delivery, and submits a Telegram photo. The customer is sent the photo via outbox after the event worker processes the order.
+- Pickup can be marked ready by the trusted internal API; the customer confirms pickup with a button.
 
-Supported outbox events:
-`OrderPlaced`, `PaymentConfirmed`, `CourierDeliveryRequested`, `CourierAssigned`, `DeliveryStarted`, `PickupReady`, `OrderDelivered`, `OrderPickedUp`, `OrderCancelled`.
+## Outbox and notifications
 
-The notification adapter routes `OrderPlaced` and `PaymentConfirmed` to the customer chat; `CourierDeliveryRequested` to `COMMERCE_DISPATCH_CHAT_ID); and `CourierAssigned` to the assigned courier chat, then sends a status-only message to the customer. The courier gets the delivery address and phone; dispatch does not get these fields from the delivery-request notification. Delivery/pickup completion sends a proof URL as text, not an uploaded Telegram photo.
+Outbox events are persisted in the same state replacement as order and payment transitions. Supported events: OrderPlaced, PaymentConfirmed, CourierDeliveryRequested, CourierAssigned, DeliveryStarted, PickupReady, OrderDelivered, OrderPickedUp, and OrderCancelled.
 
-To activate polling, set `COMMERCE_OUTBOX_ENABLED=true`, `TELEGRAM_BOT_TOKEN`, and `COMMERCE_DISPATCH_CHAT_ID`. Defaults in `core/.env.example` keep the worker off to prevent accidental sends. Customer and courier IDs must be reachable chats for this bot. The worker processes events sequentially, with configurable limits `COMMERCE_OUTBOX_INTERVAL_MS`, `COMMERCE_OUTBOX_MAX_BATCH` and `COMMERCE_OUTBOX_MAX_ATTEMPTS`.
+The worker in core/commerce-outbox-worker.js polls sequentially when COMMERCE_OUTBOX_ENABLED=true. Configure TELEGRAM_BOT_TOKEN, COMMERCE_DISPATCH_CHAT_ID, and allowed private courier IDs in COMMERCE_COURIER_CHAT_IDS first. Defaults in core/.env.example keep the worker disabled. The webhook setup script subscribes to message and callback_query alongside Telegram Business updates.
 
-**Delivery is at-least-once, not exactly-once.** A network timeout or process crash after Telegram accepts a message but before the delivered marker is saved may cause a duplicate on retry. This worker only prevents overlapping runs within the same instance; JSON persistence is not safe for multiple replicas.
+Retries preserve the event ID and are bounded by COMMERCE_OUTBOX_MAX_ATTEMPTS; terminal failures become dead_letter. A privileged internal API can inspect and explicitly requeue dead-letter events. Telegram Bot API does not offer a general idempotency key for outgoing messages, so the worker is at-least-once, not exactly-once: a crash or timeout after Telegram accepts a message may cause the same notification to be sent again. The worker only prevents overlapping calls within one process instance. JSON storage is not safe for multiple replicas.
 
 ## Protected internal API
 
-All `/api/commerce/...` routes require `X-API-Key: CORE_API_KEY`. Available endpoints include:
-- `GET/POST /api/commerce/products`
-- `POST /api/commerce/orders` and `GET /api/commerce/orders/:orderId`
-- `POST /api/commerce/orders/:orderId/test-payment`
-- `POST /api/commerce/orders/:orderId/assign-courier`
-- `POST /api/commerce/orders/:orderId/start-delivery`
-- `POST /api/commerce/orders/:orderId/ready-for-pickup`
-- `POST /api/commerce/orders/:orderId/confirm-fulfilment`
-- `POST /api/commerce/orders/:orderId/cancel`
-- `GET /api/commerce/outbox` and `POST /api/commerce/outbox/:eventId/requeue`
+All /api/commerce/... routes require X-API-Key: CORE_API_KEY. Available endpoints:
+- GET/POST /api/commerce/products
+- POST /api/commerce/orders and GET /api/commerce/orders/:orderId
+- POST /api/commerce/orders/:orderId/test-payment
+- POST /api/commerce/orders/:orderId/assign-courier
+- POST /api/commerce/orders/:orderId/start-delivery
+- POST /api/commerce/orders/:orderId/ready-for-pickup
+- POST /api/commerce/orders/:orderId/confirm-fulfilment
+- POST /api/commerce/orders/:orderId/cancel
+- GET /api/commerce/outbox and POST /api/commerce/outbox/:eventId/requeue
 
-These are privileged internal/admin routes, not safe browser/mobile-client endpoints. Never put `CORE_API_KEY` in a client app. Courier identity and staff roles are not independently authenticated yet; requests to change fulfilment state must come only from a trusted server/operator until role-based auth is added.
+These are privileged internal/admin endpoints, not safe browser/mobile-client endpoints. Never put CORE_API_KEY in a client application. Courier/staff roles are not independently authenticated; fulfilment/admin routes must be used only by a trusted server/operator until role-based auth and an audit trail are added.
 
-## Test payment mode
+## Payment and deployment limitations
 
-Real payment processing is **not implemented**. The test-payment route is available only when `COMMERCE_PAYMENT_MODE=test` and `NODE_ENV` is not `production`; its response explicitly reports `realMoneyMoved: false`. Default mode is `disabled`. Production startup is blocked if test mode is configured. The route uses server-side order amount validation and a unique event ID; it does not contact a bank or payment provider.
+Real payment processing is not implemented. The test-payment route is enabled only when COMMERCE_PAYMENT_MODE=test and NODE_ENV is not production; its response states realMoneyMoved: false. Default mode is disabled, and production startup is blocked if test mode is configured. The route does not contact a bank or payment provider.
 
-A receipt screenshot is not authoritative payment confirmation. `confirmPayment` accepts a trusted signal only as an internal service contract. A real payment route must verify a provider signature/bank API response before calling it.
+A receipt screenshot is not authoritative proof of funds. The commerce service trusted payment flag is an internal service contract and must never be accepted from public client input. Real payments require signature-verified provider webhooks or a bank API, reconciliation, and a refund workflow.
 
-## Remaining work / production blockers
+Delivery currently stores a Telegram photo file_id or HTTPS proof URL; the adapter re-sends the Telegram photo to the customer when a file ID is available. This is not an independent object-storage/archive solution and should be evaluated for long-term evidence retention.
 
-- Customer-facing Telegram catalog, inline buttons, checkout, callback/message routing and persistent conversation state.
-- Signed payment provider integration, reconciliation, refunds and order expiry.
-- Telegram courier-role authentication, staff authorization and audit trail.
-- Media upload/storage for delivery photos (currently only an HTTPS proof URL is stored).
+Other production blockers:
+- Real signed payment-provider adapter, reconciliation, refunds and order expiry.
+- Staff/courier role authentication, protected operator accounts and audit trail.
 - Delivery-fee rules.
 - Production database and multi-process-safe locking/queueing.
-- Operational metrics and tested live delivery.
+- Operational metrics, dead-letter alerts and real Telegram acceptance tests.
+- No benchmark has proven a 22% improvement. Establish a baseline and compare lost notifications, duplicates, order latency, recovery time, and cost per completed order.
 
 ## State sequence
 
-- Delivery: `pending_payment -> paid -> assigned -> out_for_delivery -> delivered`
-- Pickup: `pending_payment -> preparing -> ready_for_pickup -> picked_up`
+- Delivery: pending_payment -> paid -> assigned -> out_for_delivery -> delivered
+- Pickup: pending_payment -> preparing -> ready_for_pickup -> picked_up
 - Cancelling an unpaid order releases reserved stock. Paid cancellation is blocked until a refund workflow exists.
 
-Run core checks with `cd core && npm test`. CI run status, not the code being present on a branch, is the evidence for a passing test suite.
+Run core checks with cd core && npm test. CI results for the latest commit, not code presence alone, are the evidence of a passing test suite.
