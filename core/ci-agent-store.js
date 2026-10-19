@@ -16,9 +16,29 @@ function createCiAgentStore(filePath) {
         error.code = "CI_AGENT_STATE_INVALID";
         throw error;
       }
+      const validEvents = parsed.events.every(item =>
+        item && typeof item === "object" && !Array.isArray(item) &&
+        typeof item.id === "string" && item.id.length > 0 && item.id.length <= 200 &&
+        item.analysis && typeof item.analysis === "object" && !Array.isArray(item.analysis) &&
+        typeof item.analysis.status === "string" && item.analysis.status.length <= 100
+      );
+      const validDeliveries = parsed.deliveries.every(item =>
+        typeof item === "string" && item.length > 0 && item.length <= 200
+      );
+      if (!validEvents || !validDeliveries) {
+        const error = new Error("CI-AGENT state file contains invalid event or delivery records");
+        error.code = "CI_AGENT_STATE_INVALID";
+        throw error;
+      }
+      const ids = parsed.events.map(item => item.id);
+      if (new Set(ids).size !== ids.length || new Set(parsed.deliveries).size !== parsed.deliveries.length) {
+        const error = new Error("CI-AGENT state file contains duplicate identifiers");
+        error.code = "CI_AGENT_STATE_INVALID";
+        throw error;
+      }
       return {
-        events: parsed.events.filter(item => item && typeof item.id === "string").slice(-500),
-        deliveries: parsed.deliveries.filter(item => typeof item === "string").slice(-1000)
+        events: parsed.events.slice(-500),
+        deliveries: parsed.deliveries.slice(-1000)
       };
     } catch (error) {
       if (error.code === "ENOENT") return { events: [], deliveries: [] };
