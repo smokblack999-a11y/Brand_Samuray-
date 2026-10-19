@@ -230,3 +230,12 @@ test("same workflow run is not re-enqueued under a different delivery ID", async
   assert.equal(ci.listEvents()[0].analysis.suggestion, "One analysis only");
   assert.equal(calls, 1);
 });
+
+
+test("durable store fails closed on corrupted state instead of silently resetting it", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ci-agent-corrupt-"));
+  const stateFile = path.join(dir, "state.json");
+  fs.writeFileSync(stateFile, "{not-json", { mode: 0o600 });
+  assert.throws(() => createCiAgentStore(stateFile).load());
+  fs.rmSync(dir, { recursive: true, force: true });
+});
