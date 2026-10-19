@@ -7,6 +7,7 @@ const crypto = require("crypto");
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, "data");
 const FILE = path.join(DATA_DIR, "commerce.json");
 const PAYMENT_MODE = String(process.env.PAYMENT_MODE || "test").trim().toLowerCase();
+if (PAYMENT_MODE !== "test") throw new Error("This build supports PAYMENT_MODE=test only; live payments are not implemented");
 
 function readState() {
   fs.mkdirSync(DATA_DIR, { recursive: true });
