@@ -239,3 +239,11 @@ test("durable store fails closed on corrupted state instead of silently resettin
   assert.throws(() => createCiAgentStore(stateFile).load());
   fs.rmSync(dir, { recursive: true, force: true });
 });
+
+
+test("durable store rejects invalid state on save", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ci-agent-invalid-save-"));
+  const store = createCiAgentStore(path.join(dir, "state.json"));
+  assert.throws(() => store.save({ events: "not-an-array", deliveries: [] }), { code: "CI_AGENT_STATE_INVALID" });
+  fs.rmSync(dir, { recursive: true, force: true });
+});
