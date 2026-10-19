@@ -47,14 +47,14 @@ if (process.env.NODE_ENV === "production") {
   if (!WEBHOOK_SECRET) missing.push("TELEGRAM_WEBHOOK_SECRET");
   if (missing.length) throw new Error(`Production startup blocked: missing ${missing.join(", ")}`);
 }
+if (process.env.NODE_ENV === "production" && COMMERCE_PAYMENT_MODE === "test") {
+  throw new Error("Production startup blocked: COMMERCE_PAYMENT_MODE=test is not allowed");
+}
 if (COMMERCE_OUTBOX_ENABLED) {
   const missing = [];
   if (!String(process.env.TELEGRAM_BOT_TOKEN || "").trim()) missing.push("TELEGRAM_BOT_TOKEN");
   if (!String(process.env.COMMERCE_DISPATCH_CHAT_ID || "").trim()) missing.push("COMMERCE_DISPATCH_CHAT_ID");
   if (missing.length) throw new Error(`Commerce outbox startup blocked: missing ${missing.join(", ")}`);
-  if (process.env.NODE_ENV === "production" && COMMERCE_PAYMENT_MODE === "test") {
-    throw new Error("Production startup blocked: COMMERCE_PAYMENT_MODE=test is not allowed");
-  }
 }
 
 app.disable("x-powered-by");
