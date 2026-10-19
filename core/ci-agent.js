@@ -212,6 +212,7 @@ function createCiAgent(options = {}) {
       if (queuedIndex >= 0) queue.splice(queuedIndex, 1);
     }
     const queued = enqueue(event);
+    persist();
     return res.status(202).json({ ok: true, accepted: true, queued, event });
   }
 
