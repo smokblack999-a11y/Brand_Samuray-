@@ -17,6 +17,9 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 
+# CI-AGENT runtime state (may contain workflow metadata and suggestions)
+core/data/ci-agent-state.json
+
 # SamuraiOS runtime logs
 *.log
 core/samuraios.log
