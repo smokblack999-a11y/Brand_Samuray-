@@ -147,7 +147,7 @@ class MainActivity : ComponentActivity() {
             try {
                 val provider = future.get()
                 val preview = Preview.Builder().build().also { it.setSurfaceProvider(previewView.surfaceProvider) }
-                imageCapture = ImageCapture.Builder().setJpegQuality(85).build()
+                imageCapture = ImageCapture.Builder().setJpegQuality(95).build()
                 provider.unbindAll()
                 activeCamera = provider.bindToLifecycle(this, CameraSelector.DEFAULT_BACK_CAMERA, preview, imageCapture)
                 val zoom = activeCamera?.cameraInfo?.zoomState?.value
@@ -194,7 +194,12 @@ class MainActivity : ComponentActivity() {
             val image = ImageView(this).apply { setImageURI(android.net.Uri.fromFile(photo)); scaleType = ImageView.ScaleType.CENTER_CROP }
             row.addView(image, LinearLayout.LayoutParams(180, 130))
             val meta = Vault.metadata(photo)
-            val text = TextView(this).apply { text = if (meta?.has("latitude") == true && !meta.isNull("latitude")) "${photo.name}\nGPS: ${meta.optDouble("latitude")}, ${meta.optDouble("longitude")}\n± ${meta.optDouble("accuracyMeters", 0.0)} m" else photo.name + "\nGPS: нет fix"; setTextColor(Color.LTGRAY); setPadding(12, 0, 0, 0) }
+            val text = TextView(this).apply {
+                text = if (meta?.has("latitude") == true && !meta.isNull("latitude")) {
+                    "${photo.name}\nGPS: ${meta.optDouble("latitude")}, ${meta.optDouble("longitude")}\n± ${meta.optDouble("accuracyMeters", 0.0)} m\nШтамп на фото: ${if (meta.optBoolean("visibleGpsStamp", false)) "да" else "нет (EXIF/JSON сохранены)"}"
+                } else photo.name + "\nGPS: нет fix"
+                setTextColor(Color.LTGRAY); setPadding(12, 0, 0, 0)
+            }
             row.addView(text, LinearLayout.LayoutParams(0, -2, 1f))
             row.setOnClickListener { selectedPhoto = photo; outputText.text = "Выбрано: ${photo.name}" }
             galleryContainer.addView(row)
