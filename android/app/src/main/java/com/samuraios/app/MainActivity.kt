@@ -267,6 +267,11 @@ class MainActivity : ComponentActivity() {
         outputText.text = "Подготовка фото..."
         thread {
             try {
+                val maxUploadBytes = 10L * 1024L * 1024L
+                if (photo.length() > maxUploadBytes) {
+                    mainHandler.post { outputText.text = "ERROR: Фото больше 10 МБ. Уменьшите файл перед отправкой; сервер принимает JSON до 16 МБ." }
+                    return@thread
+                }
                 val bytes = photo.readBytes(); val base64 = Base64.encodeToString(bytes, Base64.NO_WRAP); val meta = Vault.metadata(photo)
                 val caption = if (meta != null) "SamuraiOS | ${meta.optDouble("latitude", Double.NaN)}, ${meta.optDouble("longitude", Double.NaN)} | ±${meta.optDouble("accuracyMeters", 0.0)}m" else "SamuraiOS | ${photo.name}"
                 val latitude = meta?.takeIf { !it.isNull("latitude") }?.optDouble("latitude")
