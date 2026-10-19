@@ -27,7 +27,11 @@ test.before(async () => {
     env: {
       ...process.env,
       PORT: String(port),
+      NODE_ENV: 'test',
       DATA_DIR: dataDir,
+      COMMERCE_PAYMENT_MODE: 'test',
+      COMMERCE_OUTBOX_ENABLED: 'false',
+      COMMERCE_DISPATCH_CHAT_ID: 'dispatch-test',
       AUTO_REPLY: 'false',
       OPENAI_API_KEY: '',
       CORE_API_KEY: API_KEY,
@@ -188,4 +192,97 @@ test('unknown route returns JSON 404', async () => {
   assert.equal(r.status, 404);
   const body = await r.json();
   assert.equal(body.ok, false);
+});
+
+test('protected commerce API supports a simulated-only payment and delivery lifecycle', async () => {
+  const denied = await fetch(`http://127.0.0.1:${port}/api/commerce/products`);
+  assert.equal(denied.status, 401);
+
+  const productResponse = await api('/api/commerce/products', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ sku: 'CORE-TEST-1', name: 'Core route test product', priceKzt: 2500, stock: 3 })
+  });
+  assert.equal(productResponse.status, 201);
+  const productBody = await productResponse.json();
+  assert.equal(productBody.ok, true);
+  const product = productBody.product;
+
+  const orderResponse = await api('/api/commerce/orders', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      customerId: '777001',
+      items: [{ productId: product.id, quantity: 2 }],
+      fulfilment: 'delivery',
+      address: 'Almaty, Example Street 1',
+      phone: '+77000000001'
+    })
+  });
+  assert.equal(orderResponse.status, 201);
+  const created = (await orderResponse.json()).order;
+  assert.equal(created.totalKzt, 5000);
+  assert.equal(created.status, 'pending_payment');
+
+  const badPayment = await api(`/api/commerce/orders/${created.id}/test-payment`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ eventId: 'core-test-wrong-amount', amountKzt: 4999 })
+  });
+  assert.equal(badPayment.status, 409);
+  assert.equal((await badPayment.json()).error.code, 'PAYMENT_AMOUNT_MISMATCH');
+
+  const paymentPayload = {
+    eventId: 'core-test-payment-1',
+    amountKzt: 5000
+  };
+  const paidResponse = await api(`/api/commerce/orders/${created.id}/test-payment`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(paymentPayload)
+  });
+  assert.equal(paidResponse.status, 200);
+  const paidBody = await paidResponse.json();
+  assert.equal(paidBody.simulated, true);
+  assert.equal(paidBody.realMoneyMoved, false);
+  assert.equal(paidBody.order.payment.status, 'paid');
+
+  const duplicatePayment = await api(`/api/commerce/orders/${created.id}/test-payment`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(paymentPayload)
+  });
+  assert.equal(duplicatePayment.status, 200);
+
+  const assignedResponse = await api(`/api/commerce/orders/${created.id}/assign-courier`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ courierId: '888001' })
+  });
+  assert.equal(assignedResponse.status, 200);
+  assert.equal((await assignedResponse.json()).order.status, 'assigned');
+
+  const startedResponse = await api(`/api/commerce/orders/${created.id}/start-delivery`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ courierId: '888001' })
+  });
+  assert.equal(startedResponse.status, 200);
+  assert.equal((await startedResponse.json()).order.status, 'out_for_delivery');
+
+  const fulfilledResponse = await api(`/api/commerce/orders/${created.id}/confirm-fulfilment`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ actorId: '888001', photoUrl: 'https://media.example.test/proof.jpg', note: 'test confirmation' })
+  });
+  assert.equal(fulfilledResponse.status, 200);
+  assert.equal((await fulfilledResponse.json()).order.status, 'delivered');
+
+  const outbox = await (await api('/api/commerce/outbox')).json();
+  assert.equal(outbox.ok, true);
+  assert.equal(outbox.events.length, 0);
+  const persisted = JSON.parse(require('node:fs').readFileSync(require('node:path').join(dataDir, 'commerce.json'), 'utf8'));
+  assert.equal(persisted.outbox.filter(event => event.type === 'PaymentConfirmed').length, 1);
+  assert.equal(persisted.outbox.filter(event => event.type === 'OrderPlaced').length, 1);
+  assert.equal(persisted.outbox.filter(event => event.type === 'OrderDelivered').length, 1);
 });
