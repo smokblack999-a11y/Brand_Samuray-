@@ -205,3 +205,28 @@ test("durable store restores queued work and remembers webhook deliveries", asyn
   assert.equal(persisted.events[0].analysis.status, "suggestion_only");
   fs.rmSync(dir, { recursive: true, force: true });
 });
+
+
+test("same workflow run is not re-enqueued under a different delivery ID", async () => {
+  let calls = 0;
+  const ci = createCiAgent({
+    secret: "secret",
+    processFailure: async () => {
+      calls++;
+      return { suggestion: "One analysis only" };
+    }
+  });
+  const first = response();
+  ci.webhook(request(failedRun(), "secret", "delivery-first"), first);
+  assert.equal(first.statusCode, 202);
+  for (let i = 0; i < 40 && ci.listEvents()[0]?.analysis.status !== "suggestion_only"; i++) {
+    await new Promise(resolve => setTimeout(resolve, 10));
+  }
+  const duplicate = response();
+  ci.webhook(request(failedRun(), "secret", "delivery-second"), duplicate);
+  assert.equal(duplicate.statusCode, 200);
+  assert.equal(duplicate.body.duplicateRun, true);
+  assert.equal(ci.listEvents().length, 1);
+  assert.equal(ci.listEvents()[0].analysis.suggestion, "One analysis only");
+  assert.equal(calls, 1);
+});
