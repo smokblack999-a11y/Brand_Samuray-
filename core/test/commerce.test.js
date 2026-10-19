@@ -99,3 +99,14 @@ test("outbox migrates legacy state and rejects null/corrupt state", t => {
   fs.writeFileSync(c.filePath, "null");
   assert.throws(() => createCommerceService({ filePath: c.filePath }), { code: "COMMERCE_STATE_INVALID" });
 });
+
+test("verified delivery payment creates separate customer and courier outbox events", t => {
+  const c = setup(); t.after(c.cleanup);
+  const p = c.service.addProduct({ sku: "COURIER-EVENT", name: "Item", priceKzt: 1900, stock: 2 });
+  const o = c.service.createOrder({ customerId: "tg-customer", items: [{ productId: p.id, quantity: 1 }], fulfilment: "delivery", address: "Private address" });
+  c.service.confirmPayment({ orderId: o.id, eventId: "bank-courier-1", amountKzt: 1900, method: "bank_api", trusted: true });
+  const events = c.service.listOutbox().filter(e => e.orderId === o.id);
+  assert.equal(events.filter(e => e.type === "PaymentConfirmed").length, 1);
+  assert.equal(events.filter(e => e.type === "CourierDeliveryRequested").length, 1);
+  assert.equal(events.find(e => e.type === "CourierDeliveryRequested").eventId === events.find(e => e.type === "PaymentConfirmed").eventId, false);
+});
