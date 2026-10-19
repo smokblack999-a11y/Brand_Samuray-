@@ -192,14 +192,17 @@ function createCiAgent(options = {}) {
     if (deliveries.has(delivery)) return res.status(200).json({ ok: true, duplicate: true });
     deliveries.add(delivery);
     if (deliveries.size > MAX_EVENTS * 2) deliveries.delete(deliveries.values().next().value);
-    persist();
 
     if (eventType !== "workflow_run" || req.body?.action !== "completed") {
+      persist();
       return res.status(202).json({ ok: true, accepted: false, reason: "EVENT_NOT_HANDLED" });
     }
 
     const event = normalizeWorkflowRun(req.body);
-    if (!event) return res.status(202).json({ ok: true, accepted: false, reason: "RUN_NOT_FAILED" });
+    if (!event) {
+      persist();
+      return res.status(202).json({ ok: true, accepted: false, reason: "RUN_NOT_FAILED" });
+    }
     events.set(event.id, event);
     while (events.size > MAX_EVENTS) {
       const oldestId = events.keys().next().value;
