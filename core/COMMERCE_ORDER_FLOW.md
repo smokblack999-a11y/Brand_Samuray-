@@ -45,3 +45,18 @@ A screenshot or forwarded receipt is not authoritative proof of funds. `confirmP
 - Unpaid cancellation releases reserved stock. Paid cancellation is blocked until a refund workflow exists.
 
 Run all core tests from `core/` with `npm test`. CI remains the source of truth for whether the current commit passes.
+
+
+## Outbox dispatcher and Telegram delivery adapter
+
+- `commerce-outbox-worker.js` processes pending outbox events sequentially, reuses stable event IDs, stores bounded failure details, and dead-letters after a configurable attempt limit.
+- `commerce-telegram-delivery.js` sends one Telegram message per outbox event. `PaymentConfirmed` notifies the customer; the separate `CourierDeliveryRequested` event sends delivery details to the configured courier chat only after server-side payment confirmation.
+- Keep the worker and adapter disabled until a dedicated commerce bot token and authorized courier chat ID are configured. Never expose those secrets to client input or logs.
+- Delivery is at-least-once, not exactly-once: Telegram may accept a message just before a network timeout. A retry can duplicate that message because Telegram Bot API `sendMessage` has no general idempotency-key parameter. Stable event IDs help internal tracking but do not guarantee Telegram-side deduplication.
+- The worker is currently a library module and is not yet scheduled or exposed through the HTTP server. No real Telegram messages have been sent by these tests.
+- The JSON store and worker are single-process only. Do not run multiple replicas against the same JSON file; use a transactional database and a queue/lease strategy before scaling.
+
+### Tests added
+- Outbox retry/dead-letter handling and secret redaction.
+- Separate customer and courier notification events.
+- Telegram adapter request routing with mocked HTTP responses; no live Telegram API calls.
