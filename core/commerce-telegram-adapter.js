@@ -56,15 +56,18 @@ function createTelegramCommerceDelivery({
           `${heading} создан.\nТовары:\n${lines}\nСумма: ${total}\nСтатус: ожидает оплаты. Не переводите деньги до получения проверяемых платёжных инструкций.`);
         return;
       case "PaymentConfirmed":
-        if (order.fulfilment === "delivery" && !cleanInline(dispatchChatId, 100)) {
-          throw fail("COMMERCE_DISPATCH_NOT_CONFIGURED", "COMMERCE_DISPATCH_CHAT_ID is required for paid delivery orders");
-        }
-        if (order.fulfilment === "delivery") {
-          await send(dispatchChatId,
-            `Оплата подтверждена: ${heading}\nСумма: ${total}\nТип: доставка\nНужно назначить курьера. Адрес клиентский; сведения передаются назначенному курьеру после назначения.`);
-        }
         await send(customerId,
           `Оплата по заказу ${cleanInline(order.id, 40)} подтверждена.\nСумма: ${total}\nСледующий этап: ${order.fulfilment === "pickup" ? "подготовка самовывоза" : "назначение курьера"}.`);
+        return;
+      case "CourierDeliveryRequested":
+        if (order.fulfilment !== "delivery") {
+          throw fail("INVALID_DELIVERY_REQUEST", "Courier delivery request requires a delivery order");
+        }
+        if (!cleanInline(dispatchChatId, 100)) {
+          throw fail("COMMERCE_DISPATCH_NOT_CONFIGURED", "COMMERCE_DISPATCH_CHAT_ID is required for paid delivery orders");
+        }
+        await send(dispatchChatId,
+          `Требуется курьер: ${heading}\nСумма: ${total}\nТовары:\n${lines}\nНазначьте курьера через защищённый API. Адрес и телефон будут переданы только назначенному курьеру.`);
         return;
       case "CourierAssigned":
         if (order.fulfilment !== "delivery" || !cleanInline(order.courierId, 100)) {
