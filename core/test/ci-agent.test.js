@@ -280,3 +280,26 @@ test("restart recovery never restores more than the configured queue bound", asy
   assert.ok(restored.filter(event => event.analysis.status === "queue_full").every(event => event.analysis.errorCode === "CI_QUEUE_CAPACITY_ON_RECOVERY"));
   fs.rmSync(dir, { recursive: true, force: true });
 });
+
+test("failed atomic save preserves the previous state and removes its temporary file", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ci-agent-atomic-save-"));
+  const stateFile = path.join(dir, "state.json");
+  const store = createCiAgentStore(stateFile);
+  store.save({ events: [{ id: "previous" }], deliveries: ["delivery-previous"] });
+  const originalRename = fs.renameSync;
+  try {
+    fs.renameSync = () => {
+      const error = new Error("simulated rename failure");
+      error.code = "EIO";
+      throw error;
+    };
+    assert.throws(() => store.save({ events: [{ id: "replacement" }], deliveries: [] }), { code: "EIO" });
+  } finally {
+    fs.renameSync = originalRename;
+  }
+  assert.deepEqual(store.load().events.map(event => event.id), ["previous"]);
+  assert.deepEqual(store.load().deliveries, ["delivery-previous"]);
+  assert.deepEqual(fs.readdirSync(dir).sort(), ["state.json"]);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
