@@ -111,9 +111,16 @@ test("test payment callback is blocked in production and for another customer's 
   await c.bot.handleUpdate(callback("12345", "t:" + order.id, "cb-prod"));
   assert.equal(c.commerce.getOrder(order.id).payment.status, "pending");
   assert.match(lastMessage(c.calls).text, /отключена/);
-  await c.bot.handleUpdate(callback("67890", "t:" + order.id, "cb-other", "67890"));
+  const otherOwnerCalls = [];
+  const otherOwnerBot = createCommerceTelegramBot({
+    commerce: c.commerce,
+    paymentMode: "test",
+    isProduction: false,
+    callTelegram: async (method, payload) => { otherOwnerCalls.push({ method, payload }); }
+  });
+  await otherOwnerBot.handleUpdate(callback("67890", "t:" + order.id, "cb-other", "67890"));
   assert.equal(c.commerce.getOrder(order.id).payment.status, "pending");
-  assert.match(lastMessage(c.calls).text, /не найден/);
+  assert.match(lastMessage(otherOwnerCalls).text, /не найден/);
 });
 
 test("dispatcher can assign only a whitelisted courier; courier can start and submit photo proof", async t => {
