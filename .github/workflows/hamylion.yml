@@ -22,8 +22,15 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+          cache: pip
+          cache-dependency-path: hamylion-core/backend/requirements.txt
+      - name: Install backend dependencies
+        run: python -m pip install -r hamylion-core/backend/requirements.txt
       - name: Compile Python sources
         run: python -m compileall -q hamylion-core/backend
+      - name: Validate Docker Compose configuration
+        working-directory: hamylion-core
+        run: docker compose --env-file .env.example config --quiet
 
   docker:
     runs-on: ubuntu-latest
