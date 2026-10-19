@@ -49,11 +49,12 @@ object Vault {
             put("longitude", longitude ?: JSONObject.NULL)
             put("accuracyMeters", accuracy ?: JSONObject.NULL)
         }
-        metadataFile(photo).writeText(json.toString())
-
-        if (latitude != null && longitude != null && latitude.isFinite() && longitude.isFinite() && latitude in -90.0..90.0 && longitude in -180.0..180.0) {
-            runCatching { stampCoordinates(photo, latitude, longitude, accuracy, timestamp) }
-        }
+        val validGps = latitude != null && longitude != null &&
+            latitude.isFinite() && longitude.isFinite() &&
+            latitude in -90.0..90.0 && longitude in -180.0..180.0
+        val stampApplied = if (validGps) {
+            runCatching { stampCoordinates(photo, latitude!!, longitude!!, accuracy, timestamp) }.getOrDefault(false)
+        } else false
 
         // Keep GPS in standard JPEG EXIF as well as in the app's sidecar JSON.
         // If no valid fix exists, do not fabricate coordinates.
@@ -71,6 +72,8 @@ object Vault {
                 }
             }
         }
+        json.put("visibleGpsStamp", stampApplied)
+        metadataFile(photo).writeText(json.toString())
     }
 
     fun metadata(photo: File): JSONObject? = runCatching {
@@ -90,16 +93,16 @@ object Vault {
     }
 
     /** Burn GPS and capture time into the pixels, then write the same coordinates to EXIF. */
-    private fun stampCoordinates(photo: File, latitude: Double, longitude: Double, accuracy: Float?, timestamp: Long) {
+    private fun stampCoordinates(photo: File, latitude: Double, longitude: Double, accuracy: Float?, timestamp: Long): Boolean {
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeFile(photo.absolutePath, bounds)
-        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return false
         val pixels = bounds.outWidth.toLong() * bounds.outHeight.toLong()
         // Never downsample and overwrite the original: that would silently destroy photo resolution.
         // Very large images keep their original pixels and still receive GPS EXIF + sidecar metadata.
-        if (pixels > 18_000_000L) return
+        if (pixels > 18_000_000L) return false
         val options = BitmapFactory.Options().apply { inSampleSize = 1 }
-        val decoded = BitmapFactory.decodeFile(photo.absolutePath, options) ?: return
+        val decoded = BitmapFactory.decodeFile(photo.absolutePath, options) ?: return false
         val exif = runCatching { ExifInterface(photo.absolutePath) }.getOrNull()
         val orientation = exif?.getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL) ?: ExifInterface.ORIENTATION_NORMAL
         val rotation = when (orientation) { ExifInterface.ORIENTATION_ROTATE_90 -> 90f; ExifInterface.ORIENTATION_ROTATE_180 -> 180f; ExifInterface.ORIENTATION_ROTATE_270 -> 270f; else -> 0f }
@@ -132,5 +135,6 @@ object Vault {
             throw IllegalStateException("Could not replace stamped photo")
         }
         backup.delete()
+        return true
     }
 }
