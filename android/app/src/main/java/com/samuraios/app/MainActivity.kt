@@ -196,7 +196,7 @@ class MainActivity : ComponentActivity() {
             val meta = Vault.metadata(photo)
             val text = TextView(this).apply {
                 text = if (meta?.has("latitude") == true && !meta.isNull("latitude")) {
-                    "${photo.name}\nGPS: ${meta.optDouble("latitude")}, ${meta.optDouble("longitude")}\n± ${meta.optDouble("accuracyMeters", 0.0)} m\nШтамп на фото: ${if (meta.optBoolean("visibleGpsStamp", false)) "да" else "нет (EXIF/JSON сохранены)"}"
+                    "${photo.name}\nGPS: ${meta.optDouble("latitude")}, ${meta.optDouble("longitude")}\n± ${meta.optDouble("accuracyMeters", 0.0)} m\nШтамп на фото: ${if (meta.optBoolean("visibleGpsStamp", false)) "да" else "нет; JSON sidecar сохранён"}"
                 } else photo.name + "\nGPS: нет fix"
                 setTextColor(Color.LTGRAY); setPadding(12, 0, 0, 0)
             }
