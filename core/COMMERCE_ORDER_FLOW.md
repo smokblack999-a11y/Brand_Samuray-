@@ -1,74 +1,63 @@
-# Samurai Commerce Order Flow — domain and outbox worker
+# Samurai Commerce Order Flow
 
-The commerce domain, privileged internal HTTP routes, outbox worker, and Telegram notification adapter are implemented. The server can poll the outbox when explicitly enabled; the default is disabled. A customer-facing Telegram commerce conversation is **not yet wired**, and no real Telegram send or payment-provider integration has been verified.
+## Current implementation
 
-## Included
+The commerce domain, protected internal HTTP API, durable JSON outbox, sequential worker, and Telegram notification adapter are implemented in the branch. The customer-facing Telegram catalog/checkout conversation and live payment provider are not yet integrated. No real Telegram send or real payment has been verified.
 
-- Persistent JSON catalog/order state with atomic file replacement and restrictive file permissions.
-- Server-side price calculation; client-supplied prices are not trusted.
-- Stock reservation at order creation and restoration when an unpaid order is cancelled.
-- Separate delivery and pickup state paths.
-- Payment confirmation requires an internal trusted bank/provider/manual-review signal and exact amount matching.
-- Idempotency for payment event IDs.
-- Courier assignment and an HTTPS delivery-proof reference.
-- Corrupt state fails closed rather than silently resetting commerce data.
-- Transactional outbox entries are written in the same state persistence operation as order/payment/fulfilment changes.
-- Sequential outbox worker with batch bounds, persisted attempts, redacted error text and dead-letter status after a configurable attempt limit.
+Included:
+- Catalog products with server-side KZT pricing, stock controls, description and HTTPS media references.
+- Order creation with server-computed totals, stock reservation and delivery/pickup paths.
+- Trusted-payment guard, exact amount matching and payment event deduplication.
+- State transitions that enqueue outbox events in the same persisted operation.
+- Bounded retries, stored error details with token-pattern redaction, dead-letter state and explicit replay.
+- Optional outbox polling inside `server.js`; it is disabled by default.
 
-## Outbox worker contract
+## Event flow
 
-Module: `core/commerce-outbox-worker.js`
+Supported outbox events:
+`OrderPlaced`, `PaymentConfirmed`, `CourierDeliveryRequested`, `CourierAssigned`, `DeliveryStarted`, `PickupReady`, `OrderDelivered`, `OrderPickedUp`, `OrderCancelled`.
 
-Create a worker with `createOutboxWorker({ commerce, deliver, maxBatch, maxAttempts, logger })`, then call `await worker.runOnce()` from a trusted server-side scheduler or controlled worker process. In `server.js`, polling can be enabled with `COMMERCE_OUTBOX_ENABLED=true`; configure `TELEGRAM_BOT_TOKEN` and `COMMERCE_DISPATCH_CHAT_ID` first. The default is `false` so test/development processes do not send messages unexpectedly. The `deliver` callback receives `{ event, order, idempotencyKey }`; the key is the persisted outbox event ID and should be used for deduplication where the downstream system supports it.
+The notification adapter routes `OrderPlaced` and `PaymentConfirmed` to the customer chat; `CourierDeliveryRequested` to `COMMERCE_DISPATCH_CHAT_ID); and `CourierAssigned` to the assigned courier chat, then sends a status-only message to the customer. The courier gets the delivery address and phone; dispatch does not get these fields from the delivery-request notification. Delivery/pickup completion sends a proof URL as text, not an uploaded Telegram photo.
 
-The worker is deliberately adapter-agnostic: no Telegram API token, customer/courier chat ID, or payment credential is embedded in the domain module. Delivery failures retry with the same event ID. Once `maxAttempts` is reached, the event moves to `dead_letter` and is excluded from normal processing; operators can inspect it with `commerce.listOutbox({ includeDeadLetter: true })`. A trusted internal caller can explicitly replay one by calling `commerce.requeueOutboxDeadLetter({ eventId })`; this preserves the event ID, resets the current attempt counter, and records the previous dead-letter attempt count. A privileged API route exposes replay; a role-specific admin workflow is still missing.
+To activate polling, set `COMMERCE_OUTBOX_ENABLED=true`, `TELEGRAM_BOT_TOKEN`, and `COMMERCE_DISPATCH_CHAT_ID`. Defaults in `core/.env.example` keep the worker off to prevent accidental sends. Customer and courier IDs must be reachable chats for this bot. The worker processes events sequentially, with configurable limits `COMMERCE_OUTBOX_INTERVAL_MS`, `COMMERCE_OUTBOX_MAX_BATCH` and `COMMERCE_OUTBOX_MAX_ATTEMPTS`.
 
-**Delivery semantics are at-least-once, not exactly-once.** If the remote system accepts a message but the process fails before the local delivered marker is persisted, the message may be sent again. Telegram Bot API sends do not provide a general idempotency key for outgoing messages, so a duplicate customer/courier notification remains possible in that failure window. The worker also prevents overlapping `runOnce()` calls only within one worker instance; it is not a distributed lock.
+**Delivery is at-least-once, not exactly-once.** A network timeout or process crash after Telegram accepts a message but before the delivered marker is saved may cause a duplicate on retry. This worker only prevents overlapping runs within the same instance; JSON persistence is not safe for multiple replicas.
 
-## Telegram notification adapter
+## Protected internal API
 
-Module: `core/commerce-telegram-adapter.js`. It uses the existing Telegram Bot API helper and formats the known order events. `OrderPlaced` goes to `order.customerId`; a paid delivery requires `COMMERCE_DISPATCH_CHAT_ID`; `CourierAssigned` sends delivery address/phone only to `order.courierId`, and sends the customer a status-only message. Proof is sent as a URL in text; this does not upload a photo. The dispatcher chat ID is documented in `core/.env.example`.
+All `/api/commerce/...` routes require `X-API-Key: CORE_API_KEY`. Available endpoints include:
+- `GET/POST /api/commerce/products`
+- `POST /api/commerce/orders` and `GET /api/commerce/orders/:orderId`
+- `POST /api/commerce/orders/:orderId/test-payment`
+- `POST /api/commerce/orders/:orderId/assign-courier`
+- `POST /api/commerce/orders/:orderId/start-delivery`
+- `POST /api/commerce/orders/:orderId/ready-for-pickup`
+- `POST /api/commerce/orders/:orderId/confirm-fulfilment`
+- `POST /api/commerce/orders/:orderId/cancel`
+- `GET /api/commerce/outbox` and `POST /api/commerce/outbox/:eventId/requeue`
 
-Before use, verify that customer/courier IDs are reachable private chats for this bot and that courier assignment can only be performed by an authorized operator. The adapter and worker are tested with a fake sender, but the adapter is not started by `server.js` and no real Telegram send has been verified.
+These are privileged internal/admin routes, not safe browser/mobile-client endpoints. Never put `CORE_API_KEY` in a client app. Courier identity and staff roles are not independently authenticated yet; requests to change fulfilment state must come only from a trusted server/operator until role-based auth is added.
 
-## Internal API routes
+## Test payment mode
 
-The following `/api/commerce/...` routes require `X-API-Key: CORE_API_KEY` and are privileged server/admin endpoints: list/create products, create/get orders, assign courier, start delivery, mark pickup ready, confirm fulfilment, cancel unpaid orders, inspect/requeue outbox events, and run the test-payment simulation. Do not expose `CORE_API_KEY` in a mobile app, website JavaScript, or Telegram client. Courier identity is not role-authenticated yet, so these endpoints must remain behind trusted server-side access.
+Real payment processing is **not implemented**. The test-payment route is available only when `COMMERCE_PAYMENT_MODE=test` and `NODE_ENV` is not `production`; its response explicitly reports `realMoneyMoved: false`. Default mode is `disabled`. Production startup is blocked if test mode is configured. The route uses server-side order amount validation and a unique event ID; it does not contact a bank or payment provider.
 
-The test-payment endpoint is enabled only when `COMMERCE_PAYMENT_MODE=test` and `NODE_ENV` is not `production`. It creates no real payment and returns `realMoneyMoved: false`. The default `COMMERCE_PAYMENT_MODE=disabled` cannot mark orders paid through that route. Production startup refuses the test payment mode.
+A receipt screenshot is not authoritative payment confirmation. `confirmPayment` accepts a trusted signal only as an internal service contract. A real payment route must verify a provider signature/bank API response before calling it.
 
-## Not included yet
+## Remaining work / production blockers
 
-- Customer-facing Telegram catalog/buttons/checkout, and command/callback routing from the existing Telegram webhook into commerce.
-- Operational metrics and a dedicated role-based admin/courier authorization flow.
-- Real payment-provider adapter or signature-verified webhook.
-- Role-based authorization for staff/couriers.
-- Delivery price calculation, order expiry, refunds, and media upload/storage.
-- Production database or multi-process locking. JSON persistence is single-process MVP/testing only.
-
-## Payment safety
-
-A screenshot or forwarded receipt is not authoritative proof of funds. `confirmPayment` refuses to mark an order paid unless the caller supplies a trusted verification result. That flag is an internal contract and must never be exposed as a client-controlled HTTP input. A future route must derive it only after verifying a provider webhook/bank API or staff-only manual review.
+- Customer-facing Telegram catalog, inline buttons, checkout, callback/message routing and persistent conversation state.
+- Signed payment provider integration, reconciliation, refunds and order expiry.
+- Telegram courier-role authentication, staff authorization and audit trail.
+- Media upload/storage for delivery photos (currently only an HTTPS proof URL is stored).
+- Delivery-fee rules.
+- Production database and multi-process-safe locking/queueing.
+- Operational metrics and tested live delivery.
 
 ## State sequence
 
 - Delivery: `pending_payment -> paid -> assigned -> out_for_delivery -> delivered`
 - Pickup: `pending_payment -> preparing -> ready_for_pickup -> picked_up`
-- Unpaid cancellation releases reserved stock. Paid cancellation is blocked until a refund workflow exists.
+- Cancelling an unpaid order releases reserved stock. Paid cancellation is blocked until a refund workflow exists.
 
-Run all core tests from `core/` with `npm test`. CI remains the source of truth for whether the current commit passes.
-
-
-## Outbox dispatcher and Telegram delivery adapter
-
-- `commerce-outbox-worker.js` processes pending outbox events sequentially, reuses stable event IDs, stores bounded failure details, and dead-letters after a configurable attempt limit.
-- `commerce-telegram-delivery.js` sends one Telegram message per outbox event. `PaymentConfirmed` notifies the customer; the separate `CourierDeliveryRequested` event sends delivery details to the configured courier chat only after server-side payment confirmation.
-- Keep the worker and adapter disabled until a dedicated commerce bot token and authorized courier chat ID are configured. Never expose those secrets to client input or logs.
-- Delivery is at-least-once, not exactly-once: Telegram may accept a message just before a network timeout. A retry can duplicate that message because Telegram Bot API `sendMessage` has no general idempotency-key parameter. Stable event IDs help internal tracking but do not guarantee Telegram-side deduplication.
-- The worker is currently a library module and is not yet scheduled or exposed through the HTTP server. No real Telegram messages have been sent by these tests.
-- The JSON store and worker are single-process only. Do not run multiple replicas against the same JSON file; use a transactional database and a queue/lease strategy before scaling.
-
-### Tests added
-- Outbox retry/dead-letter handling and secret redaction.
-- Separate customer and courier notification events.
-- Telegram adapter request routing with mocked HTTP responses; no live Telegram API calls.
+Run core checks with `cd core && npm test`. CI run status, not the code being present on a branch, is the evidence for a passing test suite.
