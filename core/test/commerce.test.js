@@ -90,3 +90,12 @@ test("duplicate payment event does not create duplicate outbox event", t => {
   assert.equal(c.service.confirmPayment({ orderId: o.id, eventId: "pay-out-1", amountKzt: 800, method: "bank_api", trusted: true }).payment.status, "paid");
   assert.equal(c.service.listOutbox().filter(e => e.type === "PaymentConfirmed").length, 1);
 });
+
+test("outbox migrates legacy state and rejects null/corrupt state", t => {
+  const c = setup(); t.after(c.cleanup);
+  fs.writeFileSync(c.filePath, JSON.stringify({ version: 1, products: [], orders: [], paymentEvents: [] }));
+  const migrated = createCommerceService({ filePath: c.filePath });
+  assert.deepEqual(migrated.listOutbox(), []);
+  fs.writeFileSync(c.filePath, "null");
+  assert.throws(() => createCommerceService({ filePath: c.filePath }), { code: "COMMERCE_STATE_INVALID" });
+});
