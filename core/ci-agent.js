@@ -104,10 +104,13 @@ function createCiAgent(options = {}) {
     if (["queued", "running", "retrying"].includes(event.analysis?.status)) {
       const attempts = Math.max(0, Number(event.analysis?.attempts) || 0);
       if (attempts >= MAX_ATTEMPTS) event.analysis = { status: "failed", attempts: MAX_ATTEMPTS, failedAt: new Date().toISOString(), errorCode: "CI_ANALYSIS_INTERRUPTED" };
-      else if (processFailure) {
+      else if (processFailure && queue.length < MAX_QUEUE) {
         event.analysis = { status: "queued", attempts, queuedAt: new Date().toISOString(), recovered: true };
         queue.push(event.id);
         queuedIds.add(event.id);
+      } else if (processFailure) {
+        // Recovery must respect the same queue bound as fresh webhook events.
+        event.analysis = { status: "queue_full", attempts, errorCode: "CI_QUEUE_CAPACITY_ON_RECOVERY" };
       } else event.analysis = { status: "pending", attempts };
     }
   }
