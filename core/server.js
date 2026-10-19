@@ -15,6 +15,9 @@ const { requireWebAppAuth } = require("./webapp-auth");
 const { emitHamylionEvent } = require("./hamylion-adapter");
 const dualAI = require("./dual-ai/engine");
 const { checkDraft } = require("./kill-critic");
+const { createCommerceService } = require("./commerce");
+const { createOutboxWorker } = require("./commerce-outbox-worker");
+const { createTelegramCommerceDelivery } = require("./commerce-telegram-adapter");
 
 const app = express();
 const PORT = Number(process.env.PORT || 8787);
@@ -26,7 +29,17 @@ const REQUEST_TIMEOUT_MS = Math.max(5000, Number(process.env.REQUEST_TIMEOUT_MS 
 const LEAD_RATE_LIMIT_WINDOW_MS = Math.max(1000, Number(process.env.LEAD_RATE_LIMIT_WINDOW_MS || 60000));
 const LEAD_RATE_LIMIT_MAX = Math.max(1, Number(process.env.LEAD_RATE_LIMIT_MAX || 20));
 const WEBAPP_MAX_MEDIA_BYTES = Math.max(1024 * 1024, Number(process.env.WEBAPP_MAX_MEDIA_BYTES || 50 * 1024 * 1024));
-const WEBAPP_MEDIA_DIR = process.env.MEDIA_DIR || path.join(process.env.DATA_DIR || path.join(__dirname, "data"), "media");
+function boundedIntegerEnv(name, fallback, min, max) {
+  const parsed = Number.parseInt(String(process.env[name] ?? fallback), 10);
+  return Number.isFinite(parsed) ? Math.max(min, Math.min(max, parsed)) : fallback;
+}
+const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, "data");
+const WEBAPP_MEDIA_DIR = process.env.MEDIA_DIR || path.join(DATA_DIR, "media");
+const COMMERCE_PAYMENT_MODE = String(process.env.COMMERCE_PAYMENT_MODE || "disabled").trim().toLowerCase();
+const COMMERCE_OUTBOX_ENABLED = String(process.env.COMMERCE_OUTBOX_ENABLED || "false").toLowerCase() === "true";
+const COMMERCE_OUTBOX_INTERVAL_MS = boundedIntegerEnv("COMMERCE_OUTBOX_INTERVAL_MS", 3000, 1000, 300000);
+const COMMERCE_OUTBOX_MAX_BATCH = boundedIntegerEnv("COMMERCE_OUTBOX_MAX_BATCH", 25, 1, 500);
+const COMMERCE_OUTBOX_MAX_ATTEMPTS = boundedIntegerEnv("COMMERCE_OUTBOX_MAX_ATTEMPTS", 8, 1, 100);
 
 if (process.env.NODE_ENV === "production") {
   const missing = [];
@@ -34,11 +47,30 @@ if (process.env.NODE_ENV === "production") {
   if (!WEBHOOK_SECRET) missing.push("TELEGRAM_WEBHOOK_SECRET");
   if (missing.length) throw new Error(`Production startup blocked: missing ${missing.join(", ")}`);
 }
+if (COMMERCE_OUTBOX_ENABLED) {
+  const missing = [];
+  if (!String(process.env.TELEGRAM_BOT_TOKEN || "").trim()) missing.push("TELEGRAM_BOT_TOKEN");
+  if (!String(process.env.COMMERCE_DISPATCH_CHAT_ID || "").trim()) missing.push("COMMERCE_DISPATCH_CHAT_ID");
+  if (missing.length) throw new Error(`Commerce outbox startup blocked: missing ${missing.join(", ")}`);
+  if (process.env.NODE_ENV === "production" && COMMERCE_PAYMENT_MODE === "test") {
+    throw new Error("Production startup blocked: COMMERCE_PAYMENT_MODE=test is not allowed");
+  }
+}
 
 app.disable("x-powered-by");
 app.set("trust proxy", process.env.TRUST_PROXY === "true" ? 1 : false);
 app.use(cors(CORS_ORIGIN ? { origin: CORS_ORIGIN } : { origin: false }));
 app.use(express.json({ limit: "256kb" }));
+
+const commerceService = createCommerceService({ filePath: path.join(DATA_DIR, "commerce.json") });
+const telegramCommerceDelivery = createTelegramCommerceDelivery({ dispatchChatId: process.env.COMMERCE_DISPATCH_CHAT_ID });
+const commerceOutboxWorker = createOutboxWorker({
+  commerce: commerceService,
+  deliver: telegramCommerceDelivery.deliver,
+  maxBatch: COMMERCE_OUTBOX_MAX_BATCH,
+  maxAttempts: COMMERCE_OUTBOX_MAX_ATTEMPTS,
+  logger: event => console.log(JSON.stringify(event))
+});
 
 function errorBody(code, message, requestId) {
   return { ok: false, error: { code, message, requestId } };
@@ -102,6 +134,81 @@ app.get("/health/openai", requireApiKey, async (req, res) => {
 });
 app.get("/api/leads", requireApiKey, (req, res) => res.json({ ok: true, leads: listLeads(req.query.limit), requestId: req.requestId }));
 app.get("/api/stats", requireApiKey, (req, res) => res.json({ ok: true, stats: stats(), requestId: req.requestId }));
+
+function commerceErrorStatus(error) {
+  const code = error?.code || "";
+  if (["PRODUCT_NOT_FOUND", "ORDER_NOT_FOUND", "OUTBOX_EVENT_NOT_FOUND"].includes(code)) return 404;
+  if (["FORBIDDEN"].includes(code)) return 403;
+  if (["SKU_EXISTS", "PAYMENT_EVENT_CONFLICT", "ORDER_ALREADY_PAID", "INVALID_ORDER_STATE", "INSUFFICIENT_STOCK", "PAYMENT_AMOUNT_MISMATCH", "PAYMENT_NOT_VERIFIED", "REFUND_REQUIRED", "OUTBOX_NOT_DEAD_LETTERED"].includes(code)) return 409;
+  if (code === "COMMERCE_OUTBOX_DISABLED" || code === "TEST_PAYMENT_DISABLED") return 503;
+  return 400;
+}
+function commerceError(req, res, error) {
+  const code = error?.code || "COMMERCE_ERROR";
+  console.error(JSON.stringify({ event: "commerce_request_failed", requestId: req.requestId, code }));
+  return res.status(commerceErrorStatus(error)).json(errorBody(code, error?.message || "Commerce request failed", req.requestId));
+}
+
+app.get("/api/commerce/products", requireApiKey, (_req, res) => {
+  return res.json({ ok: true, products: commerceService.listProducts(), requestId: _req.requestId });
+});
+app.post("/api/commerce/products", requireApiKey, (req, res) => {
+  try { return res.status(201).json({ ok: true, product: commerceService.addProduct(req.body || {}), requestId: req.requestId }); }
+  catch (error) { return commerceError(req, res, error); }
+});
+app.post("/api/commerce/orders", requireApiKey, (req, res) => {
+  try { return res.status(201).json({ ok: true, order: commerceService.createOrder(req.body || {}), requestId: req.requestId }); }
+  catch (error) { return commerceError(req, res, error); }
+});
+app.get("/api/commerce/orders/:orderId", requireApiKey, (req, res) => {
+  const order = commerceService.getOrder(req.params.orderId);
+  if (!order) return commerceError(req, res, Object.assign(new Error("Order not found"), { code: "ORDER_NOT_FOUND" }));
+  return res.json({ ok: true, order, requestId: req.requestId });
+});
+app.post("/api/commerce/orders/:orderId/test-payment", requireApiKey, (req, res) => {
+  if (COMMERCE_PAYMENT_MODE !== "test" || process.env.NODE_ENV === "production") {
+    return res.status(503).json(errorBody("TEST_PAYMENT_DISABLED", "Test payment simulation is disabled", req.requestId));
+  }
+  try {
+    const order = commerceService.confirmPayment({
+      orderId: req.params.orderId,
+      eventId: req.body?.eventId,
+      amountKzt: req.body?.amountKzt,
+      method: "manual_review",
+      trusted: true
+    });
+    return res.json({ ok: true, simulated: true, realMoneyMoved: false, order, requestId: req.requestId });
+  } catch (error) { return commerceError(req, res, error); }
+});
+app.post("/api/commerce/orders/:orderId/assign-courier", requireApiKey, (req, res) => {
+  try { return res.json({ ok: true, order: commerceService.assignCourier({ orderId: req.params.orderId, courierId: req.body?.courierId }), requestId: req.requestId }); }
+  catch (error) { return commerceError(req, res, error); }
+});
+app.post("/api/commerce/orders/:orderId/start-delivery", requireApiKey, (req, res) => {
+  try { return res.json({ ok: true, order: commerceService.startDelivery({ orderId: req.params.orderId, courierId: req.body?.courierId }), requestId: req.requestId }); }
+  catch (error) { return commerceError(req, res, error); }
+});
+app.post("/api/commerce/orders/:orderId/ready-for-pickup", requireApiKey, (req, res) => {
+  try { return res.json({ ok: true, order: commerceService.markReadyForPickup({ orderId: req.params.orderId }), requestId: req.requestId }); }
+  catch (error) { return commerceError(req, res, error); }
+});
+app.post("/api/commerce/orders/:orderId/confirm-fulfilment", requireApiKey, (req, res) => {
+  try {
+    const order = commerceService.confirmFulfilment({ orderId: req.params.orderId, actorId: req.body?.actorId, photoUrl: req.body?.photoUrl, note: req.body?.note });
+    return res.json({ ok: true, order, requestId: req.requestId });
+  } catch (error) { return commerceError(req, res, error); }
+});
+app.post("/api/commerce/orders/:orderId/cancel", requireApiKey, (req, res) => {
+  try { return res.json({ ok: true, order: commerceService.cancelOrder({ orderId: req.params.orderId, actorId: "api-admin", isAdmin: true }), requestId: req.requestId }); }
+  catch (error) { return commerceError(req, res, error); }
+});
+app.get("/api/commerce/outbox", requireApiKey, (req, res) => {
+  return res.json({ ok: true, events: commerceService.listOutbox({ limit: req.query.limit, includeDeadLetter: req.query.includeDeadLetter === "true" }), requestId: req.requestId });
+});
+app.post("/api/commerce/outbox/:eventId/requeue", requireApiKey, (req, res) => {
+  try { return res.json({ ok: true, event: commerceService.requeueOutboxDeadLetter({ eventId: req.params.eventId }), requestId: req.requestId }); }
+  catch (error) { return commerceError(req, res, error); }
+});
 
 app.post("/api/kill-critic/check", requireApiKey, (req, res) => {
   const draft = String(req.body?.draft || "").trim();
@@ -399,8 +506,21 @@ const server = app.listen(PORT, "0.0.0.0", () => console.log(`SamuraiOS Core 2.7
 server.requestTimeout = REQUEST_TIMEOUT_MS;
 server.headersTimeout = REQUEST_TIMEOUT_MS + 5000;
 
+let commerceOutboxTimer = null;
+function runCommerceOutboxSafely() {
+  void commerceOutboxWorker.runOnce().catch(error => console.error(JSON.stringify({
+    event: "commerce_outbox_worker_error", code: error.code || "WORKER_ERROR"
+  })));
+}
+if (COMMERCE_OUTBOX_ENABLED) {
+  runCommerceOutboxSafely();
+  commerceOutboxTimer = setInterval(runCommerceOutboxSafely, COMMERCE_OUTBOX_INTERVAL_MS);
+  commerceOutboxTimer.unref?.();
+}
+
 function shutdown(signal) {
   console.log(JSON.stringify({ event: "shutdown", signal }));
+  if (commerceOutboxTimer) clearInterval(commerceOutboxTimer);
   server.close(() => process.exit(0));
   setTimeout(() => process.exit(1), 10000).unref();
 }
