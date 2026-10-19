@@ -70,7 +70,7 @@ test("log fetch refuses to call GitHub without a token", async () => {
 });
 
 test("fetchFailureLogs requests failed job logs and returns extracted text", async () => {
-  const archive = makeZip("job-log.txt", "TypeError: cannot read property");
+  const archive = makeZip("job-log.txt", "TypeError: cannot read property\\npassword=hunter2");
   const calls = [];
   const fakeFetch = async (url) => {
     calls.push(url);
@@ -89,7 +89,7 @@ test("fetchFailureLogs requests failed job logs and returns extracted text", asy
     { id: "123", repository: "acme/service" },
     { token: "test-token", fetch: fakeFetch }
   );
-  assert.match(logs, /TypeError: cannot read property/);
+  assert.match(logs, /TypeError: cannot read property/);\n  assert.doesNotMatch(logs, /password=hunter2/);\n  assert.match(logs, /password=\\[REDACTED\\]/);
   assert.equal(calls.length, 2);
   assert.match(calls[1], /\/actions\/jobs\/55\/logs$/);
 });
