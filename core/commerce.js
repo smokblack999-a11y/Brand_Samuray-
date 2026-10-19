@@ -158,6 +158,7 @@ function createCommerceService({ filePath }) {
       order.updatedAt = now;
       next.paymentEvents.push({ eventId: String(eventId), orderId, amountKzt: Number(amountKzt), method, receivedAt: now });
       enqueue(next, "PaymentConfirmed", order, now);
+      if (order.fulfilment === "delivery") enqueue(next, "CourierDeliveryRequested", order, now);
       if (next.paymentEvents.length > 5000) next.paymentEvents = next.paymentEvents.slice(-5000);
       return { order, duplicate: false };
     }).order;
