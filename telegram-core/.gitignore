@@ -1,0 +1,24 @@
+# Local configuration and credentials
+.env
+.env.*
+!.env.example
+local.properties
+secrets.properties
+*.keystore
+*.jks
+
+# Telegram account/session data
+tdlib/
+tdlib-db/
+tdlib-files/
+telegram-session/
+*.session
+*.session-journal
+
+# Build output
+.gradle/
+build/
+out/
+*.class
+.idea/
+.DS_Store
