@@ -117,7 +117,7 @@ object Vault {
         val lineGap = 10f * scale
         val accuracyText = accuracy?.takeIf { it.isFinite() && it >= 0f }?.let { " +/- %.1f m".format(Locale.US, it) } ?: ""
         val lines = listOf("GPS  %.6f, %.6f%s".format(Locale.US, latitude, longitude, accuracyText), SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date(timestamp)))
-        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; textSize = textSize; typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD); setShadowLayer(2f * scale, 1f * scale, 1f * scale, Color.BLACK) }
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; this.textSize = textSize; typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD); setShadowLayer(2f * scale, 1f * scale, 1f * scale, Color.BLACK) }
         val maxTextWidth = lines.maxOf { paint.measureText(it) }
         val boxHeight = padding * 2 + textSize * lines.size + lineGap
         val box = RectF(padding, bitmap.height - boxHeight - padding, minOf(bitmap.width - padding, maxTextWidth + padding * 2), bitmap.height - padding)
