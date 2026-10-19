@@ -150,3 +150,16 @@ test("delivery proof accepts a Telegram file ID; pickup confirmation needs no ph
   assert.equal(picked.status, "picked_up");
   assert.equal(picked.deliveryProof.photoFileId, null);
 });
+
+test("repeating the same courier assignment does not enqueue duplicate notification", t => {
+  const c = setup(); t.after(c.cleanup);
+  const p = c.service.addProduct({ sku: "ASSIGN-IDEMP", name: "Item", priceKzt: 1000, stock: 2 });
+  const order = c.service.createOrder({ customerId: "12345", items: [{ productId: p.id, quantity: 1 }], fulfilment: "delivery", address: "A" });
+  c.service.confirmPayment({ orderId: order.id, eventId: "assign-pay", amountKzt: 1000, method: "bank_api", trusted: true });
+  const first = c.service.assignCourier({ orderId: order.id, courierId: "55555" });
+  const countBefore = c.service.listOutbox().filter(event => event.type === "CourierAssigned").length;
+  const second = c.service.assignCourier({ orderId: order.id, courierId: "55555" });
+  assert.equal(second.courierId, first.courierId);
+  assert.equal(c.service.listOutbox().filter(event => event.type === "CourierAssigned").length, countBefore);
+  assert.equal(countBefore, 1);
+});
