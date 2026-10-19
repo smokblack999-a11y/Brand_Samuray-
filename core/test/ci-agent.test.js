@@ -165,3 +165,43 @@ test("background queue retries once and records a bounded failure state", async 
   assert.equal(JSON.stringify(event.analysis).includes("private details"), false);
   assert.equal(calls, 2);
 });
+
+
+test("persistent queued/running analysis is recovered after agent restart", async () => {
+  let saved = null;
+  let calls = 0;
+  const recovered = {
+    id: "456",
+    repository: "acme/service",
+    workflow: "CI",
+    branch: "main",
+    conclusion: "failure",
+    runNumber: 8,
+    url: "https://github.com/acme/service/actions/runs/456",
+    headSha: "def456",
+    event: "push",
+    receivedAt: new Date().toISOString(),
+    analysis: { status: "running", attempts: 1 }
+  };
+  const ci = createCiAgent({
+    persistence: {
+      load: () => ({ events: [recovered], deliveries: ["delivery-existing"] }),
+      save: snapshot => { saved = snapshot; }
+    },
+    processFailure: async event => {
+      calls++;
+      assert.equal(event.id, "456");
+      return { suggestion: "Retry the failed test." };
+    }
+  });
+
+  for (let i = 0; i < 30 && ci.listEvents()[0].analysis.status !== "suggestion_only"; i++) {
+    await new Promise(resolve => setTimeout(resolve, 10));
+  }
+  assert.equal(calls, 1);
+  assert.equal(ci.listEvents()[0].analysis.status, "suggestion_only");
+  assert.equal(ci.listEvents()[0].analysis.attempts, 2);
+  assert.ok(saved);
+  assert.equal(saved.events[0].analysis.status, "suggestion_only");
+  assert.deepEqual(saved.deliveries, ["delivery-existing"]);
+});

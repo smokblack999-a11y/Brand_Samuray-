@@ -87,11 +87,34 @@ function createCiAgent(options = {}) {
   const secret = String(options.secret ?? process.env.GITHUB_WEBHOOK_SECRET ?? "").trim();
   const analyzer = options.analyzer || generateFixSuggestion;
   const processFailure = typeof options.processFailure === "function" ? options.processFailure : null;
-  const events = new Map();
-  const deliveries = new Set();
+  const persistence = options.persistence || null;
+  const restored = persistence ? persistence.load() : { events: [], deliveries: [] };
+  const events = new Map((restored.events || []).slice(-MAX_EVENTS).map(event => [event.id, event]));
+  const deliveries = new Set((restored.deliveries || []).slice(-(MAX_EVENTS * 2)));
   const queue = [];
   const queuedIds = new Set();
   let draining = false;
+
+  function persistState() {
+    if (!persistence) return;
+    persistence.save({ events: [...events.values()], deliveries: [...deliveries] });
+  }
+
+  function persistProgress(event) {
+    try {
+      persistState();
+      return true;
+    } catch (error) {
+      console.error(JSON.stringify({ event: "ci_agent_state_persist_failed", eventId: event?.id || null, code: error?.code || "CI_AGENT_STATE_WRITE_FAILED" }));
+      if (event) event.analysis = {
+        status: "failed",
+        attempts: Number(event.analysis?.attempts || 0),
+        failedAt: new Date().toISOString(),
+        errorCode: "CI_AGENT_STATE_WRITE_FAILED"
+      };
+      return false;
+    }
+  }
 
   async function drainQueue() {
     if (draining || !processFailure) return;
@@ -102,23 +125,19 @@ function createCiAgent(options = {}) {
         queuedIds.delete(eventId);
         const event = events.get(eventId);
         if (!event || event.analysis?.status === "suggestion_only") continue;
-        for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+        let attempt = Math.max(0, Number(event.analysis?.attempts || 0));
+        while (attempt < MAX_ATTEMPTS) {
           if (!events.has(eventId)) break;
+          attempt += 1;
           event.analysis = { status: "running", attempts: attempt, startedAt: new Date().toISOString() };
+          if (!persistProgress(event)) break;
+          let result;
           try {
-            const result = await processFailure({ ...event });
-            event.analysis = {
-              status: "suggestion_only",
-              attempts: attempt,
-              completedAt: new Date().toISOString(),
-              suggestion: String(result?.suggestion || "").slice(0, 12000),
-              logsFetched: result?.logsFetched === true,
-              critic: result?.critic || null
-            };
-            break;
+            result = await processFailure({ ...event });
           } catch (error) {
             if (attempt < MAX_ATTEMPTS) {
               event.analysis = { status: "retrying", attempts: attempt, errorCode: String(error?.code || "CI_ANALYSIS_FAILED").slice(0, 100) };
+              if (!persistProgress(event)) break;
               await new Promise(resolve => setTimeout(resolve, 250 * attempt));
               continue;
             }
@@ -128,7 +147,23 @@ function createCiAgent(options = {}) {
               failedAt: new Date().toISOString(),
               errorCode: String(error?.code || "CI_ANALYSIS_FAILED").slice(0, 100)
             };
+            persistProgress(event);
+            break;
           }
+          event.analysis = {
+            status: "suggestion_only",
+            attempts: attempt,
+            completedAt: new Date().toISOString(),
+            suggestion: String(result?.suggestion || "").slice(0, 12000),
+            logsFetched: result?.logsFetched === true,
+            critic: result?.critic || null
+          };
+          persistProgress(event);
+          break;
+        }
+        if (attempt >= MAX_ATTEMPTS && !["suggestion_only", "failed"].includes(event.analysis?.status)) {
+          event.analysis = { status: "failed", attempts: attempt, failedAt: new Date().toISOString(), errorCode: "CI_ANALYSIS_ATTEMPTS_EXHAUSTED" };
+          persistProgress(event);
         }
       }
     } finally {
@@ -139,14 +174,22 @@ function createCiAgent(options = {}) {
 
   function enqueue(event) {
     if (!processFailure) return false;
-    if (queuedIds.has(event.id) || event.analysis?.status === "running" || event.analysis?.status === "suggestion_only") return true;
+    if (queuedIds.has(event.id) || ["running", "suggestion_only"].includes(event.analysis?.status)) return true;
     if (queue.length >= MAX_QUEUE) {
-      event.analysis = { status: "queue_full", attempts: 0 };
+      event.analysis = { status: "queue_full", attempts: Number(event.analysis?.attempts || 0) };
+      persistState();
       return false;
     }
-    event.analysis = { status: "queued", attempts: 0, queuedAt: new Date().toISOString() };
+    event.analysis = { status: "queued", attempts: Number(event.analysis?.attempts || 0), queuedAt: new Date().toISOString() };
     queue.push(event.id);
     queuedIds.add(event.id);
+    try {
+      persistState();
+    } catch (error) {
+      queue.splice(queue.indexOf(event.id), 1);
+      queuedIds.delete(event.id);
+      throw error;
+    }
     queueMicrotask(() => { void drainQueue(); });
     return true;
   }
@@ -165,20 +208,40 @@ function createCiAgent(options = {}) {
     if (deliveries.has(delivery)) return res.status(200).json({ ok: true, duplicate: true });
     deliveries.add(delivery);
     if (deliveries.size > MAX_EVENTS * 2) deliveries.delete(deliveries.values().next().value);
-
     if (eventType !== "workflow_run" || req.body?.action !== "completed") {
+      try { persistState(); } catch {
+        deliveries.delete(delivery);
+        return res.status(503).json({ ok: false, error: { code: "CI_AGENT_STATE_UNAVAILABLE" } });
+      }
       return res.status(202).json({ ok: true, accepted: false, reason: "EVENT_NOT_HANDLED" });
     }
 
     const event = normalizeWorkflowRun(req.body);
-    if (!event) return res.status(202).json({ ok: true, accepted: false, reason: "RUN_NOT_FAILED" });
+    if (!event) {
+      try { persistState(); } catch {
+        deliveries.delete(delivery);
+        return res.status(503).json({ ok: false, error: { code: "CI_AGENT_STATE_UNAVAILABLE" } });
+      }
+      return res.status(202).json({ ok: true, accepted: false, reason: "RUN_NOT_FAILED" });
+    }
     events.set(event.id, event);
     while (events.size > MAX_EVENTS) {
       const oldestId = events.keys().next().value;
       events.delete(oldestId);
       queuedIds.delete(oldestId);
     }
-    const queued = enqueue(event);
+    let queued;
+    try {
+      queued = enqueue(event);
+      persistState();
+    } catch (error) {
+      events.delete(event.id);
+      queuedIds.delete(event.id);
+      const queueIndex = queue.indexOf(event.id);
+      if (queueIndex >= 0) queue.splice(queueIndex, 1);
+      deliveries.delete(delivery);
+      return res.status(503).json({ ok: false, error: { code: "CI_AGENT_STATE_UNAVAILABLE" } });
+    }
     return res.status(202).json({ ok: true, accepted: true, queued, event });
   }
 
@@ -196,6 +259,23 @@ function createCiAgent(options = {}) {
     }
     const suggestion = await analyzer(event, String(logs || "").slice(0, MAX_LOG_CHARS), options.client);
     return { eventId: event.id, status: "suggestion_only", suggestion };
+  }
+
+  for (const event of events.values()) {
+    if (!["queued", "running", "retrying"].includes(event.analysis?.status)) continue;
+    if (queue.length < MAX_QUEUE) {
+      event.analysis = { ...event.analysis, status: "queued", resumedAt: new Date().toISOString() };
+      queue.push(event.id);
+      queuedIds.add(event.id);
+    } else {
+      event.analysis = { status: "queue_full", attempts: Number(event.analysis?.attempts || 0) };
+    }
+  }
+  if (queue.length) {
+    try { persistState(); } catch (error) {
+      console.error(JSON.stringify({ event: "ci_agent_recovery_persist_failed", code: error?.code || "CI_AGENT_STATE_WRITE_FAILED" }));
+    }
+    queueMicrotask(() => { void drainQueue(); });
   }
 
   return { webhook, listEvents, analyze, enqueue };
