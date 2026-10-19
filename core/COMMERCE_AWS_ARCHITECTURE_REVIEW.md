@@ -7,7 +7,7 @@ Reviewed AWS Builder Center guidance on event-driven order processing, asynchron
 ### 1. Transactional outbox before automatic Telegram notifications
 Current commerce domain code persists order/payment state but does not yet publish notifications. When the Telegram integration is added, do not save an order and then rely on a best-effort direct send. Store an outbox event in the same durable transaction as the order transition. A worker sends the event and marks it delivered; retries reuse the same event ID. This prevents a process crash between order persistence and notification scheduling from silently losing the notification.
 
-Required event types: OrderPlaced, PaymentConfirmed, CourierAssigned, DeliveryStarted, PickupReady, OrderDelivered, OrderPickedUp, OrderCancelled.
+Required event types: OrderPlaced, PaymentConfirmed, CourierDeliveryRequested, CourierAssigned, DeliveryStarted, PickupReady, OrderDelivered, OrderPickedUp, OrderCancelled.
 
 ### 2. Idempotency at business-operation level
 Payment provider event IDs are not enough for every downstream effect. Give each notification/delivery command a stable event ID and make each consumer safe to process it more than once. Persist delivery attempts and last error. Never retry a payment charge without a stable provider-supported idempotency key and reconciliation path.
