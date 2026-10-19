@@ -33,25 +33,33 @@ test("OrderPlaced sends a safe customer message and flattens control characters"
   assert.match(sent[0].text, /Не переводите деньги/);
 });
 
-test("paid delivery requires dispatcher configuration before sending", async () => {
+test("PaymentConfirmed informs customer only", async () => {
   const sent = [];
-  const adapter = createTelegramCommerceDelivery({ sendMessage: async p => sent.push(p), dispatchChatId: "" });
   const order = makeOrder();
-  await assert.rejects(adapter.deliver({ event: { type: "PaymentConfirmed", orderId: order.id }, order }), { code: "COMMERCE_DISPATCH_NOT_CONFIGURED" });
-  assert.equal(sent.length, 0);
+  const adapter = createTelegramCommerceDelivery({ sendMessage: async p => sent.push(p), dispatchChatId: "" });
+  await adapter.deliver({ event: { type: "PaymentConfirmed", orderId: order.id }, order });
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].chat_id, order.customerId);
+  assert.match(sent[0].text, /Оплата по заказу/);
 });
 
-test("PaymentConfirmed informs dispatcher without leaking address or phone", async () => {
+test("CourierDeliveryRequested alerts dispatcher without exposing address or phone", async () => {
   const sent = [];
   const order = makeOrder();
   const adapter = createTelegramCommerceDelivery({ sendMessage: async p => sent.push(p), dispatchChatId: "dispatch-chat-9" });
-  await adapter.deliver({ event: { type: "PaymentConfirmed", orderId: order.id }, order });
-  assert.equal(sent.length, 2);
+  await adapter.deliver({ event: { type: "CourierDeliveryRequested", orderId: order.id }, order });
+  assert.equal(sent.length, 1);
   assert.equal(sent[0].chat_id, "dispatch-chat-9");
-  assert.equal(sent[1].chat_id, order.customerId);
-  assert.match(sent[0].text, /Нужно назначить курьера/);
+  assert.match(sent[0].text, /Требуется курьер/);
   assert.doesNotMatch(sent[0].text, /Test Street|77001234567/);
-  assert.match(sent[1].text, /Оплата по заказу/);
+});
+
+test("paid delivery request requires dispatcher configuration before sending", async () => {
+  const sent = [];
+  const adapter = createTelegramCommerceDelivery({ sendMessage: async p => sent.push(p), dispatchChatId: "" });
+  const order = makeOrder();
+  await assert.rejects(adapter.deliver({ event: { type: "CourierDeliveryRequested", orderId: order.id }, order }), { code: "COMMERCE_DISPATCH_NOT_CONFIGURED" });
+  assert.equal(sent.length, 0);
 });
 
 test("CourierAssigned sends delivery details only to assigned courier and status to customer", async () => {
