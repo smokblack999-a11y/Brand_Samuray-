@@ -247,3 +247,28 @@ test("durable store rejects invalid state on save", () => {
   assert.throws(() => store.save({ events: "not-an-array", deliveries: [] }), { code: "CI_AGENT_STATE_INVALID" });
   fs.rmSync(dir, { recursive: true, force: true });
 });
+
+
+test("durable store rejects structurally invalid JSON records instead of dropping them", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ci-agent-invalid-record-"));
+  const stateFile = path.join(dir, "state.json");
+  fs.writeFileSync(stateFile, JSON.stringify({
+    version: 1,
+    events: [{ id: "123" }],
+    deliveries: ["delivery-valid"]
+  }), { mode: 0o600 });
+  assert.throws(() => createCiAgentStore(stateFile).load(), { code: "CI_AGENT_STATE_INVALID" });
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("durable store rejects invalid delivery identifiers", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ci-agent-invalid-delivery-"));
+  const stateFile = path.join(dir, "state.json");
+  fs.writeFileSync(stateFile, JSON.stringify({
+    version: 1,
+    events: [],
+    deliveries: [42]
+  }), { mode: 0o600 });
+  assert.throws(() => createCiAgentStore(stateFile).load(), { code: "CI_AGENT_STATE_INVALID" });
+  fs.rmSync(dir, { recursive: true, force: true });
+});
