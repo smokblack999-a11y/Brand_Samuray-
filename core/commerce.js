@@ -9,11 +9,11 @@ function clone(value) { return JSON.parse(JSON.stringify(value)); }
 function createCommerceService({ filePath }) {
   if (!filePath || typeof filePath !== "string") throw new Error("filePath is required");
   const resolvedPath = path.resolve(filePath);
-  let state = { version: 1, products: [], orders: [], paymentEvents: [], outbox: [] };
+  let state = { version: 1, products: [], orders: [], paymentEvents: [], outbox: [], sessions: {} };
 
   function validate(value) {
     if (!value || value.version !== 1 || !Array.isArray(value.products) ||
-        !Array.isArray(value.orders) || !Array.isArray(value.paymentEvents) || (value.outbox !== undefined && !Array.isArray(value.outbox))) {
+        !Array.isArray(value.orders) || !Array.isArray(value.paymentEvents) || (value.outbox !== undefined && !Array.isArray(value.outbox)) || (value.sessions !== undefined && (!value.sessions || typeof value.sessions !== "object" || Array.isArray(value.sessions)))) {
       throw fail("COMMERCE_STATE_INVALID", "Commerce state is invalid; refusing to reset it");
     }
     return value;
@@ -24,6 +24,7 @@ function createCommerceService({ filePath }) {
     try { parsed = JSON.parse(fs.readFileSync(resolvedPath, "utf8")); }
     catch { throw fail("COMMERCE_STATE_CORRUPT", "Commerce state is unreadable; refusing to reset it"); }
     if (parsed && parsed.outbox === undefined) parsed.outbox = []; // Backward-compatible schema migration.
+    if (parsed && parsed.sessions === undefined) parsed.sessions = {}; // Backward-compatible conversation-state migration.
     state = validate(parsed);
   }
   function persist(next) {
@@ -97,6 +98,34 @@ function createCommerceService({ filePath }) {
     return clone(state.products.filter(p => includeInactive || p.active).sort((a,b) => a.name.localeCompare(b.name)));
   }
   function getOrder(orderId) { const o = state.orders.find(x => x.id === orderId); return o ? clone(o) : null; }
+  function listCustomerOrders({ customerId, limit = 10 } = {}) {
+    if (customerId == null || !String(customerId).trim()) throw fail("CUSTOMER_REQUIRED", "customerId required");
+    const bounded = Math.max(1, Math.min(50, Number.isSafeInteger(Number(limit)) ? Number(limit) : 10));
+    return clone(state.orders.filter(o => o.customerId === String(customerId)).sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, bounded).map(o => ({
+      id: o.id, status: o.status, fulfilment: o.fulfilment, totalKzt: o.totalKzt,
+      paymentStatus: o.payment.status, createdAt: o.createdAt, updatedAt: o.updatedAt
+    })));
+  }
+  function conversationKey(chatId) {
+    const key = String(chatId ?? "").trim();
+    if (!/^[1-9]\\d{0,19}$/.test(key)) throw fail("INVALID_CHAT_ID", "Private Telegram chat ID must be a positive numeric ID");
+    return key;
+  }
+  function getConversation(chatId) {
+    const key = conversationKey(chatId);
+    return Object.prototype.hasOwnProperty.call(state.sessions, key) ? clone(state.sessions[key]) : null;
+  }
+  function setConversation({ chatId, session }) {
+    const key = conversationKey(chatId);
+    if (!session || typeof session !== "object" || Array.isArray(session)) throw fail("INVALID_CONVERSATION", "Conversation session must be an object");
+    const saved = { ...clone(session), updatedAt: new Date().toISOString() };
+    if (JSON.stringify(saved).length > 8192) throw fail("CONVERSATION_TOO_LARGE", "Conversation session is too large");
+    return transact(next => { next.sessions[key] = saved; return saved; });
+  }
+  function clearConversation({ chatId }) {
+    const key = conversationKey(chatId);
+    return transact(next => { delete next.sessions[key]; return { chatId: key, cleared: true }; });
+  }
 
   function createOrder({ customerId, items, fulfilment, address = "", pickupPoint = "", phone = "", note = "" }) {
     if (customerId == null || !String(customerId).trim()) throw fail("CUSTOMER_REQUIRED", "customerId required");
@@ -257,6 +286,6 @@ function createCommerceService({ filePath }) {
       return event;
     });
   }
-  return { addProduct, updateProduct, listProducts, createOrder, getOrder, confirmPayment, assignCourier, startDelivery, confirmFulfilment, markReadyForPickup, cancelOrder, listOutbox, markOutboxDelivered, markOutboxFailed, requeueOutboxDeadLetter };
+  return { addProduct, updateProduct, listProducts, createOrder, getOrder, listCustomerOrders, getConversation, setConversation, clearConversation, confirmPayment, assignCourier, startDelivery, confirmFulfilment, markReadyForPickup, cancelOrder, listOutbox, markOutboxDelivered, markOutboxFailed, requeueOutboxDeadLetter };
 }
 module.exports = { createCommerceService };
