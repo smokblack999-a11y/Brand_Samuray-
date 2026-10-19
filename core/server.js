@@ -70,7 +70,6 @@ const commerceTelegramBot = createCommerceTelegramBot({
   paymentMode: COMMERCE_PAYMENT_MODE,
   isProduction: process.env.NODE_ENV === "production",
   dispatchChatId: process.env.COMMERCE_DISPATCH_CHAT_ID,
-  courierChatIds: String(process.env.COMMERCE_COURIER_CHAT_IDS || "").split(",").map(x => x.trim()).filter(x => /^[1-9]\\d{0,19}$/.test(x)).slice(0, 10)
 });
 const commerceOutboxWorker = createOutboxWorker({
   commerce: commerceService,
