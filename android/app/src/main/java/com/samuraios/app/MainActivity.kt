@@ -219,7 +219,7 @@ class MainActivity : ComponentActivity() {
             }
     }
 
-    private fun checkCoreStatus() = apiGet("/health") { result -> mainHandler.post { if (result.startsWith("ERROR:")) statusText.text = "Core: OFFLINE" else statusText.text = "Camera/Gallery + Core ONLINE"; outputText.text = result } }
+    private fun checkCoreStatus() { if (coreUrl.isBlank()) { statusText.text = if (hasCameraPermission()) "Camera ready - Core not configured" else "Core not configured"; outputText.text = "Core is not configured. Camera and local gallery remain available. Set HTTPS URL and CORE_API_KEY for Telegram."; return }; apiGet("/health") { result -> mainHandler.post { statusText.text = when { result.startsWith("ERROR:") && hasCameraPermission() -> "Camera/Gallery ready - Core OFFLINE"; result.startsWith("ERROR:") -> "Core: OFFLINE"; hasCameraPermission() -> "Camera/Gallery + Core ONLINE"; else -> "Core ONLINE - camera permission required" }; outputText.text = result } } }
     private fun loadMe() = apiGet("/api/telegram/me") { result -> mainHandler.post { outputText.text = result } }
     private fun loadDialogs() = apiGet("/api/telegram/dialogs?limit=20") { result -> mainHandler.post { outputText.text = result } }
 
