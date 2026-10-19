@@ -18,6 +18,7 @@ const { checkDraft } = require("./kill-critic");
 const { createCommerceService } = require("./commerce");
 const { createOutboxWorker } = require("./commerce-outbox-worker");
 const { createTelegramCommerceDelivery } = require("./commerce-telegram-adapter");
+const { createCommerceTelegramBot } = require("./commerce-telegram-bot");
 
 const app = express();
 const PORT = Number(process.env.PORT || 8787);
@@ -64,6 +65,13 @@ app.use(express.json({ limit: "256kb" }));
 
 const commerceService = createCommerceService({ filePath: path.join(DATA_DIR, "commerce.json") });
 const telegramCommerceDelivery = createTelegramCommerceDelivery({ dispatchChatId: process.env.COMMERCE_DISPATCH_CHAT_ID });
+const commerceTelegramBot = createCommerceTelegramBot({
+  commerce: commerceService,
+  paymentMode: COMMERCE_PAYMENT_MODE,
+  isProduction: process.env.NODE_ENV === "production",
+  dispatchChatId: process.env.COMMERCE_DISPATCH_CHAT_ID,
+  courierChatIds: String(process.env.COMMERCE_COURIER_CHAT_IDS || "").split(",").map(x => x.trim()).filter(x => /^[1-9]\\d{0,19}$/.test(x)).slice(0, 10)
+});
 const commerceOutboxWorker = createOutboxWorker({
   commerce: commerceService,
   deliver: telegramCommerceDelivery.deliver,
@@ -395,6 +403,10 @@ app.post("/api/telegram/webhook", requireWebhookSecret, async (req, res) => {
   res.sendStatus(200);
   try {
     const update = req.body || {};
+    if (update.callback_query || update.message) {
+      const handled = await commerceTelegramBot.handleUpdate(update);
+      if (handled) return;
+    }
     if (update.business_connection) {
       console.log(JSON.stringify({ event: "business_connection", id: update.business_connection.id, requestId: req.requestId }));
       return;
