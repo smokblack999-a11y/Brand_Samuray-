@@ -280,8 +280,8 @@ test('protected commerce API supports a simulated-only payment and delivery life
 
   const outbox = await (await api('/api/commerce/outbox')).json();
   assert.equal(outbox.ok, true);
-  assert.equal(outbox.events.length, 5);
-  assert.deepEqual(outbox.events.map(event => event.type).sort(), ['CourierAssigned', 'DeliveryStarted', 'OrderDelivered', 'OrderPlaced', 'PaymentConfirmed'].sort());
+  assert.equal(outbox.events.length, 6);
+  assert.deepEqual(outbox.events.map(event => event.type).sort(), ['CourierAssigned', 'CourierDeliveryRequested', 'DeliveryStarted', 'OrderDelivered', 'OrderPlaced', 'PaymentConfirmed'].sort());
   const persisted = JSON.parse(fs.readFileSync(path.join(dataDir, 'commerce.json'), 'utf8'));
   assert.equal(persisted.outbox.filter(event => event.type === 'PaymentConfirmed').length, 1);
   assert.equal(persisted.outbox.filter(event => event.type === 'OrderPlaced').length, 1);
