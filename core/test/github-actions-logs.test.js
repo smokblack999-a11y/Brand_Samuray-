@@ -90,7 +90,8 @@ test("fetchFailureLogs requests failed job logs and returns extracted text", asy
     { token: "test-token", fetch: fakeFetch }
   );
   assert.match(logs, /TypeError: cannot read property/);
-  assert.doesNotMatch(logs, /password=hunter2/);\n  assert.match(logs, /password=\\[REDACTED\\]/);
+  assert.doesNotMatch(logs, /password=hunter2/);
+  assert.match(logs, /password=\[REDACTED\]/);
   assert.equal(calls.length, 2);
   assert.match(calls[1], /\/actions\/jobs\/55\/logs$/);
 });
