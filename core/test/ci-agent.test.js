@@ -247,3 +247,36 @@ test("durable store rejects invalid state on save", () => {
   assert.throws(() => store.save({ events: "not-an-array", deliveries: [] }), { code: "CI_AGENT_STATE_INVALID" });
   fs.rmSync(dir, { recursive: true, force: true });
 });
+
+
+
+test("restart recovery never restores more than the configured queue bound", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ci-agent-capacity-"));
+  const stateFile = path.join(dir, "state.json");
+  const store = createCiAgentStore(stateFile);
+  const events = Array.from({ length: 55 }, (_, index) => {
+    const event = normalizeWorkflowRun(failedRun({
+      id: 1000 + index,
+      html_url: `https://github.com/acme/service/actions/runs/${1000 + index}`
+    }));
+    event.analysis = { status: "queued", attempts: 0, queuedAt: new Date().toISOString() };
+    return event;
+  });
+  store.save({ events, deliveries: [] });
+
+  const ci = createCiAgent({
+    secret: "secret",
+    stateFile,
+    processFailure: async event => ({ suggestion: `Suggestion for ${event.id}` })
+  });
+
+  for (let i = 0; i < 100 && ci.listEvents(200).some(event => event.analysis.status === "queued" || event.analysis.status === "running"); i++) {
+    await new Promise(resolve => setTimeout(resolve, 5));
+  }
+  const restored = ci.listEvents(200);
+  assert.equal(restored.length, 55);
+  assert.equal(restored.filter(event => event.analysis.status === "queue_full").length, 5);
+  assert.equal(restored.filter(event => event.analysis.status === "suggestion_only").length, 50);
+  assert.ok(restored.filter(event => event.analysis.status === "queue_full").every(event => event.analysis.errorCode === "CI_QUEUE_CAPACITY_ON_RECOVERY"));
+  fs.rmSync(dir, { recursive: true, force: true });
+});
