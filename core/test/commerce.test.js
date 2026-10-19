@@ -110,3 +110,43 @@ test("verified delivery payment creates separate customer and courier outbox eve
   assert.equal(events.filter(e => e.type === "CourierDeliveryRequested").length, 1);
   assert.equal(events.find(e => e.type === "CourierDeliveryRequested").eventId === events.find(e => e.type === "PaymentConfirmed").eventId, false);
 });
+
+test("Telegram conversation state survives restart and customer order summaries omit PII", t => {
+  const c = setup(); t.after(c.cleanup);
+  const p = c.service.addProduct({ sku: "SESSION", name: "Session Item", priceKzt: 300, stock: 4 });
+  const own = c.service.createOrder({ customerId: "12345", items: [{ productId: p.id, quantity: 1 }], fulfilment: "delivery", address: "PRIVATE ADDRESS", phone: "PRIVATE PHONE" });
+  c.service.createOrder({ customerId: "98765", items: [{ productId: p.id, quantity: 1 }], fulfilment: "delivery", address: "OTHER ADDRESS" });
+  const session = { stage: "awaiting_address", productId: p.id, quantity: 1 };
+  c.service.setConversation({ chatId: "12345", session });
+  const restarted = createCommerceService({ filePath: c.filePath });
+  assert.equal(restarted.getConversation("12345").stage, "awaiting_address");
+  assert.equal(restarted.getConversation("98765"), null);
+  const orders = restarted.listCustomerOrders({ customerId: "12345" });
+  assert.equal(orders.length, 1);
+  assert.equal(orders[0].id, own.id);
+  assert.equal("address" in orders[0], false);
+  assert.equal("phone" in orders[0], false);
+  assert.throws(() => restarted.getConversation("__proto__"), { code: "INVALID_CHAT_ID" });
+  restarted.clearConversation({ chatId: "12345" });
+  assert.equal(restarted.getConversation("12345"), null);
+});
+
+test("delivery proof accepts a Telegram file ID; pickup confirmation needs no photo", t => {
+  const c = setup(); t.after(c.cleanup);
+  const p = c.service.addProduct({ sku: "FILEPROOF", name: "Proof Item", priceKzt: 500, stock: 3 });
+  const delivery = c.service.createOrder({ customerId: "11111", items: [{ productId: p.id, quantity: 1 }], fulfilment: "delivery", address: "A" });
+  c.service.confirmPayment({ orderId: delivery.id, eventId: "proof-pay", amountKzt: 500, method: "bank_api", trusted: true });
+  c.service.assignCourier({ orderId: delivery.id, courierId: "22222" });
+  c.service.startDelivery({ orderId: delivery.id, courierId: "22222" });
+  assert.throws(() => c.service.confirmFulfilment({ orderId: delivery.id, actorId: "22222" }), { code: "INVALID_DELIVERY_PROOF" });
+  const delivered = c.service.confirmFulfilment({ orderId: delivery.id, actorId: "22222", photoFileId: "telegram-file-id-abc", note: "Delivered" });
+  assert.equal(delivered.status, "delivered");
+  assert.equal(delivered.deliveryProof.photoFileId, "telegram-file-id-abc");
+
+  const pickup = c.service.createOrder({ customerId: "33333", items: [{ productId: p.id, quantity: 1 }], fulfilment: "pickup", pickupPoint: "Central pickup point" });
+  c.service.confirmPayment({ orderId: pickup.id, eventId: "pickup-pay", amountKzt: 500, method: "bank_api", trusted: true });
+  c.service.markReadyForPickup({ orderId: pickup.id });
+  const picked = c.service.confirmFulfilment({ orderId: pickup.id, actorId: "33333" });
+  assert.equal(picked.status, "picked_up");
+  assert.equal(picked.deliveryProof.photoFileId, null);
+});
