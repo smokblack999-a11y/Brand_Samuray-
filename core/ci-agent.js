@@ -203,6 +203,11 @@ function createCiAgent(options = {}) {
       persist();
       return res.status(202).json({ ok: true, accepted: false, reason: "RUN_NOT_FAILED" });
     }
+    // A workflow run can produce more than one delivery ID; never reset or re-run an existing run.
+    if (events.has(event.id)) {
+      persist();
+      return res.status(200).json({ ok: true, duplicate: true, duplicateRun: true, eventId: event.id });
+    }
     events.set(event.id, event);
     while (events.size > MAX_EVENTS) {
       const oldestId = events.keys().next().value;
