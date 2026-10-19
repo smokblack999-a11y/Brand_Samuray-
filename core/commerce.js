@@ -198,6 +198,7 @@ function createCommerceService({ filePath }) {
       const o = next.orders.find(x => x.id === orderId);
       if (!o) throw fail("ORDER_NOT_FOUND", "Order not found");
       if (o.fulfilment !== "delivery" || !["paid", "preparing", "assigned"].includes(o.status)) throw fail("INVALID_ORDER_STATE", "Only paid delivery orders can be assigned");
+      if (o.status === "assigned" && o.courierId === String(courierId)) return o;
       o.courierId = String(courierId); o.status = "assigned"; o.updatedAt = new Date().toISOString(); enqueue(next, "CourierAssigned", o, o.updatedAt); return o;
     });
   }
