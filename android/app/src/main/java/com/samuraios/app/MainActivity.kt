@@ -299,7 +299,7 @@ class MainActivity : ComponentActivity() {
             var connection: HttpURLConnection? = null
             try {
                 connection = (URL(coreUrl + path).openConnection() as HttpURLConnection).apply {
-                    requestMethod = "GET"; connectTimeout = 5000; readTimeout = 10000; useCaches = false
+                    requestMethod = "GET"; connectTimeout = 5000; readTimeout = 10000; useCaches = false; instanceFollowRedirects = false
                     apiHeaders(this)
                 }
                 val code = connection.responseCode; val stream = if (code in 200..299) connection.inputStream else connection.errorStream; val body = stream?.bufferedReader()?.use { it.readText() } ?: ""
@@ -314,7 +314,7 @@ class MainActivity : ComponentActivity() {
             var connection: HttpURLConnection? = null
             try {
                 connection = (URL(coreUrl + path).openConnection() as HttpURLConnection).apply {
-                    requestMethod = "POST"; connectTimeout = 5000; readTimeout = 30000; useCaches = false; doOutput = true
+                    requestMethod = "POST"; connectTimeout = 5000; readTimeout = 30000; useCaches = false; doOutput = true; instanceFollowRedirects = false
                     setRequestProperty("Content-Type", "application/json; charset=UTF-8")
                     apiHeaders(this)
                 }
