@@ -42,7 +42,7 @@ const COMMERCE_OUTBOX_INTERVAL_MS = boundedIntegerEnv("COMMERCE_OUTBOX_INTERVAL_
 const COMMERCE_OUTBOX_MAX_BATCH = boundedIntegerEnv("COMMERCE_OUTBOX_MAX_BATCH", 25, 1, 500);
 const COMMERCE_OUTBOX_MAX_ATTEMPTS = boundedIntegerEnv("COMMERCE_OUTBOX_MAX_ATTEMPTS", 8, 1, 100);
 const COMMERCE_COURIER_CHAT_IDS_RAW = String(process.env.COMMERCE_COURIER_CHAT_IDS || "").split(",").map(x => x.trim()).filter(Boolean);
-const COMMERCE_COURIER_CHAT_IDS = COMMERCE_COURIER_CHAT_IDS_RAW.filter(x => /^[1-9]\\d{0,19}$/.test(x)).slice(0, 10);
+const COMMERCE_COURIER_CHAT_IDS = COMMERCE_COURIER_CHAT_IDS_RAW.filter(x => /^[1-9]\d{0,19}$/.test(x)).slice(0, 10);
 
 if (process.env.NODE_ENV === "production") {
   const missing = [];
@@ -56,7 +56,7 @@ if (process.env.NODE_ENV === "production" && COMMERCE_PAYMENT_MODE === "test") {
 if (COMMERCE_OUTBOX_ENABLED) {
   const missing = [];
   if (!String(process.env.TELEGRAM_BOT_TOKEN || "").trim()) missing.push("TELEGRAM_BOT_TOKEN");
-  if (!/^[1-9]\\d{0,19}$/.test(String(process.env.COMMERCE_DISPATCH_CHAT_ID || "").trim())) missing.push("COMMERCE_DISPATCH_CHAT_ID (positive numeric private chat ID)");
+  if (!/^[1-9]\d{0,19}$/.test(String(process.env.COMMERCE_DISPATCH_CHAT_ID || "").trim())) missing.push("COMMERCE_DISPATCH_CHAT_ID (positive numeric private chat ID)");
   if (process.env.NODE_ENV === "production" && COMMERCE_COURIER_CHAT_IDS.length === 0) missing.push("COMMERCE_COURIER_CHAT_IDS (at least one positive numeric courier chat ID)");
   if (COMMERCE_COURIER_CHAT_IDS_RAW.length > 10 || COMMERCE_COURIER_CHAT_IDS.length !== COMMERCE_COURIER_CHAT_IDS_RAW.length) {
     throw new Error("Commerce outbox startup blocked: COMMERCE_COURIER_CHAT_IDS must contain up to 10 unique-format positive numeric private chat IDs");
