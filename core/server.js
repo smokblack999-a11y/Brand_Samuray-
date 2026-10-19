@@ -41,6 +41,8 @@ const COMMERCE_OUTBOX_ENABLED = String(process.env.COMMERCE_OUTBOX_ENABLED || "f
 const COMMERCE_OUTBOX_INTERVAL_MS = boundedIntegerEnv("COMMERCE_OUTBOX_INTERVAL_MS", 3000, 1000, 300000);
 const COMMERCE_OUTBOX_MAX_BATCH = boundedIntegerEnv("COMMERCE_OUTBOX_MAX_BATCH", 25, 1, 500);
 const COMMERCE_OUTBOX_MAX_ATTEMPTS = boundedIntegerEnv("COMMERCE_OUTBOX_MAX_ATTEMPTS", 8, 1, 100);
+const COMMERCE_COURIER_CHAT_IDS_RAW = String(process.env.COMMERCE_COURIER_CHAT_IDS || "").split(",").map(x => x.trim()).filter(Boolean);
+const COMMERCE_COURIER_CHAT_IDS = COMMERCE_COURIER_CHAT_IDS_RAW.filter(x => /^[1-9]\\d{0,19}$/.test(x)).slice(0, 10);
 
 if (process.env.NODE_ENV === "production") {
   const missing = [];
@@ -54,8 +56,15 @@ if (process.env.NODE_ENV === "production" && COMMERCE_PAYMENT_MODE === "test") {
 if (COMMERCE_OUTBOX_ENABLED) {
   const missing = [];
   if (!String(process.env.TELEGRAM_BOT_TOKEN || "").trim()) missing.push("TELEGRAM_BOT_TOKEN");
-  if (!String(process.env.COMMERCE_DISPATCH_CHAT_ID || "").trim()) missing.push("COMMERCE_DISPATCH_CHAT_ID");
-  if (missing.length) throw new Error(`Commerce outbox startup blocked: missing ${missing.join(", ")}`);
+  if (!/^[1-9]\\d{0,19}$/.test(String(process.env.COMMERCE_DISPATCH_CHAT_ID || "").trim())) missing.push("COMMERCE_DISPATCH_CHAT_ID (positive numeric private chat ID)");
+  if (process.env.NODE_ENV === "production" && COMMERCE_COURIER_CHAT_IDS.length === 0) missing.push("COMMERCE_COURIER_CHAT_IDS (at least one positive numeric courier chat ID)");
+  if (COMMERCE_COURIER_CHAT_IDS_RAW.length > 10 || COMMERCE_COURIER_CHAT_IDS.length !== COMMERCE_COURIER_CHAT_IDS_RAW.length) {
+    throw new Error("Commerce outbox startup blocked: COMMERCE_COURIER_CHAT_IDS must contain up to 10 unique-format positive numeric private chat IDs");
+  }
+  if (new Set(COMMERCE_COURIER_CHAT_IDS).size !== COMMERCE_COURIER_CHAT_IDS.length) {
+    throw new Error("Commerce outbox startup blocked: duplicate IDs in COMMERCE_COURIER_CHAT_IDS");
+  }
+  if (missing.length) throw new Error(`Commerce outbox startup blocked: missing/invalid ${missing.join(", ")}`);
 }
 
 app.disable("x-powered-by");
@@ -64,12 +73,13 @@ app.use(cors(CORS_ORIGIN ? { origin: CORS_ORIGIN } : { origin: false }));
 app.use(express.json({ limit: "256kb" }));
 
 const commerceService = createCommerceService({ filePath: path.join(DATA_DIR, "commerce.json") });
-const telegramCommerceDelivery = createTelegramCommerceDelivery({ dispatchChatId: process.env.COMMERCE_DISPATCH_CHAT_ID });
+const telegramCommerceDelivery = createTelegramCommerceDelivery({ dispatchChatId: process.env.COMMERCE_DISPATCH_CHAT_ID, courierChatIds: COMMERCE_COURIER_CHAT_IDS });
 const commerceTelegramBot = createCommerceTelegramBot({
   commerce: commerceService,
   paymentMode: COMMERCE_PAYMENT_MODE,
   isProduction: process.env.NODE_ENV === "production",
   dispatchChatId: process.env.COMMERCE_DISPATCH_CHAT_ID,
+  courierChatIds: COMMERCE_COURIER_CHAT_IDS,
 });
 const commerceOutboxWorker = createOutboxWorker({
   commerce: commerceService,
