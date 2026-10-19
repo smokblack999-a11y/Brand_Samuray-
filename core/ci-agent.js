@@ -2,6 +2,7 @@
 
 const crypto = require("node:crypto");
 const OpenAI = require("openai");
+const { createCiAgentStore } = require("./ci-agent-store");
 
 const MAX_EVENTS = 500;
 const MAX_LOG_CHARS = 12000;
@@ -87,11 +88,31 @@ function createCiAgent(options = {}) {
   const secret = String(options.secret ?? process.env.GITHUB_WEBHOOK_SECRET ?? "").trim();
   const analyzer = options.analyzer || generateFixSuggestion;
   const processFailure = typeof options.processFailure === "function" ? options.processFailure : null;
-  const events = new Map();
-  const deliveries = new Set();
+  const store = options.store || (options.stateFile ? createCiAgentStore(options.stateFile) : null);
+  const restored = store ? store.load() : { events: [], deliveries: [] };
+  const events = new Map(restored.events.map(event => [event.id, event]));
+  const deliveries = new Set(restored.deliveries);
   const queue = [];
   const queuedIds = new Set();
   let draining = false;
+
+  function persist() {
+    if (store) store.save({ events: [...events.values()], deliveries: [...deliveries] });
+  }
+
+  for (const event of events.values()) {
+    if (["queued", "running", "retrying"].includes(event.analysis?.status)) {
+      const attempts = Math.max(0, Number(event.analysis?.attempts) || 0);
+      if (attempts >= MAX_ATTEMPTS) event.analysis = { status: "failed", attempts: MAX_ATTEMPTS, failedAt: new Date().toISOString(), errorCode: "CI_ANALYSIS_INTERRUPTED" };
+      else if (processFailure) {
+        event.analysis = { status: "queued", attempts, queuedAt: new Date().toISOString(), recovered: true };
+        queue.push(event.id);
+        queuedIds.add(event.id);
+      } else event.analysis = { status: "pending", attempts };
+    }
+  }
+  persist();
+  if (queue.length) queueMicrotask(() => { void drainQueue(); });
 
   async function drainQueue() {
     if (draining || !processFailure) return;
@@ -102,9 +123,11 @@ function createCiAgent(options = {}) {
         queuedIds.delete(eventId);
         const event = events.get(eventId);
         if (!event || event.analysis?.status === "suggestion_only") continue;
-        for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+        const firstAttempt = Math.max(1, (Number(event.analysis?.attempts) || 0) + 1);
+        for (let attempt = firstAttempt; attempt <= MAX_ATTEMPTS; attempt++) {
           if (!events.has(eventId)) break;
           event.analysis = { status: "running", attempts: attempt, startedAt: new Date().toISOString() };
+          persist();
           try {
             const result = await processFailure({ ...event });
             event.analysis = {
@@ -115,10 +138,12 @@ function createCiAgent(options = {}) {
               logsFetched: result?.logsFetched === true,
               critic: result?.critic || null
             };
+            persist();
             break;
           } catch (error) {
             if (attempt < MAX_ATTEMPTS) {
               event.analysis = { status: "retrying", attempts: attempt, errorCode: String(error?.code || "CI_ANALYSIS_FAILED").slice(0, 100) };
+              persist();
               await new Promise(resolve => setTimeout(resolve, 250 * attempt));
               continue;
             }
@@ -128,6 +153,7 @@ function createCiAgent(options = {}) {
               failedAt: new Date().toISOString(),
               errorCode: String(error?.code || "CI_ANALYSIS_FAILED").slice(0, 100)
             };
+            persist();
           }
         }
       }
@@ -144,9 +170,10 @@ function createCiAgent(options = {}) {
       event.analysis = { status: "queue_full", attempts: 0 };
       return false;
     }
-    event.analysis = { status: "queued", attempts: 0, queuedAt: new Date().toISOString() };
+    event.analysis = { status: "queued", attempts: Number(event.analysis?.attempts) || 0, queuedAt: new Date().toISOString() };
     queue.push(event.id);
     queuedIds.add(event.id);
+    persist();
     queueMicrotask(() => { void drainQueue(); });
     return true;
   }
@@ -165,6 +192,7 @@ function createCiAgent(options = {}) {
     if (deliveries.has(delivery)) return res.status(200).json({ ok: true, duplicate: true });
     deliveries.add(delivery);
     if (deliveries.size > MAX_EVENTS * 2) deliveries.delete(deliveries.values().next().value);
+    persist();
 
     if (eventType !== "workflow_run" || req.body?.action !== "completed") {
       return res.status(202).json({ ok: true, accepted: false, reason: "EVENT_NOT_HANDLED" });
@@ -177,6 +205,8 @@ function createCiAgent(options = {}) {
       const oldestId = events.keys().next().value;
       events.delete(oldestId);
       queuedIds.delete(oldestId);
+      const queuedIndex = queue.indexOf(oldestId);
+      if (queuedIndex >= 0) queue.splice(queuedIndex, 1);
     }
     const queued = enqueue(event);
     return res.status(202).json({ ok: true, accepted: true, queued, event });
