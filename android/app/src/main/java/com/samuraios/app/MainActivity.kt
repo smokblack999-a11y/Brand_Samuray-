@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Matrix
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
@@ -33,6 +34,7 @@ import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import androidx.exifinterface.media.ExifInterface
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
 import com.google.android.gms.tasks.CancellationTokenSource
@@ -40,6 +42,9 @@ import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.io.OutputStream
+import java.nio.file.AtomicMoveNotSupportedException
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -216,11 +221,20 @@ class MainActivity : ComponentActivity() {
         var bitmap: Bitmap? = null
         val temp = File(photo.parentFile, photo.nameWithoutExtension + ".stamped.tmp")
         return try {
+            // Read orientation before decoding: BitmapFactory does not apply JPEG EXIF orientation.
+            val sourceExif = runCatching { ExifInterface(photo.absolutePath) }.getOrNull()
+            val orientation = sourceExif?.getAttributeInt(
+                ExifInterface.TAG_ORIENTATION,
+                ExifInterface.ORIENTATION_NORMAL
+            ) ?: ExifInterface.ORIENTATION_NORMAL
             val decoded = BitmapFactory.decodeFile(photo.absolutePath) ?: return false
-            bitmap = decoded
-            val canvas = Canvas(decoded)
-            val width = decoded.width.toFloat()
-            val height = decoded.height.toFloat()
+            val normalized = applyExifOrientation(decoded, orientation)
+            if (normalized !== decoded) decoded.recycle()
+            bitmap = normalized
+
+            val canvas = Canvas(normalized)
+            val width = normalized.width.toFloat()
+            val height = normalized.height.toFloat()
             val margin = (width * 0.025f).coerceAtLeast(12f)
             val textSize = (width * 0.026f).coerceIn(22f, 64f)
             val titlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -242,18 +256,42 @@ class MainActivity : ComponentActivity() {
             val lineHeight = textSize * 1.25f
             val boxHeight = margin * 2 + lineHeight * 2
             val top = (height - boxHeight).coerceAtLeast(0f)
-            canvas.drawRect(RectF(0f, top, width, height), Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(190, 0, 0, 0) })
+            canvas.drawRect(RectF(0f, top, width, height), Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = Color.argb(190, 0, 0, 0)
+            })
             canvas.drawText(firstLine, margin, top + margin + textSize, titlePaint)
             canvas.drawText(secondLine, margin, top + margin + textSize + lineHeight, detailPaint)
+
             FileOutputStream(temp).use { stream ->
-                if (!decoded.compress(Bitmap.CompressFormat.JPEG, 95, stream)) return false
+                if (!normalized.compress(Bitmap.CompressFormat.JPEG, 95, stream)) return false
                 stream.fd.sync()
             }
-            FileInputStream(temp).use { input ->
-                FileOutputStream(photo, false).use { output ->
-                    input.copyTo(output)
-                    output.fd.sync()
-                }
+
+            // Rebuild useful EXIF fields because JPEG recompression drops the original EXIF block.
+            val outputExif = ExifInterface(temp.absolutePath)
+            outputExif.setAttribute(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL.toString())
+            val exifTime = SimpleDateFormat("yyyy:MM:dd HH:mm:ss", Locale.US).format(Date(timestamp))
+            outputExif.setAttribute(ExifInterface.TAG_DATETIME, exifTime)
+            outputExif.setAttribute(ExifInterface.TAG_DATETIME_ORIGINAL, exifTime)
+            sourceExif?.getAttribute(ExifInterface.TAG_MAKE)?.let {
+                outputExif.setAttribute(ExifInterface.TAG_MAKE, it)
+            }
+            sourceExif?.getAttribute(ExifInterface.TAG_MODEL)?.let {
+                outputExif.setAttribute(ExifInterface.TAG_MODEL, it)
+            }
+            if (location != null) outputExif.setGpsInfo(location)
+            outputExif.saveAttributes()
+
+            // Replace the original only after the fully-written JPEG and EXIF block are ready.
+            try {
+                Files.move(
+                    temp.toPath(),
+                    photo.toPath(),
+                    StandardCopyOption.ATOMIC_MOVE,
+                    StandardCopyOption.REPLACE_EXISTING
+                )
+            } catch (_: AtomicMoveNotSupportedException) {
+                Files.move(temp.toPath(), photo.toPath(), StandardCopyOption.REPLACE_EXISTING)
             }
             true
         } catch (_: OutOfMemoryError) {
@@ -264,6 +302,30 @@ class MainActivity : ComponentActivity() {
             bitmap?.recycle()
             temp.delete()
         }
+    }
+
+    private fun applyExifOrientation(source: Bitmap, orientation: Int): Bitmap {
+        val matrix = Matrix()
+        when (orientation) {
+            ExifInterface.ORIENTATION_FLIP_HORIZONTAL -> matrix.setScale(-1f, 1f)
+            ExifInterface.ORIENTATION_ROTATE_180 -> matrix.setRotate(180f)
+            ExifInterface.ORIENTATION_FLIP_VERTICAL -> {
+                matrix.setRotate(180f)
+                matrix.postScale(-1f, 1f)
+            }
+            ExifInterface.ORIENTATION_TRANSPOSE -> {
+                matrix.setRotate(90f)
+                matrix.postScale(-1f, 1f)
+            }
+            ExifInterface.ORIENTATION_ROTATE_90 -> matrix.setRotate(90f)
+            ExifInterface.ORIENTATION_TRANSVERSE -> {
+                matrix.setRotate(-90f)
+                matrix.postScale(-1f, 1f)
+            }
+            ExifInterface.ORIENTATION_ROTATE_270 -> matrix.setRotate(-90f)
+            else -> return source
+        }
+        return Bitmap.createBitmap(source, 0, 0, source.width, source.height, matrix, true)
     }
 
     private fun openPhotoViewer(photo: File) {
