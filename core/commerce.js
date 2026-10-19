@@ -23,7 +23,7 @@ function createCommerceService({ filePath }) {
     let parsed;
     try { parsed = JSON.parse(fs.readFileSync(resolvedPath, "utf8")); }
     catch { throw fail("COMMERCE_STATE_CORRUPT", "Commerce state is unreadable; refusing to reset it"); }
-    if (parsed.outbox === undefined) parsed.outbox = []; // Backward-compatible schema migration.
+    if (parsed && parsed.outbox === undefined) parsed.outbox = []; // Backward-compatible schema migration.
     state = validate(parsed);
   }
   function persist(next) {
