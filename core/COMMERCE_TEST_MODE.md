@@ -4,11 +4,11 @@ Commerce is an MVP layer for the existing Telegram Business webhook. It is not a
 
 ## Safety boundary
 
-- `PAYMENT_MODE` defaults to `test`; this build only records simulated payment confirmation.
+- `PAYMENT_MODE` defaults to `test`; the service refuses to start for any other mode. This build only records simulated payment confirmation.
 - No card details are collected and no money is charged.
 - `/buy SKU [quantity]` creates a pending test order. It does not create a checkout URL.
 - An authenticated operator can mark a test order paid through the API. This decrements stock and returns the configured digital delivery payload, or marks a physical order as requiring fulfilment.
-- Keep `AUTO_REPLY=false` until the webhook is configured and tested. Telegram commands are `/catalog`, `/price SKU`, `/stock SKU`, and `/buy SKU [quantity]`.
+- The Telegram commerce command handler is opt-in: set `COMMERCE_BOT_ENABLED=true`. To actually send replies, also set `AUTO_REPLY=true`; leave it false until the webhook is configured and tested. Commands are `/catalog`, `/price SKU`, `/stock SKU`, and `/buy SKU [quantity]`.
 - Catalog starts empty. Add real product information through the authenticated API; do not put private download secrets in product names or descriptions.
 
 ## Configure a product
