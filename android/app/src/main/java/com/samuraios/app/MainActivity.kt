@@ -16,10 +16,12 @@ import android.widget.EditText
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
+import android.widget.SeekBar
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
@@ -49,6 +51,9 @@ class MainActivity : ComponentActivity() {
     private lateinit var chatIdInput: EditText
     private lateinit var messageInput: EditText
     private lateinit var galleryContainer: LinearLayout
+    private lateinit var zoomSeekBar: SeekBar
+    private lateinit var zoomLabel: TextView
+    private var activeCamera: Camera? = null
     private var imageCapture: ImageCapture? = null
     private var selectedPhoto: File? = null
     private var cameraExecutor: ExecutorService? = null
@@ -71,7 +76,7 @@ class MainActivity : ComponentActivity() {
         checkCoreStatus()
     }
 
-    override fun onDestroy() { cameraExecutor?.shutdown(); super.onDestroy() }
+    override fun onDestroy() { activeCamera = null; cameraExecutor?.shutdown(); super.onDestroy() }
 
     private fun hasCameraPermission(): Boolean =
         ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
@@ -97,6 +102,24 @@ class MainActivity : ComponentActivity() {
         root.addView(statusText)
         previewView = PreviewView(this).apply { scaleType = PreviewView.ScaleType.FILL_CENTER }
         root.addView(previewView, LinearLayout.LayoutParams(-1, 520))
+        zoomLabel = TextView(this).apply { text = "ЗУМ: 1.0x"; setTextColor(Color.WHITE); setPadding(0, 8, 0, 0) }
+        root.addView(zoomLabel)
+        zoomSeekBar = SeekBar(this).apply {
+            max = 100
+            progress = 0
+            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                    val camera = activeCamera ?: return
+                    val zoom = camera.cameraInfo.zoomState.value ?: return
+                    val ratio = zoom.minZoomRatio + (zoom.maxZoomRatio - zoom.minZoomRatio) * (progress / 100f)
+                    camera.cameraControl.setZoomRatio(ratio)
+                    zoomLabel.text = "ЗУМ: %.1fx".format(ratio)
+                }
+                override fun onStartTrackingTouch(seekBar: SeekBar?) {}
+                override fun onStopTrackingTouch(seekBar: SeekBar?) {}
+            })
+        }
+        root.addView(zoomSeekBar)
         root.addView(Button(this).apply { text = "СНЯТЬ ФОТО + GPS"; setOnClickListener { capturePhoto() } })
         root.addView(Button(this).apply { text = "ИМПОРТИРОВАТЬ ИЗ ГАЛЕРЕИ"; setOnClickListener { galleryPicker.launch("image/*") } })
         root.addView(TextView(this).apply { text = "Галерея SamuraiOS — приватная копия"; textSize = 18f; setTextColor(Color.WHITE); setPadding(0, 18, 0, 8) })
@@ -126,7 +149,10 @@ class MainActivity : ComponentActivity() {
                 val preview = Preview.Builder().build().also { it.setSurfaceProvider(previewView.surfaceProvider) }
                 imageCapture = ImageCapture.Builder().setJpegQuality(85).build()
                 provider.unbindAll()
-                provider.bindToLifecycle(this, CameraSelector.DEFAULT_BACK_CAMERA, preview, imageCapture)
+                activeCamera = provider.bindToLifecycle(this, CameraSelector.DEFAULT_BACK_CAMERA, preview, imageCapture)
+                val zoom = activeCamera?.cameraInfo?.zoomState?.value
+                zoomLabel.text = "ЗУМ: %.1fx - %.1fx".format(zoom?.minZoomRatio ?: 1f, zoom?.maxZoomRatio ?: 1f)
+                zoomSeekBar.progress = 0
                 statusText.text = "SamuraiOS: CAMERA ONLINE"
             } catch (e: Exception) { statusText.text = "Camera error: ${e.message}" }
         }, ContextCompat.getMainExecutor(this))
