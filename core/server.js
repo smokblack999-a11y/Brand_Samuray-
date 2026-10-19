@@ -16,7 +16,7 @@ const { emitHamylionEvent } = require("./hamylion-adapter");
 const dualAI = require("./dual-ai/engine");
 const { checkDraft } = require("./kill-critic");
 const { createCiAgent } = require("./ci-agent");
-const { fetchFailureLogs } = require("./github-actions-logs");
+const { fetchFailureLogs, redactSecrets } = require("./github-actions-logs");
 
 const app = express();
 const PORT = Number(process.env.PORT || 8787);
@@ -79,7 +79,25 @@ app.use((req, res, next) => {
 
 const leadRateLimit = createRateLimiter({ windowMs: LEAD_RATE_LIMIT_WINDOW_MS, max: LEAD_RATE_LIMIT_MAX });
 const dualRateLimit = createRateLimiter({ windowMs: Math.max(1000, Number(process.env.DUAL_AI_RATE_LIMIT_WINDOW_MS || 60000)), max: Math.max(1, Number(process.env.DUAL_AI_RATE_LIMIT_MAX || 10)) });
-const ciAgent = createCiAgent();
+const ciAgent = createCiAgent({
+  processFailure: async event => {
+    const logs = redactSecrets(await fetchFailureLogs(event));
+    const result = await ciAgent.analyze(event.id, logs);
+    const critic = checkDraft({
+      draft: result.suggestion,
+      facts: { source: "ci-agent", workflow: event.workflow, conclusion: event.conclusion },
+      approved: false
+    });
+    return {
+      ...result,
+      logsFetched: true,
+      critic: {
+        decision: String(critic?.decision || "REVIEW_REQUIRED"),
+        findings: Array.isArray(critic?.findings) ? critic.findings.slice(0, 20) : []
+      }
+    };
+  }
+});
 app.use("/dual-ai", express.static(path.join(__dirname, "dual-ai", "public"), { index: "index.html" }));
 app.use("/mini-app", express.static(path.join(__dirname, "mini-app"), { index: "index.html" }));
 
@@ -105,10 +123,17 @@ app.post("/api/ci/events/:id/analyze", requireApiKey, dualRateLimit, async (req,
 app.post("/api/ci/events/:id/analyze-auto", requireApiKey, dualRateLimit, async (req, res) => {
   const event = ciAgent.listEvents(200).find(item => item.id === String(req.params.id));
   if (!event) return res.status(404).json(errorBody("CI_EVENT_NOT_FOUND", "CI event not found", req.requestId));
+  if (["queued", "running", "retrying"].includes(event.analysis?.status)) {
+    return res.status(202).json({ ok: true, eventId: event.id, analysis: event.analysis, requestId: req.requestId });
+  }
+  if (event.analysis?.status === "suggestion_only") {
+    return res.json({ ok: true, eventId: event.id, analysis: event.analysis, requestId: req.requestId });
+  }
   try {
-    const logs = await fetchFailureLogs(event);
+    const logs = redactSecrets(await fetchFailureLogs(event));
     const result = await ciAgent.analyze(req.params.id, logs);
-    return res.json({ ok: true, ...result, logsFetched: true, requestId: req.requestId });
+    const critic = checkDraft({ draft: result.suggestion, facts: { source: "ci-agent", workflow: event.workflow }, approved: false });
+    return res.json({ ok: true, ...result, logsFetched: true, critic: { decision: critic?.decision || "REVIEW_REQUIRED", findings: Array.isArray(critic?.findings) ? critic.findings.slice(0, 20) : [] }, requestId: req.requestId });
   } catch (error) {
     const status = error.code === "GITHUB_TOKEN_NOT_CONFIGURED" ? 503
       : error.code === "GITHUB_RUN_NOT_FOUND" || error.code === "GITHUB_EVENT_INVALID" ? 404
