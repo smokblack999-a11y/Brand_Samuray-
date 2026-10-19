@@ -31,7 +31,7 @@ function createTelegramCommerceDelivery({
   sendMessage = payload => telegram("sendMessage", payload),
   sendPhoto = payload => telegram("sendPhoto", payload),
   dispatchChatId = process.env.COMMERCE_DISPATCH_CHAT_ID || "",
-  courierChatIds = String(process.env.COMMERCE_COURIER_CHAT_IDS || "").split(",").map(x => x.trim()).filter(x => /^[1-9]\\d{0,19}$/.test(x)).slice(0, 10)
+  courierChatIds = String(process.env.COMMERCE_COURIER_CHAT_IDS || "").split(",").map(x => x.trim()).filter(x => /^[1-9]\d{0,19}$/.test(x)).slice(0, 10)
 } = {}) {
   if (typeof sendMessage !== "function" || typeof sendPhoto !== "function") throw fail("INVALID_TELEGRAM_SENDER", "sendMessage and sendPhoto callbacks are required");
 
