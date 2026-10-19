@@ -9,11 +9,11 @@ function clone(value) { return JSON.parse(JSON.stringify(value)); }
 function createCommerceService({ filePath }) {
   if (!filePath || typeof filePath !== "string") throw new Error("filePath is required");
   const resolvedPath = path.resolve(filePath);
-  let state = { version: 1, products: [], orders: [], paymentEvents: [] };
+  let state = { version: 1, products: [], orders: [], paymentEvents: [], outbox: [] };
 
   function validate(value) {
     if (!value || value.version !== 1 || !Array.isArray(value.products) ||
-        !Array.isArray(value.orders) || !Array.isArray(value.paymentEvents)) {
+        !Array.isArray(value.orders) || !Array.isArray(value.paymentEvents) || (value.outbox !== undefined && !Array.isArray(value.outbox))) {
       throw fail("COMMERCE_STATE_INVALID", "Commerce state is invalid; refusing to reset it");
     }
     return value;
@@ -23,6 +23,7 @@ function createCommerceService({ filePath }) {
     let parsed;
     try { parsed = JSON.parse(fs.readFileSync(resolvedPath, "utf8")); }
     catch { throw fail("COMMERCE_STATE_CORRUPT", "Commerce state is unreadable; refusing to reset it"); }
+    if (parsed.outbox === undefined) parsed.outbox = []; // Backward-compatible schema migration.
     state = validate(parsed);
   }
   function persist(next) {
@@ -50,6 +51,9 @@ function createCommerceService({ filePath }) {
     const result = mutator(next);
     persist(next);
     return clone(result);
+  }
+  function enqueue(next, type, order, now = new Date().toISOString()) {
+    next.outbox.push({ eventId: crypto.randomUUID(), type, orderId: order.id, status: "pending", attempts: 0, createdAt: now, deliveredAt: null, lastError: null });
   }
   function productFields(data) {
     const name = String(data?.name || "").trim();
@@ -130,7 +134,7 @@ function createCommerceService({ filePath }) {
         payment: { status: "pending", method: null, eventId: null, confirmedAt: null },
         status: "pending_payment", courierId: null, deliveryProof: null, createdAt: now, updatedAt: now
       };
-      next.orders.push(order); return order;
+      next.orders.push(order); enqueue(next, "OrderPlaced", order, now); return order;
     });
   }
   function confirmPayment({ orderId, eventId, amountKzt, method, trusted = false }) {
@@ -153,6 +157,7 @@ function createCommerceService({ filePath }) {
       order.status = order.fulfilment === "pickup" ? "preparing" : "paid";
       order.updatedAt = now;
       next.paymentEvents.push({ eventId: String(eventId), orderId, amountKzt: Number(amountKzt), method, receivedAt: now });
+      enqueue(next, "PaymentConfirmed", order, now);
       if (next.paymentEvents.length > 5000) next.paymentEvents = next.paymentEvents.slice(-5000);
       return { order, duplicate: false };
     }).order;
@@ -163,7 +168,7 @@ function createCommerceService({ filePath }) {
       const o = next.orders.find(x => x.id === orderId);
       if (!o) throw fail("ORDER_NOT_FOUND", "Order not found");
       if (o.fulfilment !== "delivery" || !["paid", "preparing", "assigned"].includes(o.status)) throw fail("INVALID_ORDER_STATE", "Only paid delivery orders can be assigned");
-      o.courierId = String(courierId); o.status = "assigned"; o.updatedAt = new Date().toISOString(); return o;
+      o.courierId = String(courierId); o.status = "assigned"; o.updatedAt = new Date().toISOString(); enqueue(next, "CourierAssigned", o, o.updatedAt); return o;
     });
   }
   function startDelivery({ orderId, courierId }) {
@@ -171,7 +176,7 @@ function createCommerceService({ filePath }) {
       const o = next.orders.find(x => x.id === orderId);
       if (!o) throw fail("ORDER_NOT_FOUND", "Order not found");
       if (o.courierId !== String(courierId) || o.status !== "assigned") throw fail("INVALID_ORDER_STATE", "Courier/order assignment mismatch");
-      o.status = "out_for_delivery"; o.updatedAt = new Date().toISOString(); return o;
+      o.status = "out_for_delivery"; o.updatedAt = new Date().toISOString(); enqueue(next, "DeliveryStarted", o, o.updatedAt); return o;
     });
   }
   function markReadyForPickup({ orderId }) {
@@ -179,7 +184,7 @@ function createCommerceService({ filePath }) {
       const o = next.orders.find(x => x.id === orderId);
       if (!o) throw fail("ORDER_NOT_FOUND", "Order not found");
       if (o.fulfilment !== "pickup" || o.status !== "preparing") throw fail("INVALID_ORDER_STATE", "Order is not being prepared for pickup");
-      o.status = "ready_for_pickup"; o.updatedAt = new Date().toISOString(); return o;
+      o.status = "ready_for_pickup"; o.updatedAt = new Date().toISOString(); enqueue(next, "PickupReady", o, o.updatedAt); return o;
     });
   }
   function confirmFulfilment({ orderId, actorId, photoUrl, note = "" }) {
@@ -195,7 +200,7 @@ function createCommerceService({ filePath }) {
         o.status = "picked_up";
       }
       o.deliveryProof = { photoUrl, note: String(note).slice(0, 500), actorId: String(actorId), capturedAt: new Date().toISOString() };
-      o.updatedAt = new Date().toISOString(); return o;
+      o.updatedAt = new Date().toISOString(); enqueue(next, o.status === "delivered" ? "OrderDelivered" : "OrderPickedUp", o, o.updatedAt); return o;
     });
   }
   function cancelOrder({ orderId, actorId, isAdmin = false }) {
@@ -206,9 +211,33 @@ function createCommerceService({ filePath }) {
       if (!["pending_payment", "paid", "preparing", "ready_for_pickup"].includes(o.status)) throw fail("INVALID_ORDER_STATE", "Order cannot be cancelled at this stage");
       if (o.payment.status === "paid") throw fail("REFUND_REQUIRED", "Paid order needs a separate refund workflow");
       for (const line of o.items) { const p = next.products.find(x => x.id === line.productId); if (p) p.stock += line.quantity; }
-      o.status = "cancelled"; o.updatedAt = new Date().toISOString(); return o;
+      o.status = "cancelled"; o.updatedAt = new Date().toISOString(); enqueue(next, "OrderCancelled", o, o.updatedAt); return o;
     });
   }
-  return { addProduct, updateProduct, listProducts, createOrder, getOrder, confirmPayment, assignCourier, startDelivery, confirmFulfilment, markReadyForPickup, cancelOrder };
+  function listOutbox({ limit = 100 } = {}) {
+    const bounded = Math.max(1, Math.min(500, Number.isSafeInteger(Number(limit)) ? Number(limit) : 100));
+    return clone(state.outbox.filter(e => e.status !== "delivered").slice(0, bounded));
+  }
+  function markOutboxDelivered({ eventId }) {
+    return transact(next => {
+      const event = next.outbox.find(e => e.eventId === eventId);
+      if (!event) throw fail("OUTBOX_EVENT_NOT_FOUND", "Outbox event not found");
+      if (event.status !== "delivered") { event.status = "delivered"; event.deliveredAt = new Date().toISOString(); event.lastError = null; }
+      return event;
+    });
+  }
+  function markOutboxFailed({ eventId, error }) {
+    return transact(next => {
+      const event = next.outbox.find(e => e.eventId === eventId);
+      if (!event) throw fail("OUTBOX_EVENT_NOT_FOUND", "Outbox event not found");
+      if (event.status !== "delivered") {
+        event.status = "pending"; event.attempts += 1;
+        event.lastError = String(error || "Delivery failed").slice(0, 500);
+        event.lastAttemptAt = new Date().toISOString();
+      }
+      return event;
+    });
+  }
+  return { addProduct, updateProduct, listProducts, createOrder, getOrder, confirmPayment, assignCourier, startDelivery, confirmFulfilment, markReadyForPickup, cancelOrder, listOutbox, markOutboxDelivered, markOutboxFailed };
 }
 module.exports = { createCommerceService };
