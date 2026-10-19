@@ -91,7 +91,7 @@ function createCommerceTelegramBot({
     const offset = Math.max(0, Math.floor(Number(requestedOffset) / 10) * 10);
     const page = products.slice(offset, offset + 10);
     const rows = page.map(product => [{
-      text: clean(product.name, 32) + " — " + Number(product.priceKzt).toLocaleString("ru-RU") + " ₸ (" + product.stock + ")",
+      text: (clean(product.name, 32) + " — " + Number(product.priceKzt).toLocaleString("ru-RU") + " ₸ (" + product.stock + ")").slice(0, 64),
       callback_data: "b:" + product.id
     }]);
     const navigation = [];
@@ -234,9 +234,19 @@ function createCommerceTelegramBot({
       return true;
     }
     if (session?.stage === "awaiting_phone") {
-      const contactPhone = message.contact && String(message.contact.user_id || "") === chatId
-        ? clean(message.contact.phone_number, 40) : "";
-      const phone = contactPhone || (text === "-" ? "" : text);
+      const ownsContact = message.contact &&
+        String(message.contact.user_id || "") === chatId &&
+        String(message.contact.phone_number || "").trim().length > 0;
+      if (message.contact && !ownsContact) {
+        await send(chatId, "Отправленный контакт не принадлежит вашему аккаунту. Введите свой номер или «-», чтобы пропустить.");
+        return true;
+      }
+      if (!ownsContact && text !== "-" && !text) {
+        await send(chatId, "Введите телефон для связи либо отправьте «-», чтобы пропустить.");
+        return true;
+      }
+      const contactPhone = ownsContact ? clean(message.contact.phone_number, 40) : "";
+      const phone = ownsContact ? contactPhone : (text === "-" ? "" : text);
       if (phone && !/^[+()0-9\s-]{5,40}$/.test(phone)) {
         await send(chatId, "Телефон содержит недопустимые символы. Введите номер или «-».");
         return true;
