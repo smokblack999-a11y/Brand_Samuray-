@@ -1,6 +1,6 @@
 # Samurai Commerce Order Flow — domain and outbox worker
 
-The commerce domain and a callable outbox worker exist as isolated modules. They are **not yet wired into public HTTP routes, a Telegram commerce conversation, or an automatically scheduled process**.
+The commerce domain, privileged internal HTTP routes, outbox worker, and Telegram notification adapter are implemented. The server can poll the outbox when explicitly enabled; the default is disabled. A customer-facing Telegram commerce conversation is **not yet wired**, and no real Telegram send or payment-provider integration has been verified.
 
 ## Included
 
@@ -19,7 +19,7 @@ The commerce domain and a callable outbox worker exist as isolated modules. They
 
 Module: `core/commerce-outbox-worker.js`
 
-Create a worker with `createOutboxWorker({ commerce, deliver, maxBatch, maxAttempts, logger })`, then call `await worker.runOnce()` from a trusted server-side scheduler or controlled worker process. The `deliver` callback receives `{ event, order, idempotencyKey }`; the key is the persisted outbox event ID and should be used for deduplication where the downstream system supports it.
+Create a worker with `createOutboxWorker({ commerce, deliver, maxBatch, maxAttempts, logger })`, then call `await worker.runOnce()` from a trusted server-side scheduler or controlled worker process. In `server.js`, polling can be enabled with `COMMERCE_OUTBOX_ENABLED=true`; configure `TELEGRAM_BOT_TOKEN` and `COMMERCE_DISPATCH_CHAT_ID` first. The default is `false` so test/development processes do not send messages unexpectedly. The `deliver` callback receives `{ event, order, idempotencyKey }`; the key is the persisted outbox event ID and should be used for deduplication where the downstream system supports it.
 
 The worker is deliberately adapter-agnostic: no Telegram API token, customer/courier chat ID, or payment credential is embedded in the domain module. Delivery failures retry with the same event ID. Once `maxAttempts` is reached, the event moves to `dead_letter` and is excluded from normal processing; operators can inspect it with `commerce.listOutbox({ includeDeadLetter: true })`. A trusted internal caller can explicitly replay one by calling `commerce.requeueOutboxDeadLetter({ eventId })`; this preserves the event ID, resets the current attempt counter, and records the previous dead-letter attempt count. There is no public/admin replay endpoint yet.
 
@@ -31,10 +31,16 @@ Module: `core/commerce-telegram-adapter.js`. It uses the existing Telegram Bot A
 
 Before use, verify that customer/courier IDs are reachable private chats for this bot and that courier assignment can only be performed by an authorized operator. The adapter and worker are tested with a fake sender, but the adapter is not started by `server.js` and no real Telegram send has been verified.
 
+## Internal API routes
+
+The following `/api/commerce/...` routes require `X-API-Key: CORE_API_KEY` and are privileged server/admin endpoints: list/create products, create/get orders, assign courier, start delivery, mark pickup ready, confirm fulfilment, cancel unpaid orders, inspect/requeue outbox events, and run the test-payment simulation. Do not expose `CORE_API_KEY` in a mobile app, website JavaScript, or Telegram client. Courier identity is not role-authenticated yet, so these endpoints must remain behind trusted server-side access.
+
+The test-payment endpoint is enabled only when `COMMERCE_PAYMENT_MODE=test` and `NODE_ENV` is not `production`. It creates no real payment and returns `realMoneyMoved: false`. The default `COMMERCE_PAYMENT_MODE=disabled` cannot mark orders paid through that route. Production startup refuses the test payment mode.
+
 ## Not included yet
 
-- Commerce HTTP routes and Telegram customer/admin/courier menus, plus wiring the notification adapter into the live server/worker lifecycle.
-- Automatically scheduled worker lifecycle, operational endpoint/metrics, and a protected dead-letter replay/admin endpoint.
+- Customer-facing Telegram catalog/buttons/checkout, and command/callback routing from the existing Telegram webhook into commerce.
+- Operational metrics and a dedicated role-based admin/courier authorization flow.
 - Real payment-provider adapter or signature-verified webhook.
 - Role-based authorization for staff/couriers.
 - Delivery price calculation, order expiry, refunds, and media upload/storage.
