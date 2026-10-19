@@ -242,6 +242,20 @@ function createCommerceService({ filePath }) {
       return event;
     });
   }
-  return { addProduct, updateProduct, listProducts, createOrder, getOrder, confirmPayment, assignCourier, startDelivery, confirmFulfilment, markReadyForPickup, cancelOrder, listOutbox, markOutboxDelivered, markOutboxFailed };
+  function requeueOutboxDeadLetter({ eventId }) {
+    return transact(next => {
+      const event = next.outbox.find(e => e.eventId === eventId);
+      if (!event) throw fail("OUTBOX_EVENT_NOT_FOUND", "Outbox event not found");
+      if (event.status !== "dead_letter") throw fail("OUTBOX_NOT_DEAD_LETTERED", "Only dead-letter events can be requeued");
+      event.lastDeadLetterAttempts = event.attempts;
+      event.attempts = 0;
+      event.status = "pending";
+      event.lastError = null;
+      event.requeuedAt = new Date().toISOString();
+      delete event.deadLetteredAt;
+      return event;
+    });
+  }
+  return { addProduct, updateProduct, listProducts, createOrder, getOrder, confirmPayment, assignCourier, startDelivery, confirmFulfilment, markReadyForPickup, cancelOrder, listOutbox, markOutboxDelivered, markOutboxFailed, requeueOutboxDeadLetter };
 }
 module.exports = { createCommerceService };
