@@ -21,14 +21,14 @@ Module: `core/commerce-outbox-worker.js`
 
 Create a worker with `createOutboxWorker({ commerce, deliver, maxBatch, maxAttempts, logger })`, then call `await worker.runOnce()` from a trusted server-side scheduler or controlled worker process. The `deliver` callback receives `{ event, order, idempotencyKey }`; the key is the persisted outbox event ID and should be used for deduplication where the downstream system supports it.
 
-The worker is deliberately adapter-agnostic: no Telegram API token, customer/courier chat ID, or payment credential is embedded in the domain module. Delivery failures retry with the same event ID. Once `maxAttempts` is reached, the event moves to `dead_letter` and is excluded from normal processing; operators can inspect it with `commerce.listOutbox({ includeDeadLetter: true })`.
+The worker is deliberately adapter-agnostic: no Telegram API token, customer/courier chat ID, or payment credential is embedded in the domain module. Delivery failures retry with the same event ID. Once `maxAttempts` is reached, the event moves to `dead_letter` and is excluded from normal processing; operators can inspect it with `commerce.listOutbox({ includeDeadLetter: true })`. A trusted internal caller can explicitly replay one by calling `commerce.requeueOutboxDeadLetter({ eventId })`; this preserves the event ID, resets the current attempt counter, and records the previous dead-letter attempt count. There is no public/admin replay endpoint yet.
 
 **Delivery semantics are at-least-once, not exactly-once.** If the remote system accepts a message but the process fails before the local delivered marker is persisted, the message may be sent again. Telegram Bot API sends do not provide a general idempotency key for outgoing messages, so a duplicate customer/courier notification remains possible in that failure window. The worker also prevents overlapping `runOnce()` calls only within one worker instance; it is not a distributed lock.
 
 ## Not included yet
 
 - HTTP routes and Telegram customer/admin/courier menus, plus a real Telegram delivery adapter.
-- Automatically scheduled worker lifecycle, operational endpoint/metrics, and a dead-letter replay/admin workflow.
+- Automatically scheduled worker lifecycle, operational endpoint/metrics, and a protected dead-letter replay/admin endpoint.
 - Real payment-provider adapter or signature-verified webhook.
 - Role-based authorization for staff/couriers.
 - Delivery price calculation, order expiry, refunds, and media upload/storage.
