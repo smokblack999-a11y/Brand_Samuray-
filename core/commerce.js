@@ -214,9 +214,10 @@ function createCommerceService({ filePath }) {
       o.status = "cancelled"; o.updatedAt = new Date().toISOString(); enqueue(next, "OrderCancelled", o, o.updatedAt); return o;
     });
   }
-  function listOutbox({ limit = 100 } = {}) {
+  function listOutbox({ limit = 100, includeDeadLetter = false } = {}) {
     const bounded = Math.max(1, Math.min(500, Number.isSafeInteger(Number(limit)) ? Number(limit) : 100));
-    return clone(state.outbox.filter(e => e.status !== "delivered").slice(0, bounded));
+    const eligible = state.outbox.filter(e => e.status === "pending" || (includeDeadLetter && e.status === "dead_letter"));
+    return clone(eligible.slice(0, bounded));
   }
   function markOutboxDelivered({ eventId }) {
     return transact(next => {
@@ -226,14 +227,17 @@ function createCommerceService({ filePath }) {
       return event;
     });
   }
-  function markOutboxFailed({ eventId, error }) {
+  function markOutboxFailed({ eventId, error, maxAttempts = 8 }) {
+    const attemptsLimit = Number.isSafeInteger(Number(maxAttempts)) ? Math.max(1, Math.min(100, Number(maxAttempts))) : 8;
     return transact(next => {
       const event = next.outbox.find(e => e.eventId === eventId);
       if (!event) throw fail("OUTBOX_EVENT_NOT_FOUND", "Outbox event not found");
-      if (event.status !== "delivered") {
-        event.status = "pending"; event.attempts += 1;
+      if (event.status !== "delivered" && event.status !== "dead_letter") {
+        event.attempts += 1;
         event.lastError = String(error || "Delivery failed").slice(0, 500);
         event.lastAttemptAt = new Date().toISOString();
+        event.status = event.attempts >= attemptsLimit ? "dead_letter" : "pending";
+        if (event.status === "dead_letter") event.deadLetteredAt = event.lastAttemptAt;
       }
       return event;
     });
