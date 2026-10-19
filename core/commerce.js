@@ -108,7 +108,7 @@ function createCommerceService({ filePath }) {
   }
   function conversationKey(chatId) {
     const key = String(chatId ?? "").trim();
-    if (!/^[1-9]\\d{0,19}$/.test(key)) throw fail("INVALID_CHAT_ID", "Private Telegram chat ID must be a positive numeric ID");
+    if (!/^[1-9]\d{0,19}$/.test(key)) throw fail("INVALID_CHAT_ID", "Private Telegram chat ID must be a positive numeric ID");
     return key;
   }
   function getConversation(chatId) {
