@@ -289,6 +289,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun apiGet(path: String, callback: (String) -> Unit) {
+        if (coreUrl.isBlank()) { mainHandler.post { callback("ERROR: Core не настроен. Откройте «НАСТРОИТЬ CORE / API» и укажите HTTPS URL.") }; return }
         thread {
             var connection: HttpURLConnection? = null
             try {
@@ -303,6 +304,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun apiPost(path: String, json: String, callback: (String) -> Unit) {
+        if (coreUrl.isBlank()) { mainHandler.post { callback("ERROR: Core не настроен. Откройте «НАСТРОИТЬ CORE / API» и укажите HTTPS URL.") }; return }
         thread {
             var connection: HttpURLConnection? = null
             try {
