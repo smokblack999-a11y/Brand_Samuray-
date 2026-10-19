@@ -118,3 +118,24 @@ test("worker validates configuration", t => {
   assert.throws(() => createOutboxWorker({ commerce: { listOutbox() {}, getOrder() {}, markOutboxDelivered() {}, markOutboxFailed() {} }, deliver() {}, maxBatch: 501 }), { code: "INVALID_MAX_BATCH" });
   assert.throws(() => createOutboxWorker({ commerce: { listOutbox() {}, getOrder() {}, markOutboxDelivered() {}, markOutboxFailed() {} }, deliver() {}, maxAttempts: 101 }), { code: "INVALID_MAX_ATTEMPTS" });
 });
+
+test("dead-letter replay is explicit and retains the original event ID", async t => {
+  const c = setupOrder(); t.after(c.cleanup);
+  const failing = createOutboxWorker({
+    commerce: c.commerce,
+    maxAttempts: 1,
+    deliver: async () => { throw new Error("manual review required"); }
+  });
+  const failed = await failing.runOnce();
+  const eventId = failed.results[0].eventId;
+  assert.equal(failed.deadLettered, 1);
+  assert.throws(() => c.commerce.requeueOutboxDeadLetter({ eventId: "unknown" }), { code: "OUTBOX_EVENT_NOT_FOUND" });
+  const requeued = c.commerce.requeueOutboxDeadLetter({ eventId });
+  assert.equal(requeued.eventId, eventId);
+  assert.equal(requeued.status, "pending");
+  assert.equal(requeued.attempts, 0);
+  assert.equal(requeued.lastDeadLetterAttempts, 1);
+  const succeeded = await createOutboxWorker({ commerce: c.commerce, deliver: async ({ event }) => assert.equal(event.eventId, eventId) }).runOnce();
+  assert.equal(succeeded.delivered, 1);
+  assert.equal(c.commerce.listOutbox().length, 0);
+});
