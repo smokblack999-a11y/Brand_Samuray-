@@ -16,6 +16,7 @@ const { emitHamylionEvent } = require("./hamylion-adapter");
 const dualAI = require("./dual-ai/engine");
 const { checkDraft } = require("./kill-critic");
 const { createCiAgent } = require("./ci-agent");
+const { createCiAgentStore } = require("./ci-agent-store");
 const { fetchFailureLogs, redactSecrets } = require("./github-actions-logs");
 
 const app = express();
@@ -79,7 +80,9 @@ app.use((req, res, next) => {
 
 const leadRateLimit = createRateLimiter({ windowMs: LEAD_RATE_LIMIT_WINDOW_MS, max: LEAD_RATE_LIMIT_MAX });
 const dualRateLimit = createRateLimiter({ windowMs: Math.max(1000, Number(process.env.DUAL_AI_RATE_LIMIT_WINDOW_MS || 60000)), max: Math.max(1, Number(process.env.DUAL_AI_RATE_LIMIT_MAX || 10)) });
+const ciAgentStore = createCiAgentStore();
 const ciAgent = createCiAgent({
+  persistence: ciAgentStore,
   processFailure: async event => {
     const logs = redactSecrets(await fetchFailureLogs(event));
     const result = await ciAgent.analyze(event.id, logs);
