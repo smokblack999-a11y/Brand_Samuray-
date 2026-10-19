@@ -42,6 +42,22 @@ function createTelegramCommerceDelivery({ token, courierChatId = "", fetchImpl =
       "Статус: " + safeText(order.status, 40),
       "Сумма: " + formatKzt(order.totalKzt)
     ];
+    if (event.type === "CourierDeliveryRequested") {
+      if (order.fulfilment !== "delivery" || order.payment?.status !== "paid") {
+        throw new Error("Courier delivery requires a paid delivery order");
+      }
+      if (!courierChatId) throw new Error("Courier chat is not configured");
+      const courierText = [
+        "Новый оплаченный заказ для доставки",
+        "Заказ: " + orderId,
+        "Сумма: " + formatKzt(order.totalKzt),
+        "Адрес: " + safeText(order.address, 1000),
+        order.phone ? "Телефон: " + safeText(order.phone, 40) : "",
+        order.note ? "Комментарий: " + safeText(order.note, 500) : ""
+      ].filter(Boolean).join("\n");
+      await sendMessage(courierChatId, courierText);
+      return;
+    }
     let customerText = "";
     switch (event.type) {
       case "OrderPlaced":
@@ -74,20 +90,7 @@ function createTelegramCommerceDelivery({ token, courierChatId = "", fetchImpl =
 
     await sendMessage(customerId, customerText);
 
-    // The courier receives the private delivery details only after a verified
-    // payment event. Use a dedicated bot token and a configured courier chat.
-    if (event.type === "PaymentConfirmed" && order.fulfilment === "delivery") {
-      if (!courierChatId) throw new Error("Courier chat is not configured");
-      const courierText = [
-        "Новый оплаченный заказ для доставки",
-        "Заказ: " + orderId,
-        "Сумма: " + formatKzt(order.totalKzt),
-        "Адрес: " + safeText(order.address, 1000),
-        order.phone ? "Телефон: " + safeText(order.phone, 40) : "",
-        order.note ? "Комментарий: " + safeText(order.note, 500) : ""
-      ].filter(Boolean).join("\n");
-      await sendMessage(courierChatId, courierText);
-    }
+
   }
 
   return { deliver };
