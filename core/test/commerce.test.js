@@ -63,3 +63,30 @@ test("pickup flow and cancellation restore stock; corrupt state fails closed", t
   fs.writeFileSync(c.filePath, "{broken");
   assert.throws(() => createCommerceService({ filePath: c.filePath }), { code: "COMMERCE_STATE_CORRUPT" });
 });
+
+test("transactional outbox is persisted with order and recovers across restart", t => {
+  const c = setup(); t.after(c.cleanup);
+  const p = c.service.addProduct({ sku: "OUTBOX", name: "Item", priceKzt: 700, stock: 2 });
+  const o = c.service.createOrder({ customerId: "tg-outbox", items: [{ productId: p.id, quantity: 1 }], fulfilment: "delivery", address: "Private address" });
+  const placed = c.service.listOutbox().filter(e => e.type === "OrderPlaced");
+  assert.equal(placed.length, 1);
+  assert.equal(placed[0].orderId, o.id);
+  assert.equal(Object.hasOwn(placed[0], "address"), false);
+  const restarted = createCommerceService({ filePath: c.filePath });
+  assert.equal(restarted.listOutbox()[0].eventId, placed[0].eventId);
+  restarted.markOutboxFailed({ eventId: placed[0].eventId, error: "Telegram timeout" });
+  assert.equal(restarted.listOutbox()[0].attempts, 1);
+  assert.equal(restarted.listOutbox()[0].lastError, "Telegram timeout");
+  restarted.markOutboxDelivered({ eventId: placed[0].eventId });
+  assert.equal(restarted.listOutbox().length, 0);
+  assert.equal(createCommerceService({ filePath: c.filePath }).listOutbox().length, 0);
+});
+test("duplicate payment event does not create duplicate outbox event", t => {
+  const c = setup(); t.after(c.cleanup);
+  const p = c.service.addProduct({ sku: "OUTPAY", name: "Item", priceKzt: 800, stock: 2 });
+  const o = c.service.createOrder({ customerId: "tg-pay", items: [{ productId: p.id, quantity: 1 }], fulfilment: "delivery", address: "A" });
+  c.service.confirmPayment({ orderId: o.id, eventId: "pay-out-1", amountKzt: 800, method: "bank_api", trusted: true });
+  assert.equal(c.service.listOutbox().filter(e => e.type === "PaymentConfirmed").length, 1);
+  assert.equal(c.service.confirmPayment({ orderId: o.id, eventId: "pay-out-1", amountKzt: 800, method: "bank_api", trusted: true }).payment.status, "paid");
+  assert.equal(c.service.listOutbox().filter(e => e.type === "PaymentConfirmed").length, 1);
+});
