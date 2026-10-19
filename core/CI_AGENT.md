@@ -57,7 +57,7 @@ The webhook now queues analysis in the background and returns promptly. Check `G
 
 ## Current limitations
 
-- The file-backed store uses atomic rename and restrictive file permissions, but is not a distributed queue or database. It supports a single service process on a durable writable filesystem; do not run multiple replicas against the same file. For multi-replica deployment, use a transactional shared database/queue. Back up and protect the state file because it contains workflow metadata and generated suggestions.
+- The file-backed store flushes the temporary file before atomic rename and uses restrictive file permissions (directory fsync is best-effort on supported filesystems), but is not a distributed queue or database. It supports a single service process on a durable writable filesystem; do not run multiple replicas against the same file. For multi-replica deployment, use a transactional shared database/queue. Back up and protect the state file because it contains workflow metadata and generated suggestions.
 - Automatic log retrieval uses the GitHub Actions Jobs API and requires `GITHUB_TOKEN` with Actions read-only access. It inspects up to 10 failed/timed-out/cancelled jobs, limits the downloaded archive to 10 MB and extracted log text to 12,000 characters. GitHub log archives are temporary and are not stored by this service.
 - Log input is bounded and common credentials are redacted before analysis, but this cannot guarantee removal of every secret or personal datum. Review repository logs and data-handling policy before sending logs to an external AI provider.
 - A valid webhook signature authenticates the sender that knows the configured secret; use a unique, high-entropy secret and keep it private.
