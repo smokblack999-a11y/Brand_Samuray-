@@ -60,16 +60,17 @@ function availableStock(state, sku) {
   const pending = state.orders.filter(o => o.sku === sku && o.paymentStatus === "pending").reduce((sum, o) => sum + o.quantity, 0);
   return Math.max(0, product.stock - pending);
 }
-function createOrder({ sku, quantity = 1, customerId = null, chatId = null } = {}) {
+function createOrder({ sku, quantity = 1, customerId = null, chatId = null, eventKey = null } = {}) {
   const key = String(sku || "").trim().toUpperCase();
   const qty = Number(quantity);
   if (!/^[A-Z0-9_-]{2,40}$/.test(key)) throw coded("INVALID_SKU", "Valid sku is required");
   if (!Number.isSafeInteger(qty) || qty < 1 || qty > 20) throw coded("INVALID_QUANTITY", "quantity must be an integer from 1 to 20");
   const state = readState();
+  if (eventKey) { const existing = state.orders.find(o => o.eventKey === String(eventKey)); if (existing) return { ...existing, duplicate: true }; }
   const product = state.products.find(p => p.sku === key && p.active);
   if (!product) throw coded("PRODUCT_NOT_FOUND", "Product not found or inactive");
   if (availableStock(state, key) < qty) throw coded("OUT_OF_STOCK", "Not enough stock available");
-  const order = { id: `test_${crypto.randomBytes(8).toString("hex")}`, sku: key, productName: product.name, type: product.type, quantity: qty, unitPriceMinor: product.priceMinor, totalMinor: product.priceMinor * qty, currency: product.currency, customerId: customerId == null ? null : String(customerId), chatId: chatId == null ? null : String(chatId), paymentMode: "test", paymentStatus: "pending", deliveryStatus: "pending", createdAt: new Date().toISOString() };
+  const order = { id: `test_${crypto.randomBytes(8).toString("hex")}`, eventKey: eventKey ? String(eventKey) : null, sku: key, productName: product.name, type: product.type, quantity: qty, unitPriceMinor: product.priceMinor, totalMinor: product.priceMinor * qty, currency: product.currency, customerId: customerId == null ? null : String(customerId), chatId: chatId == null ? null : String(chatId), paymentMode: "test", paymentStatus: "pending", deliveryStatus: "pending", createdAt: new Date().toISOString() };
   state.orders.push(order);
   writeState(state);
   return { ...order };
