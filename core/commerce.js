@@ -133,7 +133,7 @@ function createCommerceService({ filePath }) {
     if (!["delivery", "pickup"].includes(fulfilment)) throw fail("INVALID_FULFILMENT", "fulfilment must be delivery or pickup");
     if (fulfilment === "delivery" && !String(address).trim()) throw fail("ADDRESS_REQUIRED", "Delivery address required");
     if (fulfilment === "pickup" && !String(pickupPoint).trim()) throw fail("PICKUP_POINT_REQUIRED", "Pickup point required");
-    if (String(note).length > 1000 || String(address).length > 1000 || String(phone).length > 40) throw fail("ORDER_FIELD_TOO_LONG", "Order details too long");
+    if (String(note).length > 1000 || String(address).length > 1000 || String(pickupPoint).length > 300 || String(phone).length > 40) throw fail("ORDER_FIELD_TOO_LONG", "Order details too long");
     return transact(next => {
       const quantities = new Map();
       for (const row of items) {
@@ -217,19 +217,25 @@ function createCommerceService({ filePath }) {
       o.status = "ready_for_pickup"; o.updatedAt = new Date().toISOString(); enqueue(next, "PickupReady", o, o.updatedAt); return o;
     });
   }
-  function confirmFulfilment({ orderId, actorId, photoUrl, note = "" }) {
-    if (typeof photoUrl !== "string" || !/^https:\/\//i.test(photoUrl) || photoUrl.length > 2048) throw fail("INVALID_DELIVERY_PROOF", "Secure HTTPS photo URL required");
+  function confirmFulfilment({ orderId, actorId, photoUrl = "", photoFileId = "", note = "" }) {
+    if (photoUrl !== "" && (typeof photoUrl !== "string" || !/^https:\/\//i.test(photoUrl) || photoUrl.length > 2048)) {
+      throw fail("INVALID_DELIVERY_PROOF", "Delivery photo URL must use HTTPS");
+    }
+    if (photoFileId !== "" && (typeof photoFileId !== "string" || photoFileId.length > 512 || /[\u0000-\u001f\u007f]/.test(photoFileId))) {
+      throw fail("INVALID_DELIVERY_PROOF", "Telegram photo file ID is invalid");
+    }
     return transact(next => {
       const o = next.orders.find(x => x.id === orderId);
       if (!o) throw fail("ORDER_NOT_FOUND", "Order not found");
       if (o.fulfilment === "delivery") {
         if (o.courierId !== String(actorId) || o.status !== "out_for_delivery") throw fail("INVALID_ORDER_STATE", "Only assigned courier can confirm active delivery");
+        if (!photoUrl && !photoFileId) throw fail("INVALID_DELIVERY_PROOF", "Delivery proof photo is required");
         o.status = "delivered";
       } else {
         if (o.status !== "ready_for_pickup" || String(actorId) !== o.customerId) throw fail("INVALID_ORDER_STATE", "Pickup must be ready and confirmed by customer");
         o.status = "picked_up";
       }
-      o.deliveryProof = { photoUrl, note: String(note).slice(0, 500), actorId: String(actorId), capturedAt: new Date().toISOString() };
+      o.deliveryProof = { photoUrl: photoUrl || null, photoFileId: photoFileId || null, note: String(note).slice(0, 500), actorId: String(actorId), capturedAt: new Date().toISOString() };
       o.updatedAt = new Date().toISOString(); enqueue(next, o.status === "delivered" ? "OrderDelivered" : "OrderPickedUp", o, o.updatedAt); return o;
     });
   }
