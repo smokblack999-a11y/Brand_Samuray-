@@ -117,10 +117,21 @@ function createCiAgent(options = {}) {
     }
   }
 
-  function pauseQueue(errorCode) {
+  function pauseQueue(errorCode, activeEventId = null) {
     queuePaused = true;
     queue.length = 0;
     queuedIds.clear();
+    if (activeEventId) {
+      const activeEvent = events.get(activeEventId);
+      if (activeEvent) {
+        activeEvent.analysis = {
+          status: "failed",
+          attempts: Math.max(0, Number(activeEvent.analysis?.attempts) || 0),
+          failedAt: new Date().toISOString(),
+          errorCode
+        };
+      }
+    }
     for (const event of events.values()) {
       if (["queued", "running", "retrying"].includes(event.analysis?.status)) {
         event.analysis = {
@@ -153,12 +164,14 @@ function createCiAgent(options = {}) {
   async function drainQueue() {
     if (draining || !processFailure || queuePaused) return;
     draining = true;
+    let activeEventId = null;
     try {
       while (queue.length) {
         const eventId = queue.shift();
         queuedIds.delete(eventId);
         const event = events.get(eventId);
         if (!event || event.analysis?.status === "suggestion_only") continue;
+        activeEventId = eventId;
         const firstAttempt = Math.max(1, (Number(event.analysis?.attempts) || 0) + 1);
         for (let attempt = firstAttempt; attempt <= MAX_ATTEMPTS; attempt++) {
           if (!events.has(eventId)) break;
@@ -192,6 +205,7 @@ function createCiAgent(options = {}) {
             persist();
           }
         }
+        activeEventId = null;
       }
     } catch (error) {
       // Prevent an unhandled rejection from a background worker if persistence
@@ -200,7 +214,7 @@ function createCiAgent(options = {}) {
         ? "CI_STATE_PERSIST_FAILED"
         : "CI_QUEUE_INTERNAL_ERROR";
       if (code === "CI_STATE_PERSIST_FAILED") storageFault = true;
-      pauseQueue(code);
+      pauseQueue(code, activeEventId);
     } finally {
       draining = false;
       if (queue.length && !queuePaused) void drainQueue();
@@ -230,6 +244,7 @@ function createCiAgent(options = {}) {
     if (storageFault) return res.status(503).json({ ok: false, error: { code: "CI_STATE_PERSIST_FAILED" } });
     if (queuePaused) return res.status(503).json({ ok: false, error: { code: "CI_QUEUE_UNAVAILABLE" } });
 
+    let webhookEventId = null;
     try {
       const eventType = String(req.get("X-GitHub-Event") || "");
       const delivery = String(req.get("X-GitHub-Delivery") || "");
@@ -255,6 +270,7 @@ function createCiAgent(options = {}) {
         persist();
         return res.status(200).json({ ok: true, duplicate: true, duplicateRun: true, eventId: event.id });
       }
+      webhookEventId = event.id;
       events.set(event.id, event);
       while (events.size > MAX_EVENTS) {
         const oldestId = events.keys().next().value;
@@ -269,7 +285,7 @@ function createCiAgent(options = {}) {
     } catch (error) {
       if (error?.code === "CI_STATE_PERSIST_FAILED") {
         storageFault = true;
-        pauseQueue("CI_STATE_PERSIST_FAILED");
+        pauseQueue("CI_STATE_PERSIST_FAILED", webhookEventId);
         return res.status(503).json({ ok: false, error: { code: "CI_STATE_PERSIST_FAILED" } });
       }
       throw error;
