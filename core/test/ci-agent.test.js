@@ -346,3 +346,35 @@ test("background worker pauses without an unhandled rejection when durable save 
   assert.equal(second.body.error.code, "CI_STATE_PERSIST_FAILED");
 });
 
+test("webhook returns 503 and pauses work when enqueue cannot persist durable state", () => {
+  let saves = 0;
+  const store = {
+    load: () => ({ events: [], deliveries: [] }),
+    save: () => {
+      saves++;
+      if (saves === 2) {
+        const error = new Error("raw filesystem details must not escape");
+        error.code = "ENOSPC";
+        throw error;
+      }
+    }
+  };
+  const ci = createCiAgent({
+    secret: "secret",
+    store,
+    processFailure: async () => ({ suggestion: "must not run" })
+  });
+  const res = response();
+  ci.webhook(request(failedRun(), "secret", "delivery-enqueue-save-failure"), res);
+
+  assert.equal(res.statusCode, 503);
+  assert.equal(res.body.error.code, "CI_STATE_PERSIST_FAILED");
+  assert.equal(ci.listEvents()[0].analysis.status, "failed");
+  assert.equal(ci.listEvents()[0].analysis.errorCode, "CI_STATE_PERSIST_FAILED");
+
+  const retry = response();
+  ci.webhook(request(failedRun({ id: 457, html_url: "https://github.com/acme/service/actions/runs/457" }), "secret", "delivery-after-enqueue-save-failure"), retry);
+  assert.equal(retry.statusCode, 503);
+  assert.equal(retry.body.error.code, "CI_STATE_PERSIST_FAILED");
+});
+
