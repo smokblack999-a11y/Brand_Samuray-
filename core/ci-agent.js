@@ -2,6 +2,7 @@
 
 const crypto = require("node:crypto");
 const OpenAI = require("openai");
+const { createCiAgentStore } = require("./ci-agent-store");
 
 const MAX_EVENTS = 500;
 const MAX_LOG_CHARS = 12000;
@@ -87,24 +88,95 @@ function createCiAgent(options = {}) {
   const secret = String(options.secret ?? process.env.GITHUB_WEBHOOK_SECRET ?? "").trim();
   const analyzer = options.analyzer || generateFixSuggestion;
   const processFailure = typeof options.processFailure === "function" ? options.processFailure : null;
-  const events = new Map();
-  const deliveries = new Set();
+  const store = options.store || (options.stateFile ? createCiAgentStore(options.stateFile) : null);
+  const restored = store ? store.load() : { events: [], deliveries: [] };
+  const events = new Map(restored.events.map(event => [event.id, event]));
+  const deliveries = new Set(restored.deliveries);
   const queue = [];
   const queuedIds = new Set();
   let draining = false;
+  let storageFault = false;
+  let queuePaused = false;
+
+  function persistenceError() {
+    const error = new Error("CI-AGENT durable state is unavailable");
+    error.code = "CI_STATE_PERSIST_FAILED";
+    return error;
+  }
+
+  function persist() {
+    if (!store) return;
+    if (storageFault) throw persistenceError();
+    try {
+      store.save({ events: [...events.values()], deliveries: [...deliveries] });
+    } catch (_error) {
+      // Do not keep processing events when durable state can no longer be saved.
+      // Never expose filesystem paths or low-level storage errors to webhook callers.
+      storageFault = true;
+      throw persistenceError();
+    }
+  }
+
+  function pauseQueue(errorCode, activeEventId = null) {
+    queuePaused = true;
+    queue.length = 0;
+    queuedIds.clear();
+    if (activeEventId) {
+      const activeEvent = events.get(activeEventId);
+      if (activeEvent) {
+        activeEvent.analysis = {
+          status: "failed",
+          attempts: Math.max(0, Number(activeEvent.analysis?.attempts) || 0),
+          failedAt: new Date().toISOString(),
+          errorCode
+        };
+      }
+    }
+    for (const event of events.values()) {
+      if (["queued", "running", "retrying"].includes(event.analysis?.status)) {
+        event.analysis = {
+          status: "failed",
+          attempts: Math.max(0, Number(event.analysis?.attempts) || 0),
+          failedAt: new Date().toISOString(),
+          errorCode
+        };
+      }
+    }
+  }
+
+  for (const event of events.values()) {
+    if (["queued", "running", "retrying"].includes(event.analysis?.status)) {
+      const attempts = Math.max(0, Number(event.analysis?.attempts) || 0);
+      if (attempts >= MAX_ATTEMPTS) event.analysis = { status: "failed", attempts: MAX_ATTEMPTS, failedAt: new Date().toISOString(), errorCode: "CI_ANALYSIS_INTERRUPTED" };
+      else if (processFailure && queue.length < MAX_QUEUE) {
+        event.analysis = { status: "queued", attempts, queuedAt: new Date().toISOString(), recovered: true };
+        queue.push(event.id);
+        queuedIds.add(event.id);
+      } else if (processFailure) {
+        // Recovery must respect the same queue bound as fresh webhook events.
+        event.analysis = { status: "queue_full", attempts, errorCode: "CI_QUEUE_CAPACITY_ON_RECOVERY" };
+      } else event.analysis = { status: "pending", attempts };
+    }
+  }
+  persist();
+  if (queue.length) queueMicrotask(() => { void drainQueue(); });
 
   async function drainQueue() {
-    if (draining || !processFailure) return;
+    if (draining || !processFailure || queuePaused) return;
     draining = true;
+    let activeEventId = null;
     try {
       while (queue.length) {
         const eventId = queue.shift();
         queuedIds.delete(eventId);
         const event = events.get(eventId);
         if (!event || event.analysis?.status === "suggestion_only") continue;
-        for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+        activeEventId = eventId;
+        const firstAttempt = Math.max(1, (Number(event.analysis?.attempts) || 0) + 1);
+        for (let attempt = firstAttempt; attempt <= MAX_ATTEMPTS; attempt++) {
           if (!events.has(eventId)) break;
           event.analysis = { status: "running", attempts: attempt, startedAt: new Date().toISOString() };
+          persist();
           try {
             const result = await processFailure({ ...event });
             event.analysis = {
@@ -115,10 +187,12 @@ function createCiAgent(options = {}) {
               logsFetched: result?.logsFetched === true,
               critic: result?.critic || null
             };
+            persist();
             break;
           } catch (error) {
             if (attempt < MAX_ATTEMPTS) {
               event.analysis = { status: "retrying", attempts: attempt, errorCode: String(error?.code || "CI_ANALYSIS_FAILED").slice(0, 100) };
+              persist();
               await new Promise(resolve => setTimeout(resolve, 250 * attempt));
               continue;
             }
@@ -128,25 +202,36 @@ function createCiAgent(options = {}) {
               failedAt: new Date().toISOString(),
               errorCode: String(error?.code || "CI_ANALYSIS_FAILED").slice(0, 100)
             };
+            persist();
           }
         }
+        activeEventId = null;
       }
+    } catch (error) {
+      // Prevent an unhandled rejection from a background worker if persistence
+      // or queue bookkeeping fails. Storage failures are latched until restart.
+      const code = error?.code === "CI_STATE_PERSIST_FAILED"
+        ? "CI_STATE_PERSIST_FAILED"
+        : "CI_QUEUE_INTERNAL_ERROR";
+      if (code === "CI_STATE_PERSIST_FAILED") storageFault = true;
+      pauseQueue(code, activeEventId);
     } finally {
       draining = false;
-      if (queue.length) void drainQueue();
+      if (queue.length && !queuePaused) void drainQueue();
     }
   }
 
   function enqueue(event) {
-    if (!processFailure) return false;
+    if (!processFailure || queuePaused || storageFault) return false;
     if (queuedIds.has(event.id) || event.analysis?.status === "running" || event.analysis?.status === "suggestion_only") return true;
     if (queue.length >= MAX_QUEUE) {
       event.analysis = { status: "queue_full", attempts: 0 };
       return false;
     }
-    event.analysis = { status: "queued", attempts: 0, queuedAt: new Date().toISOString() };
+    event.analysis = { status: "queued", attempts: Number(event.analysis?.attempts) || 0, queuedAt: new Date().toISOString() };
     queue.push(event.id);
     queuedIds.add(event.id);
+    persist();
     queueMicrotask(() => { void drainQueue(); });
     return true;
   }
@@ -156,30 +241,55 @@ function createCiAgent(options = {}) {
     if (!verifyGitHubSignature(secret, req.rawBody, req.get("X-Hub-Signature-256"))) {
       return res.status(401).json({ ok: false, error: { code: "INVALID_GITHUB_SIGNATURE" } });
     }
+    if (storageFault) return res.status(503).json({ ok: false, error: { code: "CI_STATE_PERSIST_FAILED" } });
+    if (queuePaused) return res.status(503).json({ ok: false, error: { code: "CI_QUEUE_UNAVAILABLE" } });
 
-    const eventType = String(req.get("X-GitHub-Event") || "");
-    const delivery = String(req.get("X-GitHub-Delivery") || "");
-    if (!delivery || delivery.length > 200) {
-      return res.status(400).json({ ok: false, error: { code: "INVALID_GITHUB_DELIVERY" } });
+    let webhookEventId = null;
+    try {
+      const eventType = String(req.get("X-GitHub-Event") || "");
+      const delivery = String(req.get("X-GitHub-Delivery") || "");
+      if (!delivery || delivery.length > 200) {
+        return res.status(400).json({ ok: false, error: { code: "INVALID_GITHUB_DELIVERY" } });
+      }
+      if (deliveries.has(delivery)) return res.status(200).json({ ok: true, duplicate: true });
+      deliveries.add(delivery);
+      if (deliveries.size > MAX_EVENTS * 2) deliveries.delete(deliveries.values().next().value);
+  
+      if (eventType !== "workflow_run" || req.body?.action !== "completed") {
+        persist();
+        return res.status(202).json({ ok: true, accepted: false, reason: "EVENT_NOT_HANDLED" });
+      }
+  
+      const event = normalizeWorkflowRun(req.body);
+      if (!event) {
+        persist();
+        return res.status(202).json({ ok: true, accepted: false, reason: "RUN_NOT_FAILED" });
+      }
+      // A workflow run can produce more than one delivery ID; never reset or re-run an existing run.
+      if (events.has(event.id)) {
+        persist();
+        return res.status(200).json({ ok: true, duplicate: true, duplicateRun: true, eventId: event.id });
+      }
+      webhookEventId = event.id;
+      events.set(event.id, event);
+      while (events.size > MAX_EVENTS) {
+        const oldestId = events.keys().next().value;
+        events.delete(oldestId);
+        queuedIds.delete(oldestId);
+        const queuedIndex = queue.indexOf(oldestId);
+        if (queuedIndex >= 0) queue.splice(queuedIndex, 1);
+      }
+      const queued = enqueue(event);
+      persist();
+      return res.status(202).json({ ok: true, accepted: true, queued, event });
+    } catch (error) {
+      if (error?.code === "CI_STATE_PERSIST_FAILED") {
+        storageFault = true;
+        pauseQueue("CI_STATE_PERSIST_FAILED", webhookEventId);
+        return res.status(503).json({ ok: false, error: { code: "CI_STATE_PERSIST_FAILED" } });
+      }
+      throw error;
     }
-    if (deliveries.has(delivery)) return res.status(200).json({ ok: true, duplicate: true });
-    deliveries.add(delivery);
-    if (deliveries.size > MAX_EVENTS * 2) deliveries.delete(deliveries.values().next().value);
-
-    if (eventType !== "workflow_run" || req.body?.action !== "completed") {
-      return res.status(202).json({ ok: true, accepted: false, reason: "EVENT_NOT_HANDLED" });
-    }
-
-    const event = normalizeWorkflowRun(req.body);
-    if (!event) return res.status(202).json({ ok: true, accepted: false, reason: "RUN_NOT_FAILED" });
-    events.set(event.id, event);
-    while (events.size > MAX_EVENTS) {
-      const oldestId = events.keys().next().value;
-      events.delete(oldestId);
-      queuedIds.delete(oldestId);
-    }
-    const queued = enqueue(event);
-    return res.status(202).json({ ok: true, accepted: true, queued, event });
   }
 
   function listEvents(limit = 100) {

@@ -80,6 +80,7 @@ app.use((req, res, next) => {
 const leadRateLimit = createRateLimiter({ windowMs: LEAD_RATE_LIMIT_WINDOW_MS, max: LEAD_RATE_LIMIT_MAX });
 const dualRateLimit = createRateLimiter({ windowMs: Math.max(1000, Number(process.env.DUAL_AI_RATE_LIMIT_WINDOW_MS || 60000)), max: Math.max(1, Number(process.env.DUAL_AI_RATE_LIMIT_MAX || 10)) });
 const ciAgent = createCiAgent({
+  stateFile: process.env.CI_AGENT_STATE_FILE || path.join(process.env.DATA_DIR || path.join(__dirname, "data"), "ci-agent-state.json"),
   processFailure: async event => {
     const logs = redactSecrets(await fetchFailureLogs(event));
     const result = await ciAgent.analyze(event.id, logs);

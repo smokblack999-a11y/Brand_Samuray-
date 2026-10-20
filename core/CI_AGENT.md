@@ -12,6 +12,7 @@ Set these on the SamuraiOS Core service:
 - `OPENAI_API_KEY`: required only for AI diagnosis.
 - `CI_AGENT_MODEL`: model ID supported by this OpenAI account; overrides `OPENAI_MODEL`. At least one of these must be set for analysis. The service deliberately has no guessed default model.
 - `OPENAI_TIMEOUT_MS`: existing OpenAI timeout setting.
+- `CI_AGENT_STATE_FILE`: optional path for the durable JSON state file; defaults to `DATA_DIR/ci-agent-state.json` (or `core/data/ci-agent-state.json`). Keep it on a persistent writable volume and restrict filesystem access.
 
 Do not commit real values to the repository.
 
@@ -25,7 +26,7 @@ Set the same secret as `GITHUB_WEBHOOK_SECRET`, select **application/json**, and
 
 ## API
 
-List recent in-memory failure events:
+List recent recorded failure events:
 
 ```sh
 curl -fsS 'https://YOUR-DOMAIN/api/ci/events?limit=20' \
@@ -52,11 +53,11 @@ curl -fsS -X POST 'https://YOUR-DOMAIN/api/ci/events/RUN_ID/analyze' \
 JSON
 ```
 
-The webhook now queues analysis in the background and returns promptly. Check `GET /api/ci/events?limit=20` for each event's `analysis.status`: `queued`, `running`, `retrying`, `suggestion_only`, `failed`, or `queue_full`. The in-memory queue holds at most 50 waiting events and makes at most two attempts per event. Queue and event state are lost on process restart. The `suggestion_only` result is not a fix and never changes repository files. Kill Critic is run against the generated suggestion and its decision/findings are recorded for human review. The protected `/analyze-auto` endpoint remains available for manual retry/inspection.
+The webhook now queues analysis in the background and returns promptly. Check `GET /api/ci/events?limit=20` for each event's `analysis.status`: `queued`, `running`, `retrying`, `suggestion_only`, `failed`, or `queue_full`. The in-process queue holds at most 50 waiting events and makes at most two attempts per event. Event metadata, delivery deduplication IDs, queue status, and analysis results are saved atomically to the state file; queued work is recovered after restart where retry budget remains. The queue still runs in one process only. The `suggestion_only` result is not a fix and never changes repository files. Kill Critic is run against the generated suggestion and its decision/findings are recorded for human review. If durable state saving fails at runtime, the background queue pauses, active queue entries are marked failed in memory with a bounded error code, and later signed webhook requests receive HTTP 503 until the service is restarted after storage is repaired. This in-memory failure status cannot be guaranteed durable while the store is unavailable. The protected `/analyze-auto` endpoint remains available for manual retry/inspection.
 
 ## Current limitations
 
-- Events, queue state, and analysis results are held in process memory and disappear on restart; multiple replicas do not share state. This in-process queue is a first production step, not a durable queue: use a persistent queue/database before horizontal scaling or relying on crash recovery.
+- The file-backed store flushes the temporary file before atomic rename and uses restrictive file permissions (directory fsync is best-effort on supported filesystems), but is not a distributed queue or database. It supports a single service process on a durable writable filesystem; do not run multiple replicas against the same file. For multi-replica deployment, use a transactional shared database/queue. Back up and protect the state file because it contains workflow metadata and generated suggestions.
 - Automatic log retrieval uses the GitHub Actions Jobs API and requires `GITHUB_TOKEN` with Actions read-only access. It inspects up to 10 failed/timed-out/cancelled jobs, limits the downloaded archive to 10 MB and extracted log text to 12,000 characters. GitHub log archives are temporary and are not stored by this service.
 - Log input is bounded and common credentials are redacted before analysis, but this cannot guarantee removal of every secret or personal datum. Review repository logs and data-handling policy before sending logs to an external AI provider.
 - A valid webhook signature authenticates the sender that knows the configured secret; use a unique, high-entropy secret and keep it private.
