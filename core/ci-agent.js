@@ -230,7 +230,8 @@ function createCiAgent(options = {}) {
     if (storageFault) return res.status(503).json({ ok: false, error: { code: "CI_STATE_PERSIST_FAILED" } });
     if (queuePaused) return res.status(503).json({ ok: false, error: { code: "CI_QUEUE_UNAVAILABLE" } });
 
-    const eventType = String(req.get("X-GitHub-Event") || "");
+    try {
+      const eventType = String(req.get("X-GitHub-Event") || "");
     const delivery = String(req.get("X-GitHub-Delivery") || "");
     if (!delivery || delivery.length > 200) {
       return res.status(400).json({ ok: false, error: { code: "INVALID_GITHUB_DELIVERY" } });
@@ -262,9 +263,17 @@ function createCiAgent(options = {}) {
       const queuedIndex = queue.indexOf(oldestId);
       if (queuedIndex >= 0) queue.splice(queuedIndex, 1);
     }
-    const queued = enqueue(event);
-    persist();
-    return res.status(202).json({ ok: true, accepted: true, queued, event });
+      const queued = enqueue(event);
+      persist();
+      return res.status(202).json({ ok: true, accepted: true, queued, event });
+    } catch (error) {
+      if (error?.code === "CI_STATE_PERSIST_FAILED") {
+        storageFault = true;
+        pauseQueue("CI_STATE_PERSIST_FAILED");
+        return res.status(503).json({ ok: false, error: { code: "CI_STATE_PERSIST_FAILED" } });
+      }
+      throw error;
+    }
   }
 
   function listEvents(limit = 100) {
