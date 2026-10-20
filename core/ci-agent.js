@@ -95,9 +95,42 @@ function createCiAgent(options = {}) {
   const queue = [];
   const queuedIds = new Set();
   let draining = false;
+  let storageFault = false;
+  let queuePaused = false;
+
+  function persistenceError() {
+    const error = new Error("CI-AGENT durable state is unavailable");
+    error.code = "CI_STATE_PERSIST_FAILED";
+    return error;
+  }
 
   function persist() {
-    if (store) store.save({ events: [...events.values()], deliveries: [...deliveries] });
+    if (!store) return;
+    if (storageFault) throw persistenceError();
+    try {
+      store.save({ events: [...events.values()], deliveries: [...deliveries] });
+    } catch (_error) {
+      // Do not keep processing events when durable state can no longer be saved.
+      // Never expose filesystem paths or low-level storage errors to webhook callers.
+      storageFault = true;
+      throw persistenceError();
+    }
+  }
+
+  function pauseQueue(errorCode) {
+    queuePaused = true;
+    queue.length = 0;
+    queuedIds.clear();
+    for (const event of events.values()) {
+      if (["queued", "running", "retrying"].includes(event.analysis?.status)) {
+        event.analysis = {
+          status: "failed",
+          attempts: Math.max(0, Number(event.analysis?.attempts) || 0),
+          failedAt: new Date().toISOString(),
+          errorCode
+        };
+      }
+    }
   }
 
   for (const event of events.values()) {
@@ -118,7 +151,7 @@ function createCiAgent(options = {}) {
   if (queue.length) queueMicrotask(() => { void drainQueue(); });
 
   async function drainQueue() {
-    if (draining || !processFailure) return;
+    if (draining || !processFailure || queuePaused) return;
     draining = true;
     try {
       while (queue.length) {
@@ -160,14 +193,22 @@ function createCiAgent(options = {}) {
           }
         }
       }
+    } catch (error) {
+      // Prevent an unhandled rejection from a background worker if persistence
+      // or queue bookkeeping fails. Storage failures are latched until restart.
+      const code = error?.code === "CI_STATE_PERSIST_FAILED"
+        ? "CI_STATE_PERSIST_FAILED"
+        : "CI_QUEUE_INTERNAL_ERROR";
+      if (code === "CI_STATE_PERSIST_FAILED") storageFault = true;
+      pauseQueue(code);
     } finally {
       draining = false;
-      if (queue.length) void drainQueue();
+      if (queue.length && !queuePaused) void drainQueue();
     }
   }
 
   function enqueue(event) {
-    if (!processFailure) return false;
+    if (!processFailure || queuePaused || storageFault) return false;
     if (queuedIds.has(event.id) || event.analysis?.status === "running" || event.analysis?.status === "suggestion_only") return true;
     if (queue.length >= MAX_QUEUE) {
       event.analysis = { status: "queue_full", attempts: 0 };
@@ -186,6 +227,8 @@ function createCiAgent(options = {}) {
     if (!verifyGitHubSignature(secret, req.rawBody, req.get("X-Hub-Signature-256"))) {
       return res.status(401).json({ ok: false, error: { code: "INVALID_GITHUB_SIGNATURE" } });
     }
+    if (storageFault) return res.status(503).json({ ok: false, error: { code: "CI_STATE_PERSIST_FAILED" } });
+    if (queuePaused) return res.status(503).json({ ok: false, error: { code: "CI_QUEUE_UNAVAILABLE" } });
 
     const eventType = String(req.get("X-GitHub-Event") || "");
     const delivery = String(req.get("X-GitHub-Delivery") || "");
