@@ -14,7 +14,9 @@ android {
         versionCode 4
         versionName '1.2.1'
 
-        def configuredCoreUrl = project.findProperty('CORE_BASE_URL') ?: 'https://core.example.invalid'
+        // Set with -PCORE_BASE_URL=https://your-core-host or the CORE_BASE_URL environment variable.
+        // The example.invalid fallback intentionally makes an unconfigured build fail visibly at runtime.
+        def configuredCoreUrl = project.findProperty('CORE_BASE_URL') ?: System.getenv('CORE_BASE_URL') ?: 'https://core.example.invalid'
         buildConfigField 'String', 'CORE_BASE_URL', '"' + configuredCoreUrl.replace('"', '\\"') + '"'
     }
 
@@ -24,11 +26,10 @@ android {
 
     buildTypes {
         debug {
-            buildConfigField 'String', 'CORE_BASE_URL', '"http://10.0.2.2:8787"'
+            minifyEnabled false
         }
         release {
             minifyEnabled false
-            buildConfigField 'String', 'CORE_BASE_URL', '"https://core.example.invalid"'
         }
     }
 
