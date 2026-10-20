@@ -378,3 +378,40 @@ test("webhook returns 503 and pauses work when enqueue cannot persist durable st
   assert.equal(retry.body.error.code, "CI_STATE_PERSIST_FAILED");
 });
 
+test("event is not left as suggestion_only when saving the result fails", async () => {
+  let saves = 0;
+  let processCalls = 0;
+  const store = {
+    load: () => ({ events: [], deliveries: [] }),
+    save: () => {
+      saves++;
+      // Fail exactly while saving the generated suggestion.
+      if (saves === 5) {
+        const error = new Error("raw filesystem details must not escape");
+        error.code = "EIO";
+        throw error;
+      }
+    }
+  };
+  const ci = createCiAgent({
+    secret: "secret",
+    store,
+    processFailure: async () => {
+      processCalls++;
+      return { suggestion: "Generated but not durably saved" };
+    }
+  });
+  const res = response();
+  ci.webhook(request(failedRun(), "secret", "delivery-result-save-failure"), res);
+  assert.equal(res.statusCode, 202);
+
+  for (let i = 0; i < 40 && ci.listEvents()[0]?.analysis.status !== "failed"; i++) {
+    await new Promise(resolve => setTimeout(resolve, 10));
+  }
+  const event = ci.listEvents()[0];
+  assert.equal(event.analysis.status, "failed");
+  assert.equal(event.analysis.errorCode, "CI_STATE_PERSIST_FAILED");
+  assert.equal(event.analysis.suggestion, undefined);
+  assert.equal(processCalls, 1);
+});
+
