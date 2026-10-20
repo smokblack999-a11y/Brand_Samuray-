@@ -71,22 +71,44 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         cameraExecutor = Executors.newSingleThreadExecutor()
         buildUi()
-        if (hasPermissions()) startCamera() else ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.CAMERA, Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION), permissionRequest)
+        if (hasCameraPermission()) startCamera()
+        val missingPermissions = buildList {
+            if (!hasCameraPermission()) add(Manifest.permission.CAMERA)
+            if (!hasLocationPermission()) {
+                add(Manifest.permission.ACCESS_FINE_LOCATION)
+                add(Manifest.permission.ACCESS_COARSE_LOCATION)
+            }
+        }.distinct()
+        if (missingPermissions.isNotEmpty()) {
+            ActivityCompat.requestPermissions(this, missingPermissions.toTypedArray(), permissionRequest)
+        }
         refreshGallery()
         checkCoreStatus()
     }
 
     override fun onDestroy() { cameraExecutor?.shutdown(); super.onDestroy() }
 
-    private fun hasPermissions(): Boolean =
-        ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED &&
-        (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
-            ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED)
+    private fun hasCameraPermission(): Boolean =
+        ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
+
+    private fun hasLocationPermission(): Boolean =
+        ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
+            ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == permissionRequest && hasPermissions()) startCamera()
-        else showToast("Для камеры и GPS нужны разрешения")
+        if (requestCode != permissionRequest) return
+
+        // Camera capture must not depend on granting optional location permission.
+        if (hasCameraPermission() && permissions.contains(Manifest.permission.CAMERA)) {
+            startCamera()
+        } else if (!hasCameraPermission()) {
+            showToast("Для камеры нужно разрешение")
+        }
+
+        if (!hasLocationPermission()) {
+            showToast("Камера доступна, но GPS отключён")
+        }
     }
 
     private fun buildUi() {
