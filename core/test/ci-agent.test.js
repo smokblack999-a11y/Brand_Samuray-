@@ -303,3 +303,46 @@ test("failed atomic save preserves the previous state and removes its temporary 
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
+test("background worker pauses without an unhandled rejection when durable save fails", async () => {
+  let saves = 0;
+  let processCalls = 0;
+  const store = {
+    load: () => ({ events: [], deliveries: [] }),
+    save: () => {
+      saves++;
+      // Constructor, enqueue, and webhook final save succeed; saving the running
+      // state fails before processFailure is invoked.
+      if (saves === 4) {
+        const error = new Error("raw filesystem details must not escape");
+        error.code = "EIO";
+        throw error;
+      }
+    }
+  };
+  const ci = createCiAgent({
+    secret: "secret",
+    store,
+    processFailure: async () => {
+      processCalls++;
+      return { suggestion: "should not run before durable running state is saved" };
+    }
+  });
+
+  const first = response();
+  ci.webhook(request(failedRun(), "secret", "delivery-storage-fault"), first);
+  assert.equal(first.statusCode, 202);
+
+  for (let i = 0; i < 40 && ci.listEvents()[0]?.analysis.status !== "failed"; i++) {
+    await new Promise(resolve => setTimeout(resolve, 10));
+  }
+  const event = ci.listEvents()[0];
+  assert.equal(event.analysis.status, "failed");
+  assert.equal(event.analysis.errorCode, "CI_STATE_PERSIST_FAILED");
+  assert.equal(processCalls, 0);
+
+  const second = response();
+  ci.webhook(request(failedRun({ id: 456, html_url: "https://github.com/acme/service/actions/runs/456" }), "secret", "delivery-after-storage-fault"), second);
+  assert.equal(second.statusCode, 503);
+  assert.equal(second.body.error.code, "CI_STATE_PERSIST_FAILED");
+});
+
