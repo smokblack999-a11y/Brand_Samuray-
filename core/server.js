@@ -230,6 +230,78 @@ app.post("/api/commerce/orders/:id/assign", requireApiKey, (req, res) => {
     return res.status(status).json(errorBody(error.code || "COURIER_ASSIGN_FAILED", error.message, req.requestId));
   }
 });
+
+app.post("/api/commerce/orders/:id/photo-upload", async (req, res) => {
+  const courierId = String(req.get("X-Courier-Id") || "").trim();
+  const courierToken = String(req.get("X-Courier-Token") || "");
+  if (!courierId || !courierToken) return res.status(401).json(errorBody("COURIER_AUTH_REQUIRED", "Courier authentication is required", req.requestId));
+  if (!commerceBot.isCourier(courierId) && !commerceBot.isAdmin(courierId)) return res.status(403).json(errorBody("COURIER_FORBIDDEN", "Courier is not authorized", req.requestId));
+  let courierTokens;
+  try { courierTokens = JSON.parse(process.env.COMMERCE_COURIER_TOKENS_JSON || "{}"); }
+  catch { return res.status(503).json(errorBody("COURIER_AUTH_MISCONFIGURED", "Courier authentication is not configured correctly", req.requestId)); }
+  const expectedToken = courierTokens && typeof courierTokens === "object" ? courierTokens[courierId] : null;
+  if (typeof expectedToken !== "string" || !safeEqual(expectedToken, courierToken)) return res.status(401).json(errorBody("COURIER_UNAUTHORIZED", "Courier authentication failed", req.requestId));
+
+  try {
+    const order = commerce.getOrder(req.params.id);
+    if (!order) return res.status(404).json(errorBody("ORDER_NOT_FOUND", "Order not found", req.requestId));
+    if (order.courierId !== courierId) return res.status(403).json(errorBody("ORDER_NOT_ASSIGNED", "Order is not assigned to this courier", req.requestId));
+    if (order.paymentStatus !== "PAID") return res.status(409).json(errorBody("PAYMENT_NOT_CONFIRMED", "Photo upload is blocked until payment is confirmed", req.requestId));
+    const mime = String(req.get("content-type") || "").split(";")[0].toLowerCase();
+    if (!["image/jpeg", "image/png", "image/webp"].includes(mime)) return res.status(415).json(errorBody("UNSUPPORTED_PHOTO_TYPE", "Use JPEG, PNG or WebP", req.requestId));
+    const latitudeRaw = req.get("X-Photo-Latitude");
+    const longitudeRaw = req.get("X-Photo-Longitude");
+    const latitude = latitudeRaw == null || latitudeRaw === "" ? null : Number(latitudeRaw);
+    const longitude = longitudeRaw == null || longitudeRaw === "" ? null : Number(longitudeRaw);
+    const accuracyRaw = req.get("X-Photo-Accuracy");
+    const accuracyMeters = accuracyRaw == null || accuracyRaw === "" ? null : Number(accuracyRaw);
+    const capturedAtRaw = req.get("X-Photo-Timestamp");
+    if ((latitude == null) !== (longitude == null) ||
+        (latitude != null && (!Number.isFinite(latitude) || latitude < -90 || latitude > 90 || !Number.isFinite(longitude) || longitude < -180 || longitude > 180)) ||
+        (accuracyMeters != null && (!Number.isFinite(accuracyMeters) || accuracyMeters < 0))) {
+      return res.status(400).json(errorBody("INVALID_PHOTO_METADATA", "Invalid GPS metadata", req.requestId));
+    }
+    const photoBytes = await readRawBody(req, 10 * 1024 * 1024);
+    if (!photoBytes.length) return res.status(400).json(errorBody("EMPTY_PHOTO", "Photo body is empty", req.requestId));
+    const botToken = String(process.env.TELEGRAM_BOT_TOKEN || "");
+    if (!botToken) return res.status(503).json(errorBody("TELEGRAM_NOT_CONFIGURED", "Telegram bot is not configured", req.requestId));
+
+    const form = new FormData();
+    form.append("chat_id", courierId);
+    form.append("photo", new Blob([photoBytes], { type: mime }), "samurai-order-" + order.id + (mime === "image/png" ? ".png" : mime === "image/webp" ? ".webp" : ".jpg"));
+    form.append("caption", "Фотоотчёт загружен для заказа " + order.id);
+    const uploadResponse = await fetch("https://api.telegram.org/bot" + botToken + "/sendPhoto", { method: "POST", body: form, signal: AbortSignal.timeout(20000) });
+    const uploadData = await uploadResponse.json().catch(() => ({}));
+    const fileId = uploadData?.result?.photo?.[uploadData.result.photo.length - 1]?.file_id;
+    if (!uploadResponse.ok || uploadData.ok !== true || !fileId) return res.status(502).json(errorBody("TELEGRAM_UPLOAD_FAILED", "Could not upload photo to Telegram", req.requestId));
+
+    const saved = commerce.attachProof(order.id, courierId, {
+      telegramFileId: fileId, latitude, longitude, accuracyMeters,
+      capturedAt: capturedAtRaw ? new Date(Number(capturedAtRaw)).toISOString() : null
+    });
+    const caption = "Фото по заказу " + saved.id + "\nGPS: " + (latitude == null ? "недоступен" : latitude + ", " + longitude) +
+      "\nТочность GPS: " + (accuracyMeters == null ? "не указана" : accuracyMeters + " м") + "\nСтатус: фото получено";
+    const customerResponse = await fetch("https://api.telegram.org/bot" + botToken + "/sendPhoto", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ chat_id: saved.customerId, photo: fileId, caption }),
+      signal: AbortSignal.timeout(15000)
+    });
+    const customerData = await customerResponse.json().catch(() => ({}));
+    if (!customerResponse.ok || customerData.ok !== true) return res.status(502).json(errorBody("CUSTOMER_PHOTO_DELIVERY_FAILED", "Photo saved to the order but Telegram could not deliver it to the customer", req.requestId));
+    if (latitude != null) {
+      void fetch("https://api.telegram.org/bot" + botToken + "/sendLocation", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ chat_id: saved.customerId, latitude, longitude }),
+        signal: AbortSignal.timeout(10000)
+      }).catch(() => {});
+    }
+    return res.json({ ok: true, order: saved, customerNotified: true, requestId: req.requestId });
+  } catch (error) {
+    const status = error.code === "MEDIA_TOO_LARGE" ? 413 : error.code === "ORDER_NOT_FOUND" ? 404 : error.code === "FORBIDDEN" ? 403 : 400;
+    return res.status(status).json(errorBody(error.code || "PHOTO_UPLOAD_FAILED", error.code ? error.message : "Photo upload failed", req.requestId));
+  }
+});
+
 app.post("/api/commerce/orders/:id/proof", requireApiKey, async (req, res) => {
   try {
     const order = commerce.attachProof(req.params.id, req.body?.courierId, {
