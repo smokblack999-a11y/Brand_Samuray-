@@ -71,8 +71,8 @@ function orderSummary(o) {
     "\nИтого: " + o.totalKzt + " " + o.currency +
     "\nОплата: " + o.paymentStatus + "\nСтатус: " + o.status;
 }
-async function createAndRequestPayment(chatId, input) {
-  const order = commerce.createOrder(input);
+async function createAndRequestPayment(chatId, input, updateId) {
+  const order = commerce.createOrder({ ...input, idempotencyKey: Number.isSafeInteger(updateId) ? "telegram:" + updateId : undefined });
   try {
     const checkout = await commerce.createCheckoutSession(order.id);
     await sendText(chatId, orderSummary(checkout.order) + "\n\nОплатите по ссылке ниже. Заказ будет отмечен оплаченным только после проверенного уведомления Stripe.", {
@@ -96,7 +96,7 @@ async function notifyPaidOrder(order) {
     }
   }
 }
-async function handleCallback(q) {
+async function handleCallback(q, updateId) {
   const userId = String(q.from?.id || "");
   const chatId = q.message?.chat?.id;
   const data = String(q.data || "");
@@ -120,7 +120,7 @@ async function handleCallback(q) {
   }
   if (data.startsWith("buy:pickup:")) {
     const productId = data.slice("buy:pickup:".length);
-    await createAndRequestPayment(chatId, { customerId: userId, productId, quantity: 1, fulfillment: "pickup" });
+    await createAndRequestPayment(chatId, { customerId: userId, productId, quantity: 1, fulfillment: "pickup" }, updateId);
     return;
   }
   if (data.startsWith("buy:delivery:")) {
@@ -153,7 +153,7 @@ async function handleCallback(q) {
     return;
   }
 }
-async function handleMessage(message) {
+async function handleMessage(message, updateId) {
   const chatId = message.chat?.id;
   const userId = String(message.from?.id || "");
   if (!chatId || !userId || message.from?.is_bot) return;
@@ -174,7 +174,7 @@ async function handleMessage(message) {
   }
   if (session?.state === "delivery_address" && text && !text.startsWith("/")) {
     try {
-      await createAndRequestPayment(chatId, { customerId: userId, productId: session.productId, quantity: 1, fulfillment: "delivery", address: text, deliveryZone: session.zone });
+      await createAndRequestPayment(chatId, { customerId: userId, productId: session.productId, quantity: 1, fulfillment: "delivery", address: text, deliveryZone: session.zone }, updateId);
       setSession(userId, null);
     } catch (error) { await sendText(chatId, "Не удалось создать заказ: " + (error.code || "ERROR")); }
     return;
@@ -226,9 +226,9 @@ async function handleCommerceUpdate(update) {
   if (update?.callback_query) {
     const q = update.callback_query;
     await answerCallback(q.id, "Принято");
-    result = await handleCallback(q);
+    result = await handleCallback(q, update?.update_id);
   } else if (update?.message) {
-    result = await handleMessage(update.message);
+    result = await handleMessage(update.message, update?.update_id);
   } else {
     return { ignored: true };
   }
