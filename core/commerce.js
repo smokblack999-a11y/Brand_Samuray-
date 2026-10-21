@@ -61,7 +61,7 @@ function createOrder(input) {
   const customerId = String(input.customerId || "").trim();
   const idempotencyKey = String(input.idempotencyKey || "").trim();
   const productId = String(input.productId || "").trim();
-  const quantity = Number(input.quantity || 1);
+  const quantity = input.quantity == null ? 1 : Number(input.quantity);
   const fulfillment = String(input.fulfillment || "");
   if (!customerId) throw fail("CUSTOMER_REQUIRED", "Telegram customer ID is required");
   if (!Number.isSafeInteger(quantity) || quantity < 1 || quantity > 100) throw fail("INVALID_QUANTITY", "Quantity must be an integer from 1 to 100");
