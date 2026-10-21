@@ -32,6 +32,15 @@ test("calculates product and delivery total from server-side price configuration
   assert.equal(order.paymentStatus, "AWAITING_PAYMENT");
 });
 
+test("order creation is idempotent for the same Telegram update", () => {
+  commerce.resetForTests();
+  const first = commerce.createOrder({ customerId: "12345", productId: "sample-1", quantity: 1, fulfillment: "pickup", idempotencyKey: "telegram:777" });
+  const retry = commerce.createOrder({ customerId: "12345", productId: "sample-1", quantity: 1, fulfillment: "pickup", idempotencyKey: "telegram:777" });
+  assert.equal(retry.id, first.id);
+  assert.equal(commerce.listOrders().length, 1);
+  assert.throws(() => commerce.createOrder({ customerId: "99999", productId: "sample-1", quantity: 1, fulfillment: "pickup", idempotencyKey: "telegram:777" }), { code: "IDEMPOTENCY_CONFLICT" });
+});
+
 test("rejects invalid delivery zone and quantity", () => {
   assert.throws(() => commerce.createOrder({
     customerId: "12345", productId: "sample-1", quantity: 1,
