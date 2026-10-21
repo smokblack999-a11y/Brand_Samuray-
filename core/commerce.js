@@ -164,7 +164,7 @@ function attachProof(orderId, courierId, proof) {
     if (o.courierId !== String(courierId)) throw fail("FORBIDDEN", "Order is assigned to another courier");
     if (o.paymentStatus !== "PAID") throw fail("PAYMENT_NOT_CONFIRMED", "Cannot submit delivery proof before payment is confirmed");
     if (!["COURIER_ASSIGNED", "IN_DELIVERY", "PHOTO_RECEIVED"].includes(o.status)) throw fail("INVALID_ORDER_STATE", "Order is not in a deliverable state");
-    return { ...o, proof: { telegramFileId: fileId, latitude, longitude, receivedAt: new Date().toISOString() }, status: "PHOTO_RECEIVED" };
+    return { ...o, proof: { telegramFileId: fileId, latitude, longitude, accuracyMeters: proof.accuracyMeters == null ? null : Number(proof.accuracyMeters), capturedAt: proof.capturedAt || null, receivedAt: new Date().toISOString() }, status: "PHOTO_RECEIVED" };
   });
 }
 function markDelivered(orderId, courierId) {
