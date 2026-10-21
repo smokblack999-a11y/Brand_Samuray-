@@ -256,9 +256,11 @@ app.post("/api/commerce/orders/:id/photo-upload", async (req, res) => {
     const accuracyRaw = req.get("X-Photo-Accuracy");
     const accuracyMeters = accuracyRaw == null || accuracyRaw === "" ? null : Number(accuracyRaw);
     const capturedAtRaw = req.get("X-Photo-Timestamp");
+    const capturedAtMs = capturedAtRaw == null || capturedAtRaw === "" ? null : Number(capturedAtRaw);
     if ((latitude == null) !== (longitude == null) ||
         (latitude != null && (!Number.isFinite(latitude) || latitude < -90 || latitude > 90 || !Number.isFinite(longitude) || longitude < -180 || longitude > 180)) ||
-        (accuracyMeters != null && (!Number.isFinite(accuracyMeters) || accuracyMeters < 0))) {
+        (accuracyMeters != null && (!Number.isFinite(accuracyMeters) || accuracyMeters < 0)) ||
+        (capturedAtMs != null && (!Number.isSafeInteger(capturedAtMs) || capturedAtMs < 0 || capturedAtMs > Date.now() + 86400000))) {
       return res.status(400).json(errorBody("INVALID_PHOTO_METADATA", "Invalid GPS metadata", req.requestId));
     }
     const photoBytes = await readRawBody(req, 10 * 1024 * 1024);
@@ -277,7 +279,7 @@ app.post("/api/commerce/orders/:id/photo-upload", async (req, res) => {
 
     const saved = commerce.attachProof(order.id, courierId, {
       telegramFileId: fileId, latitude, longitude, accuracyMeters,
-      capturedAt: capturedAtRaw ? new Date(Number(capturedAtRaw)).toISOString() : null
+      capturedAt: capturedAtMs == null ? null : new Date(capturedAtMs).toISOString()
     });
     const caption = "Фото по заказу " + saved.id + "\nGPS: " + (latitude == null ? "недоступен" : latitude + ", " + longitude) +
       "\nТочность GPS: " + (accuracyMeters == null ? "не указана" : accuracyMeters + " м") + "\nСтатус: фото получено";
