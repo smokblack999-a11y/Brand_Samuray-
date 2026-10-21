@@ -12,7 +12,7 @@ This is a first implementation slice for the Telegram order workflow. It is not 
 - Duplicate Telegram update IDs and Stripe event IDs are tracked.
 
 ## Required configuration
-Copy `core/.env.example` to `core/.env`. Replace the DEMO product and delivery-zone values before using the bot.
+If `core/.env` already exists, do NOT overwrite it: preserve the current secrets and settings, and merge only the commerce variables from `core/.env.example`. If it does not exist, copy the example first. Replace the DEMO product and delivery-zone values before using the bot.
 
 - `TELEGRAM_BOT_TOKEN`: token from BotFather.
 - `TELEGRAM_WEBHOOK_SECRET`: random secret used as Telegram's webhook secret token.
