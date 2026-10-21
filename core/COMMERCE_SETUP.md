@@ -20,6 +20,7 @@ Copy `core/.env.example` to `core/.env`. Replace the DEMO product and delivery-z
 - `COMMERCE_PRODUCTS_JSON`: product IDs, names and integer KZT prices.
 - `COMMERCE_DELIVERY_ZONES_JSON`: exact zone names and integer KZT delivery fees.
 - `COMMERCE_COURIER_IDS`: comma-separated Telegram numeric user IDs permitted to take delivery jobs.
+- `COMMERCE_COURIER_TOKENS_JSON`: JSON map from each allowed courier Telegram ID to a long random upload token; enter the token in the Android courier screen.
 - `COMMERCE_ADMIN_IDS`: comma-separated administrator Telegram IDs.
 - `STRIPE_SECRET_KEY`: a Stripe **test** secret key beginning with `sk_test_`.
 - `STRIPE_WEBHOOK_SECRET`: the signing secret for the Stripe test webhook destination.
@@ -34,6 +35,7 @@ COMMERCE_CURRENCY=KZT
 COMMERCE_PRODUCTS_JSON='[{"id":"item-1","name":"Example item","priceKzt":5000}]'
 COMMERCE_DELIVERY_ZONES_JSON='{"Almaty":1500}'
 COMMERCE_COURIER_IDS=123456789,987654321
+COMMERCE_COURIER_TOKENS_JSON='{"123456789":"REPLACE_WITH_LONG_RANDOM_TOKEN"}'
 COMMERCE_ADMIN_IDS=123456789
 STRIPE_SECRET_KEY=sk_test_REPLACE_ME
 STRIPE_WEBHOOK_SECRET=whsec_REPLACE_ME
@@ -48,7 +50,7 @@ Prices are stored as whole KZT. Stripe API amounts for KZT use minor units, so t
 - Test-mode Stripe does not prove that a merchant account in Kazakhstan is eligible for live Stripe processing. Confirm provider/country eligibility before selecting the production provider.
 - JSON file storage is suitable only for a single-instance prototype. Use a transactional database before concurrent production traffic.
 - Do not use DEMO catalog entries or example delivery prices for real customers.
-- Android camera/GPS upload into an assigned order is a separate integration step; this slice accepts courier photo evidence through Telegram.
+- Android gallery-photo upload with captured GPS metadata is wired to an order-specific endpoint, but has not yet been built or device-tested. The courier must be assigned to the order, be listed in COMMERCE_COURIER_IDS, and authenticate with a per-courier token. GPS is optional and is not cryptographic proof of location.
 - No real deployment, live webhook delivery, live payment, courier-device test or end-to-end APK test has been performed by this branch creation.
 
 ## API
@@ -57,6 +59,7 @@ Prices are stored as whole KZT. Stripe API amounts for KZT use minor units, so t
 - `GET /api/commerce/orders/:id` — admin API key required.
 - `POST /api/commerce/orders` — admin API key required; creates an unpaid order.
 - `POST /api/commerce/orders/:id/assign` — admin API key required; assigns only a paid delivery order.
+- `POST /api/commerce/orders/:id/photo-upload` — raw JPEG/PNG/WebP body; requires X-Courier-Id and X-Courier-Token headers, accepts optional GPS metadata headers, and sends the image to the customer only if the order is assigned and paid.
 - `POST /api/commerce/orders/:id/proof` — admin API key required; accepts a Telegram photo file ID plus courier ID and optional GPS.
 - `POST /api/commerce/orders/:id/delivered` — admin API key required; requires photo evidence first.
 - `POST /api/commerce/stripe/webhook` — requires a valid Stripe signature; do not call manually to mark an order paid.
