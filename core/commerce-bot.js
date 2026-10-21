@@ -23,7 +23,7 @@ function setSession(userId, value) {
 }
 function readUpdateIds() {
   fs.mkdirSync(DATA_DIR, { recursive: true });
-  if (!fs.existsSync(UPDATES_FILE)) fs.writeFileSync(UPDATES_FILE, "[]\\n", { flag: "wx", mode: 0o600 });
+  if (!fs.existsSync(UPDATES_FILE)) fs.writeFileSync(UPDATES_FILE, "[]\n", { flag: "wx", mode: 0o600 });
   return JSON.parse(fs.readFileSync(UPDATES_FILE, "utf8"));
 }
 function hasUpdate(updateId) {
@@ -36,7 +36,7 @@ function markUpdate(updateId) {
 }
 function writeAtomic(file, value) {
   const tmp = file + ".tmp";
-  fs.writeFileSync(tmp, JSON.stringify(value, null, 2) + "\\n", { mode: 0o600 });
+  fs.writeFileSync(tmp, JSON.stringify(value, null, 2) + "\n", { mode: 0o600 });
   fs.renameSync(tmp, file);
 }
 function isCourier(userId) {
@@ -103,7 +103,7 @@ async function handleCallback(q) {
   if (!userId || !chatId) return;
   if (data === "myorders") {
     const orders = commerce.listOrders({ customerId: userId });
-    return sendText(chatId, orders.length ? orders.slice(0, 20).map(orderSummary).join("\\n\\n") : "Заказов пока нет.");
+    return sendText(chatId, orders.length ? orders.slice(0, 20).map(orderSummary).join("\n\n") : "Заказов пока нет.");
   }
   if (data === "catalog") {
     const products = commerce.getCatalog();
