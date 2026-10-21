@@ -126,13 +126,16 @@ async function handleCallback(q) {
   if (data.startsWith("buy:delivery:")) {
     const productId = data.slice("buy:delivery:".length);
     const zones = commerce.getDeliveryZones();
-    const buttons = Object.entries(zones).map(([zone, fee]) => [{ text: zone + " — доставка " + fee + " KZT", callback_data: "zone:" + productId + ":" + zone }]);
+    const buttons = Object.entries(zones).map(([zone, fee], index) => [{ text: zone + " — доставка " + fee + " KZT", callback_data: "zone:" + productId + ":" + index }]);
     if (!buttons.length) return sendText(chatId, "Зоны доставки не настроены.");
     return sendText(chatId, "Выберите зону доставки:", { inline_keyboard: buttons });
   }
   if (data.startsWith("zone:")) {
     const parts = data.split(":");
-    const productId = parts[1]; const zone = parts.slice(2).join(":");
+    const productId = parts[1];
+    const zoneIndex = Number(parts[2]);
+    const zone = Object.keys(commerce.getDeliveryZones())[zoneIndex];
+    if (!Number.isSafeInteger(zoneIndex) || !zone) return sendText(chatId, "Зона доставки не найдена.");
     if (!commerce.getDeliveryZones()[zone]) {
       const zones = commerce.getDeliveryZones();
       if (!Object.prototype.hasOwnProperty.call(zones, zone)) return sendText(chatId, "Зона доставки не найдена.");
