@@ -59,6 +59,7 @@ function listOrders(filter = {}) {
 }
 function createOrder(input) {
   const customerId = String(input.customerId || "").trim();
+  const idempotencyKey = String(input.idempotencyKey || "").trim();
   const productId = String(input.productId || "").trim();
   const quantity = Number(input.quantity || 1);
   const fulfillment = String(input.fulfillment || "");
@@ -81,10 +82,17 @@ function createOrder(input) {
   const itemsTotalKzt = product.priceKzt * quantity;
   const totalKzt = itemsTotalKzt + deliveryFeeKzt;
   if (!Number.isSafeInteger(totalKzt)) throw fail("AMOUNT_OVERFLOW", "Order total is outside the supported range");
+  if (idempotencyKey) {
+    const existing = readOrders().find((o) => o.idempotencyKey === idempotencyKey);
+    if (existing) {
+      if (existing.customerId !== customerId) throw fail("IDEMPOTENCY_CONFLICT", "Idempotency key belongs to another customer");
+      return existing;
+    }
+  }
   const now = new Date().toISOString();
   const order = {
     id: "SAM-" + crypto.randomUUID().replace(/-/g, "").slice(0, 12).toUpperCase(),
-    customerId, productId: product.id, productName: product.name, quantity,
+    customerId, productId: product.id, productName: product.name, quantity, idempotencyKey: idempotencyKey || null,
     fulfillment, address, deliveryZone, currency: CURRENCY,
     unitPriceKzt: product.priceKzt, itemsTotalKzt, deliveryFeeKzt, totalKzt,
     paymentStatus: "AWAITING_PAYMENT", status: "AWAITING_PAYMENT",
@@ -174,8 +182,10 @@ function markDelivered(orderId, courierId) {
     return { ...o, status: "DELIVERED", deliveredAt: new Date().toISOString() };
   });
 }
+function orderCurrencyIsUnsupported(orderId) { const order = getOrder(orderId); return !order || order.currency !== "KZT" || order.totalKzt > 999999; }
 async function createCheckoutSession(orderId) {
   const secret = String(process.env.STRIPE_SECRET_KEY || "");
+  if (orderCurrencyIsUnsupported(orderId)) throw fail("UNSUPPORTED_PAYMENT_CURRENCY", "Stripe test checkout is configured only for KZT");
   if (!secret.startsWith("sk_test_")) throw fail("TEST_STRIPE_KEY_REQUIRED", "Configure a Stripe test secret key (sk_test_...) before creating checkout");
   const successUrl = String(process.env.COMMERCE_SUCCESS_URL || "");
   const cancelUrl = String(process.env.COMMERCE_CANCEL_URL || "");
