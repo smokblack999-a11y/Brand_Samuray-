@@ -21,15 +21,18 @@ function setSession(userId, value) {
   fs.writeFileSync(tmp, JSON.stringify(all, null, 2) + "\n", { mode: 0o600 });
   fs.renameSync(tmp, SESSION_FILE);
 }
-function claimUpdate(updateId) {
-  if (!Number.isSafeInteger(updateId)) return true;
+function readUpdateIds() {
   fs.mkdirSync(DATA_DIR, { recursive: true });
   if (!fs.existsSync(UPDATES_FILE)) fs.writeFileSync(UPDATES_FILE, "[]\\n", { flag: "wx", mode: 0o600 });
-  const ids = JSON.parse(fs.readFileSync(UPDATES_FILE, "utf8"));
-  if (ids.includes(updateId)) return false;
-  ids.push(updateId);
-  writeAtomic(UPDATES_FILE, ids.slice(-10000));
-  return true;
+  return JSON.parse(fs.readFileSync(UPDATES_FILE, "utf8"));
+}
+function hasUpdate(updateId) {
+  return Number.isSafeInteger(updateId) && readUpdateIds().includes(updateId);
+}
+function markUpdate(updateId) {
+  if (!Number.isSafeInteger(updateId)) return;
+  const ids = readUpdateIds();
+  if (!ids.includes(updateId)) writeAtomic(UPDATES_FILE, ids.concat(updateId).slice(-10000));
 }
 function writeAtomic(file, value) {
   const tmp = file + ".tmp";
@@ -215,13 +218,18 @@ async function handleMessage(message) {
   if (text === "/admin") return sendText(chatId, isAdmin(userId) ? "Администратор подтверждён." : "Нет доступа.");
 }
 async function handleCommerceUpdate(update) {
-  if (!claimUpdate(update?.update_id)) return { duplicate: true };
+  if (hasUpdate(update?.update_id)) return { duplicate: true };
+  let result;
   if (update?.callback_query) {
     const q = update.callback_query;
     await answerCallback(q.id, "Принято");
-    return handleCallback(q);
+    result = await handleCallback(q);
+  } else if (update?.message) {
+    result = await handleMessage(update.message);
+  } else {
+    return { ignored: true };
   }
-  if (update?.message) return handleMessage(update.message);
-  return { ignored: true };
+  markUpdate(update?.update_id);
+  return result;
 }
 module.exports = { handleCommerceUpdate, notifyPaidOrder, isCourier, isAdmin };
