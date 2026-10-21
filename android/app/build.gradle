@@ -3,6 +3,9 @@ plugins {
     id 'org.jetbrains.kotlin.android'
 }
 
+def configuredCoreUrl = project.findProperty('CORE_BASE_URL') ?: 'https://core.example.invalid'
+def debugCoreUrl = project.findProperty('CORE_BASE_URL') ?: 'http://10.0.2.2:8787'
+
 android {
     namespace 'com.samuraios.app'
     compileSdk 35
