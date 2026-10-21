@@ -15,6 +15,9 @@ const { requireWebAppAuth } = require("./webapp-auth");
 const { emitHamylionEvent } = require("./hamylion-adapter");
 const dualAI = require("./dual-ai/engine");
 const { checkDraft } = require("./kill-critic");
+const commerce = require("./commerce");
+const commerceStripe = require("./commerce-stripe");
+const commerceBot = require("./commerce-bot");
 
 const app = express();
 const PORT = Number(process.env.PORT || 8787);
@@ -38,7 +41,7 @@ if (process.env.NODE_ENV === "production") {
 app.disable("x-powered-by");
 app.set("trust proxy", process.env.TRUST_PROXY === "true" ? 1 : false);
 app.use(cors(CORS_ORIGIN ? { origin: CORS_ORIGIN } : { origin: false }));
-app.use(express.json({ limit: "256kb" }));
+app.use(express.json({ limit: "256kb", verify: (req, _res, buf) => { if (req.originalUrl === "/api/commerce/stripe/webhook") req.rawBody = Buffer.from(buf); } }));
 
 function errorBody(code, message, requestId) {
   return { ok: false, error: { code, message, requestId } };
@@ -198,6 +201,77 @@ app.post("/api/webapp/location", requireWebAppAuth, async (req, res) => {
 });
 
 
+
+app.get("/api/commerce/catalog", (_req, res) => {
+  try { return res.json({ ok: true, currency: process.env.COMMERCE_CURRENCY || "KZT", products: commerce.getCatalog(), deliveryZones: commerce.getDeliveryZones() }); }
+  catch (error) { return res.status(503).json(errorBody(error.code || "COMMERCE_CONFIG_INVALID", "Commerce catalog is not configured", _req.requestId)); }
+});
+app.get("/api/commerce/orders", requireApiKey, (req, res) => {
+  return res.json({ ok: true, orders: commerce.listOrders({ customerId: req.query.customerId, courierId: req.query.courierId, status: req.query.status }), requestId: req.requestId });
+});
+app.get("/api/commerce/orders/:id", requireApiKey, (req, res) => {
+  const order = commerce.getOrder(req.params.id);
+  if (!order) return res.status(404).json(errorBody("ORDER_NOT_FOUND", "Order not found", req.requestId));
+  return res.json({ ok: true, order, requestId: req.requestId });
+});
+app.post("/api/commerce/orders", requireApiKey, (req, res) => {
+  try {
+    const order = commerce.createOrder(req.body || {});
+    return res.status(201).json({ ok: true, order, requestId: req.requestId });
+  } catch (error) {
+    const status = ["CUSTOMER_REQUIRED", "INVALID_QUANTITY", "INVALID_FULFILLMENT", "PRODUCT_NOT_FOUND", "ADDRESS_REQUIRED", "DELIVERY_ZONE_NOT_FOUND"].includes(error.code) ? 400 : 503;
+    return res.status(status).json(errorBody(error.code || "ORDER_CREATE_FAILED", status === 503 ? "Could not create order" : error.message, req.requestId));
+  }
+});
+app.post("/api/commerce/orders/:id/assign", requireApiKey, (req, res) => {
+  try { return res.json({ ok: true, order: commerce.assignCourier(req.params.id, req.body?.courierId), requestId: req.requestId }); }
+  catch (error) {
+    const status = error.code === "ORDER_NOT_FOUND" ? 404 : ["PAYMENT_NOT_CONFIRMED", "NOT_DELIVERY", "COURIER_ALREADY_ASSIGNED", "ORDER_CLOSED"].includes(error.code) ? 409 : 400;
+    return res.status(status).json(errorBody(error.code || "COURIER_ASSIGN_FAILED", error.message, req.requestId));
+  }
+});
+app.post("/api/commerce/orders/:id/proof", requireApiKey, async (req, res) => {
+  try {
+    const order = commerce.attachProof(req.params.id, req.body?.courierId, {
+      telegramFileId: req.body?.telegramFileId, latitude: req.body?.latitude, longitude: req.body?.longitude
+    });
+    await fetch("https://api.telegram.org/bot" + String(process.env.TELEGRAM_BOT_TOKEN || "") + "/sendPhoto", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ chat_id: order.customerId, photo: order.proof.telegramFileId, caption: "Фото по заказу " + order.id + "\nСтатус: фото получено" }),
+      signal: AbortSignal.timeout(10000)
+    }).then(async (r) => { const data = await r.json().catch(() => ({})); if (!r.ok || !data.ok) throw new Error("Telegram photo delivery failed"); });
+    return res.json({ ok: true, order, requestId: req.requestId });
+  } catch (error) {
+    const status = error.code === "ORDER_NOT_FOUND" ? 404 : error.code === "FORBIDDEN" ? 403 : 400;
+    return res.status(status).json(errorBody(error.code || "PHOTO_DELIVERY_FAILED", error.code ? error.message : "Photo could not be delivered", req.requestId));
+  }
+});
+app.post("/api/commerce/orders/:id/delivered", requireApiKey, (req, res) => {
+  try { return res.json({ ok: true, order: commerce.markDelivered(req.params.id, req.body?.courierId), requestId: req.requestId }); }
+  catch (error) {
+    const status = error.code === "ORDER_NOT_FOUND" ? 404 : error.code === "FORBIDDEN" ? 403 : 409;
+    return res.status(status).json(errorBody(error.code || "DELIVERY_COMPLETE_FAILED", error.message, req.requestId));
+  }
+});
+app.post("/api/commerce/stripe/webhook", (req, res) => {
+  const secret = String(process.env.STRIPE_WEBHOOK_SECRET || "");
+  if (!secret) return res.status(503).json(errorBody("STRIPE_WEBHOOK_NOT_CONFIGURED", "Stripe webhook is not configured", req.requestId));
+  if (!commerceStripe.verifyStripeSignature(req.rawBody, req.get("Stripe-Signature"), secret)) {
+    return res.status(400).json(errorBody("INVALID_STRIPE_SIGNATURE", "Invalid Stripe signature", req.requestId));
+  }
+  try {
+    const result = commerceStripe.processStripeEvent(req.body);
+    if (result.order && !result.duplicate && !result.pending) {
+      void commerceBot.notifyPaidOrder(result.order).catch(() => console.error(JSON.stringify({ event: "commerce_payment_notify_failed", orderId: result.order.id, requestId: req.requestId })));
+    }
+    return res.json({ received: true, processed: !result.ignored && !result.pending, duplicate: Boolean(result.duplicate), requestId: req.requestId });
+  } catch (error) {
+    console.error(JSON.stringify({ event: "commerce_stripe_event_rejected", code: error.code || "INVALID_EVENT", requestId: req.requestId }));
+    const status = error.code === "ORDER_NOT_FOUND" ? 400 : 400;
+    return res.status(status).json(errorBody(error.code || "STRIPE_EVENT_REJECTED", "Stripe event was not accepted", req.requestId));
+  }
+});
+
 app.get("/api/dual-ai/config", requireApiKey, (req, res) => res.json({ ok: true, config: dualAI.config(), requestId: req.requestId }));
 
 app.get("/api/dual-ai/sessions", requireApiKey, (req, res) => res.json({ ok: true, sessions: dualAI.list(), requestId: req.requestId }));
@@ -285,9 +359,13 @@ app.post("/api/lead/analyze", requireApiKey, leadRateLimit, async (req, res) => 
 });
 
 app.post("/api/telegram/webhook", requireWebhookSecret, async (req, res) => {
-  res.sendStatus(200);
   try {
     const update = req.body || {};
+    if (update.message || update.callback_query) {
+      await commerceBot.handleCommerceUpdate(update);
+      return res.sendStatus(200);
+    }
+    res.sendStatus(200);
     if (update.business_connection) {
       console.log(JSON.stringify({ event: "business_connection", id: update.business_connection.id, requestId: req.requestId }));
       return;
@@ -390,6 +468,7 @@ app.post("/api/telegram/webhook", requireWebhookSecret, async (req, res) => {
       requestId: req.requestId,
       error: error.message
     }));
+    if (!res.headersSent) return res.status(500).json(errorBody("WEBHOOK_PROCESSING_FAILED", "Webhook processing failed", req.requestId));
   }
 });
 
