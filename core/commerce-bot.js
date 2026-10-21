@@ -85,7 +85,8 @@ async function createAndRequestPayment(chatId, input, updateId) {
   return order;
 }
 async function notifyPaidOrder(order) {
-  await sendText(order.customerId, "Оплата подтверждена платёжной системой.\n" + orderSummary(order));
+  try { await sendText(order.customerId, "Оплата подтверждена платёжной системой.\n" + orderSummary(order)); }
+  catch { console.error(JSON.stringify({ event: "customer_payment_notify_failed", orderId: order.id })); }
   const admins = String(process.env.COMMERCE_ADMIN_IDS || "").split(",").map((x) => x.trim()).filter(Boolean);
   if (order.fulfillment === "pickup") {
     for (const id of admins) {
