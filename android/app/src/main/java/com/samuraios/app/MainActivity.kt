@@ -11,6 +11,7 @@ import android.graphics.RectF
 import android.graphics.Typeface
 import android.location.Location
 import android.os.Bundle
+import android.text.InputType
 import android.os.Handler
 import android.os.Looper
 import android.util.Base64
@@ -59,6 +60,9 @@ class MainActivity : ComponentActivity() {
     private lateinit var outputText: TextView
     private lateinit var chatIdInput: EditText
     private lateinit var messageInput: EditText
+    private lateinit var orderIdInput: EditText
+    private lateinit var courierIdInput: EditText
+    private lateinit var courierTokenInput: EditText
     private lateinit var galleryContainer: LinearLayout
     private var imageCapture: ImageCapture? = null
     private var boundCamera: androidx.camera.core.Camera? = null
@@ -119,6 +123,14 @@ class MainActivity : ComponentActivity() {
         root.addView(messageInput, LinearLayout.LayoutParams(-1, -2))
         root.addView(Button(this).apply { text = "ОТПРАВИТЬ СООБЩЕНИЕ"; setOnClickListener { sendTelegramMessage() } })
         root.addView(Button(this).apply { text = "ОТПРАВИТЬ ВЫБРАННОЕ ФОТО"; setOnClickListener { sendSelectedPhoto() } })
+        root.addView(TextView(this).apply { text = "Фотоотчёт курьера по заказу"; textSize = 18f; setTextColor(Color.WHITE); setPadding(0, 20, 0, 8) })
+        orderIdInput = EditText(this).apply { hint = "Номер заказа SAM-..."; setSingleLine(true); setTextColor(Color.WHITE); setHintTextColor(Color.GRAY) }
+        root.addView(orderIdInput, LinearLayout.LayoutParams(-1, -2))
+        courierIdInput = EditText(this).apply { hint = "Telegram ID курьера"; inputType = InputType.TYPE_CLASS_NUMBER; setSingleLine(true); setTextColor(Color.WHITE); setHintTextColor(Color.GRAY) }
+        root.addView(courierIdInput, LinearLayout.LayoutParams(-1, -2))
+        courierTokenInput = EditText(this).apply { hint = "Токен курьера"; inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD; setSingleLine(true); setTextColor(Color.WHITE); setHintTextColor(Color.GRAY) }
+        root.addView(courierTokenInput, LinearLayout.LayoutParams(-1, -2))
+        root.addView(Button(this).apply { text = "ОТПРАВИТЬ ФОТО + GPS В ЗАКАЗ"; setOnClickListener { sendSelectedPhotoToOrder() } })
         outputText = TextView(this).apply { text = "Выберите фото в галерее, затем отправьте его в Telegram."; textSize = 14f; setTextColor(Color.LTGRAY); setPadding(0, 18, 0, 18) }
         root.addView(outputText)
         setContentView(ScrollView(this).apply { addView(root) })
@@ -329,6 +341,40 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun sendSelectedPhotoToOrder() {
+        val photo = selectedPhoto ?: run { showToast("Сначала выберите фото в галерее"); return }
+        val orderId = orderIdInput.text.toString().trim()
+        val courierId = courierIdInput.text.toString().trim()
+        val token = courierTokenInput.text.toString()
+        if (orderId.isEmpty() || courierId.isEmpty() || token.isEmpty()) {
+            showToast("Нужны номер заказа, Telegram ID курьера и токен")
+            return
+        }
+        if (photo.length() <= 0L || photo.length() > 10L * 1024L * 1024L) {
+            showToast("Фото должно быть размером до 10 МБ")
+            return
+        }
+        val meta = Vault.metadata(photo)
+        val lat = meta?.optDouble("latitude", Double.NaN) ?: Double.NaN
+        val lon = meta?.optDouble("longitude", Double.NaN) ?: Double.NaN
+        val accuracy = meta?.optDouble("accuracyMeters", Double.NaN) ?: Double.NaN
+        val timestamp = meta?.optLong("timestamp", 0L) ?: 0L
+        outputText.text = "Отправка фото по заказу $orderId..."
+        apiPostPhoto(
+            "/api/commerce/orders/" + encodeUrl(orderId) + "/photo-upload",
+            photo, courierId, token,
+            if (lat.isFinite() && lon.isFinite()) lat else null,
+            if (lat.isFinite() && lon.isFinite()) lon else null,
+            if (accuracy.isFinite() && accuracy >= 0) accuracy else null,
+            if (timestamp > 0L) timestamp else null
+        ) { result ->
+            mainHandler.post {
+                outputText.text = result
+                if (!result.startsWith("ERROR:")) courierTokenInput.setText("")
+            }
+        }
+    }
+
     private fun apiGet(path: String, callback: (String) -> Unit) {
         thread {
             var connection: HttpURLConnection? = null
@@ -357,6 +403,55 @@ class MainActivity : ComponentActivity() {
                 val code = connection.responseCode; val stream = if (code in 200..299) connection.inputStream else connection.errorStream; val body = stream?.bufferedReader()?.use { it.readText() } ?: ""
                 callback(if (code in 200..299) body else "ERROR: HTTP $code\n$body")
             } catch (e: Exception) { callback("ERROR: ${e.javaClass.simpleName}: ${e.message}") } finally { connection?.disconnect() }
+        }
+    }
+
+    private fun apiPostPhoto(
+        path: String,
+        photo: File,
+        courierId: String,
+        courierToken: String,
+        latitude: Double?,
+        longitude: Double?,
+        accuracyMeters: Double?,
+        capturedAt: Long?,
+        callback: (String) -> Unit
+    ) {
+        thread {
+            var connection: HttpURLConnection? = null
+            try {
+                connection = (URL(coreUrl + path).openConnection() as HttpURLConnection).apply {
+                    requestMethod = "POST"
+                    connectTimeout = 10000
+                    readTimeout = 45000
+                    useCaches = false
+                    doOutput = true
+                    setRequestProperty("Content-Type", "image/jpeg")
+                    setRequestProperty("Accept", "application/json")
+                    setRequestProperty("X-Courier-Id", courierId)
+                    setRequestProperty("X-Courier-Token", courierToken)
+                    setRequestProperty("X-Request-ID", UUID.randomUUID().toString())
+                    if (latitude != null && longitude != null) {
+                        setRequestProperty("X-Photo-Latitude", latitude.toString())
+                        setRequestProperty("X-Photo-Longitude", longitude.toString())
+                    }
+                    if (accuracyMeters != null) setRequestProperty("X-Photo-Accuracy", accuracyMeters.toString())
+                    if (capturedAt != null) setRequestProperty("X-Photo-Timestamp", capturedAt.toString())
+                }
+                connection.setFixedLengthStreamingMode(photo.length())
+                connection.outputStream.use { output ->
+                    photo.inputStream().use { input -> input.copyTo(output) }
+                    output.flush()
+                }
+                val code = connection.responseCode
+                val stream = if (code in 200..299) connection.inputStream else connection.errorStream
+                val body = stream?.bufferedReader()?.use { it.readText() } ?: ""
+                callback(if (code in 200..299) body else "ERROR: HTTP $code\n$body")
+            } catch (e: Exception) {
+                callback("ERROR: ${e.javaClass.simpleName}: ${e.message}")
+            } finally {
+                connection?.disconnect()
+            }
         }
     }
 
