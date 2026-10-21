@@ -182,16 +182,16 @@ function markDelivered(orderId, courierId) {
     return { ...o, status: "DELIVERED", deliveredAt: new Date().toISOString() };
   });
 }
-function orderCurrencyIsUnsupported(orderId) { const order = getOrder(orderId); return !order || order.currency !== "KZT" || order.totalKzt > 999999; }
 async function createCheckoutSession(orderId) {
+  const order = getOrder(orderId);
+  if (!order) throw fail("ORDER_NOT_FOUND", "Order not found");
+  if (order.currency !== "KZT") throw fail("UNSUPPORTED_PAYMENT_CURRENCY", "Stripe test checkout is configured only for KZT");
+  if (order.totalKzt > 999999) throw fail("PAYMENT_AMOUNT_LIMIT", "Order total exceeds the current Stripe KZT amount limit");
   const secret = String(process.env.STRIPE_SECRET_KEY || "");
-  if (orderCurrencyIsUnsupported(orderId)) throw fail("UNSUPPORTED_PAYMENT_CURRENCY", "Stripe test checkout is configured only for KZT");
   if (!secret.startsWith("sk_test_")) throw fail("TEST_STRIPE_KEY_REQUIRED", "Configure a Stripe test secret key (sk_test_...) before creating checkout");
   const successUrl = String(process.env.COMMERCE_SUCCESS_URL || "");
   const cancelUrl = String(process.env.COMMERCE_CANCEL_URL || "");
   if (!/^https?:\/\//i.test(successUrl) || !/^https?:\/\//i.test(cancelUrl)) throw fail("CHECKOUT_URLS_REQUIRED", "Set COMMERCE_SUCCESS_URL and COMMERCE_CANCEL_URL");
-  const order = getOrder(orderId);
-  if (!order) throw fail("ORDER_NOT_FOUND", "Order not found");
   if (order.paymentStatus === "PAID") throw fail("ALREADY_PAID", "Order is already paid");
   if (order.checkoutSessionId && order.checkoutUrl) return { order, sessionId: order.checkoutSessionId, url: order.checkoutUrl };
   const form = new URLSearchParams();
