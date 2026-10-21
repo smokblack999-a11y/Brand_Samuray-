@@ -32,9 +32,13 @@ function processStripeEvent(event) {
   if (!orderId || !String(session.id || "").startsWith("cs_test_")) {
     const error = new Error("Checkout session is not a valid configured test session"); error.code = "INVALID_CHECKOUT_SESSION"; throw error;
   }
+  const amountMinor = Number(session.amount_total);
+  if (!Number.isSafeInteger(amountMinor) || amountMinor % 100 !== 0) {
+    const error = new Error("Stripe amount is not a whole KZT amount"); error.code = "PAYMENT_AMOUNT_INVALID"; throw error;
+  }
   const result = commerce.applyVerifiedPayment({
     verified: true, eventId: event.id, orderId, sessionId: session.id,
-    amountKzt: Number(session.amount_total), currency: String(session.currency || "").toUpperCase(),
+    amountKzt: amountMinor / 100, currency: String(session.currency || "").toUpperCase(),
     provider: "stripe_test"
   });
   return { ...result, pending: false };
