@@ -123,7 +123,7 @@ function applyVerifiedPayment(input) {
     return { duplicate: true, order };
   }
   if (order.totalKzt !== input.amountKzt || order.currency !== currency) throw fail("PAYMENT_MISMATCH", "Payment amount or currency does not match the order");
-  if (order.checkoutSessionId && input.sessionId !== order.checkoutSessionId) throw fail("PAYMENT_SESSION_MISMATCH", "Payment session does not match the order");
+  if (!order.checkoutSessionId || input.sessionId !== order.checkoutSessionId) throw fail("PAYMENT_SESSION_MISMATCH", "Payment session does not match the order");
   const updated = updateOrder(orderId, (o) => ({
     ...o, paymentStatus: "PAID", status: o.fulfillment === "delivery" ? "PAID" : "READY_FOR_PICKUP",
     paymentProvider: String(input.provider || "unknown"), paymentReference: eventId, paidAt: new Date().toISOString()
@@ -191,7 +191,7 @@ async function createCheckoutSession(orderId) {
   form.set("metadata[order_id]", order.id);
   form.set("line_items[0][quantity]", "1");
   form.set("line_items[0][price_data][currency]", order.currency.toLowerCase());
-  form.set("line_items[0][price_data][unit_amount]", String(order.totalKzt));
+  form.set("line_items[0][price_data][unit_amount]", String(order.totalKzt * 100));
   form.set("line_items[0][price_data][product_data][name]", order.productName.slice(0, 200));
   form.set("line_items[0][price_data][product_data][description]", (order.fulfillment === "delivery" ? "Доставка: " + order.deliveryZone + ". " : "Самовывоз. ") + "Заказ " + order.id);
   const response = await fetch("https://api.stripe.com/v1/checkout/sessions", {
@@ -212,7 +212,11 @@ async function createCheckoutSession(orderId) {
   });
   return { order: updated, sessionId: payload.id, url: payload.url };
 }
+function attachCheckoutSession(orderId, sessionId, checkoutUrl = "https://checkout.stripe.test/session") {
+  if (!String(sessionId || "").startsWith("cs_test_")) throw fail("INVALID_CHECKOUT_SESSION", "Only a Stripe test Checkout Session is accepted");
+  return updateOrder(orderId, (o) => ({ ...o, checkoutSessionId: String(sessionId), checkoutUrl, paymentProvider: "stripe_test" }));
+}
 function resetForTests() {
   for (const file of [ORDERS_FILE, EVENTS_FILE]) try { fs.unlinkSync(file); } catch {}
 }
-module.exports = { getCatalog, getDeliveryZones, getOrder, listOrders, createOrder, createCheckoutSession, applyVerifiedPayment, assignCourier, markInDelivery, attachProof, markDelivered, resetForTests };
+module.exports = { getCatalog, getDeliveryZones, getOrder, listOrders, createOrder, createCheckoutSession, attachCheckoutSession, applyVerifiedPayment, assignCourier, markInDelivery, attachProof, markDelivered, resetForTests };
