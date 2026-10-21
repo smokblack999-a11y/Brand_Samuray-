@@ -37,7 +37,7 @@ function getCatalog() {
     name: String(p.name || "").trim(),
     priceKzt: Number(p.priceKzt),
     active: p.active !== false
-  })).filter((p) => p.id && p.name && Number.isSafeInteger(p.priceKzt) && p.priceKzt > 0 && p.active);
+  })).filter((p) => /^[A-Za-z0-9_-]{1,32}$/.test(p.id) && p.name && p.name.length <= 200 && Number.isSafeInteger(p.priceKzt) && p.priceKzt > 0 && p.active);
 }
 function getDeliveryZones() {
   let value = {};
@@ -117,13 +117,14 @@ function applyVerifiedPayment(input) {
   if (events.includes(eventId)) return { duplicate: true, order: getOrder(orderId) };
   const order = getOrder(orderId);
   if (!order) throw fail("ORDER_NOT_FOUND", "Order not found");
+  if (!order.checkoutSessionId || input.sessionId !== order.checkoutSessionId) throw fail("PAYMENT_SESSION_MISMATCH", "Payment session does not match the order");
   if (order.paymentStatus === "PAID") {
     if (order.totalKzt !== input.amountKzt || order.currency !== currency) throw fail("PAYMENT_MISMATCH", "Payment does not match the order");
     events.push(eventId); writeJson(EVENTS_FILE, events);
     return { duplicate: true, order };
   }
   if (order.totalKzt !== input.amountKzt || order.currency !== currency) throw fail("PAYMENT_MISMATCH", "Payment amount or currency does not match the order");
-  if (!order.checkoutSessionId || input.sessionId !== order.checkoutSessionId) throw fail("PAYMENT_SESSION_MISMATCH", "Payment session does not match the order");
+
   const updated = updateOrder(orderId, (o) => ({
     ...o, paymentStatus: "PAID", status: o.fulfillment === "delivery" ? "PAID" : "READY_FOR_PICKUP",
     paymentProvider: String(input.provider || "unknown"), paymentReference: eventId, paidAt: new Date().toISOString()
