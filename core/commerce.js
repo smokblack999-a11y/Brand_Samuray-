@@ -123,6 +123,7 @@ function applyVerifiedPayment(input) {
     return { duplicate: true, order };
   }
   if (order.totalKzt !== input.amountKzt || order.currency !== currency) throw fail("PAYMENT_MISMATCH", "Payment amount or currency does not match the order");
+  if (order.checkoutSessionId && input.sessionId !== order.checkoutSessionId) throw fail("PAYMENT_SESSION_MISMATCH", "Payment session does not match the order");
   const updated = updateOrder(orderId, (o) => ({
     ...o, paymentStatus: "PAID", status: o.fulfillment === "delivery" ? "PAID" : "READY_FOR_PICKUP",
     paymentProvider: String(input.provider || "unknown"), paymentReference: eventId, paidAt: new Date().toISOString()
@@ -172,7 +173,46 @@ function markDelivered(orderId, courierId) {
     return { ...o, status: "DELIVERED", deliveredAt: new Date().toISOString() };
   });
 }
+async function createCheckoutSession(orderId) {
+  const secret = String(process.env.STRIPE_SECRET_KEY || "");
+  if (!secret.startsWith("sk_test_")) throw fail("TEST_STRIPE_KEY_REQUIRED", "Configure a Stripe test secret key (sk_test_...) before creating checkout");
+  const successUrl = String(process.env.COMMERCE_SUCCESS_URL || "");
+  const cancelUrl = String(process.env.COMMERCE_CANCEL_URL || "");
+  if (!/^https?:\/\//i.test(successUrl) || !/^https?:\/\//i.test(cancelUrl)) throw fail("CHECKOUT_URLS_REQUIRED", "Set COMMERCE_SUCCESS_URL and COMMERCE_CANCEL_URL");
+  const order = getOrder(orderId);
+  if (!order) throw fail("ORDER_NOT_FOUND", "Order not found");
+  if (order.paymentStatus === "PAID") throw fail("ALREADY_PAID", "Order is already paid");
+  if (order.checkoutSessionId && order.checkoutUrl) return { order, sessionId: order.checkoutSessionId, url: order.checkoutUrl };
+  const form = new URLSearchParams();
+  form.set("mode", "payment");
+  form.set("success_url", successUrl);
+  form.set("cancel_url", cancelUrl);
+  form.set("client_reference_id", order.id);
+  form.set("metadata[order_id]", order.id);
+  form.set("line_items[0][quantity]", "1");
+  form.set("line_items[0][price_data][currency]", order.currency.toLowerCase());
+  form.set("line_items[0][price_data][unit_amount]", String(order.totalKzt));
+  form.set("line_items[0][price_data][product_data][name]", order.productName.slice(0, 200));
+  form.set("line_items[0][price_data][product_data][description]", (order.fulfillment === "delivery" ? "Доставка: " + order.deliveryZone + ". " : "Самовывоз. ") + "Заказ " + order.id);
+  const response = await fetch("https://api.stripe.com/v1/checkout/sessions", {
+    method: "POST",
+    headers: { Authorization: "Bearer " + secret, "Content-Type": "application/x-www-form-urlencoded" },
+    body: form,
+    signal: AbortSignal.timeout(15000)
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || !payload.id || !payload.url) {
+    const error = fail("PAYMENT_PROVIDER_UNAVAILABLE", "Stripe test checkout could not be created");
+    error.providerStatus = response.status;
+    throw error;
+  }
+  const updated = updateOrder(order.id, (o) => {
+    if (o.paymentStatus === "PAID") throw fail("ALREADY_PAID", "Order is already paid");
+    return { ...o, checkoutSessionId: payload.id, checkoutUrl: payload.url, paymentProvider: "stripe_test" };
+  });
+  return { order: updated, sessionId: payload.id, url: payload.url };
+}
 function resetForTests() {
   for (const file of [ORDERS_FILE, EVENTS_FILE]) try { fs.unlinkSync(file); } catch {}
 }
-module.exports = { getCatalog, getDeliveryZones, getOrder, listOrders, createOrder, applyVerifiedPayment, assignCourier, markInDelivery, attachProof, markDelivered, resetForTests };
+module.exports = { getCatalog, getDeliveryZones, getOrder, listOrders, createOrder, createCheckoutSession, applyVerifiedPayment, assignCourier, markInDelivery, attachProof, markDelivered, resetForTests };
