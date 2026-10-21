@@ -6,6 +6,7 @@ const commerce = require("./commerce");
 
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, "data");
 const SESSION_FILE = path.join(DATA_DIR, "commerce-bot-sessions.json");
+const UPDATES_FILE = path.join(DATA_DIR, "commerce-bot-updates.json");
 const timeoutMs = Math.max(1000, Number(process.env.TELEGRAM_TIMEOUT_MS || 10000));
 
 function readSessions() {
@@ -19,6 +20,21 @@ function setSession(userId, value) {
   const tmp = SESSION_FILE + ".tmp";
   fs.writeFileSync(tmp, JSON.stringify(all, null, 2) + "\n", { mode: 0o600 });
   fs.renameSync(tmp, SESSION_FILE);
+}
+function claimUpdate(updateId) {
+  if (!Number.isSafeInteger(updateId)) return true;
+  fs.mkdirSync(DATA_DIR, { recursive: true });
+  if (!fs.existsSync(UPDATES_FILE)) fs.writeFileSync(UPDATES_FILE, "[]\\n", { flag: "wx", mode: 0o600 });
+  const ids = JSON.parse(fs.readFileSync(UPDATES_FILE, "utf8"));
+  if (ids.includes(updateId)) return false;
+  ids.push(updateId);
+  writeAtomic(UPDATES_FILE, ids.slice(-10000));
+  return true;
+}
+function writeAtomic(file, value) {
+  const tmp = file + ".tmp";
+  fs.writeFileSync(tmp, JSON.stringify(value, null, 2) + "\\n", { mode: 0o600 });
+  fs.renameSync(tmp, file);
 }
 function isCourier(userId) {
   return String(process.env.COMMERCE_COURIER_IDS || "").split(",").map((x) => x.trim()).filter(Boolean).includes(String(userId));
@@ -82,6 +98,10 @@ async function handleCallback(q) {
   const chatId = q.message?.chat?.id;
   const data = String(q.data || "");
   if (!userId || !chatId) return;
+  if (data === "myorders") {
+    const orders = commerce.listOrders({ customerId: userId });
+    return sendText(chatId, orders.length ? orders.slice(0, 20).map(orderSummary).join("\\n\\n") : "Заказов пока нет.");
+  }
   if (data === "catalog") {
     const products = commerce.getCatalog();
     if (!products.length) return sendText(chatId, "Каталог пока не настроен. Администратор должен заполнить COMMERCE_PRODUCTS_JSON.");
@@ -195,6 +215,7 @@ async function handleMessage(message) {
   if (text === "/admin") return sendText(chatId, isAdmin(userId) ? "Администратор подтверждён." : "Нет доступа.");
 }
 async function handleCommerceUpdate(update) {
+  if (!claimUpdate(update?.update_id)) return { duplicate: true };
   if (update?.callback_query) {
     const q = update.callback_query;
     await answerCallback(q.id, "Принято");
