@@ -299,7 +299,7 @@ app.post("/api/commerce/orders/:id/photo-upload", async (req, res) => {
     }
     return res.json({ ok: true, order: saved, customerNotified: true, requestId: req.requestId });
   } catch (error) {
-    const status = error.code === "MEDIA_TOO_LARGE" ? 413 : error.code === "ORDER_NOT_FOUND" ? 404 : error.code === "FORBIDDEN" ? 403 : 400;
+    const status = error.code === "MEDIA_TOO_LARGE" ? 413 : error.code === "ORDER_NOT_FOUND" ? 404 : error.code === "FORBIDDEN" ? 403 : ["INVALID_LOCATION", "PHOTO_REQUIRED", "PAYMENT_NOT_CONFIRMED", "INVALID_ORDER_STATE"].includes(error.code) ? 409 : error.code ? 400 : 502;
     return res.status(status).json(errorBody(error.code || "PHOTO_UPLOAD_FAILED", error.code ? error.message : "Photo upload failed", req.requestId));
   }
 });
