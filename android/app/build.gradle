@@ -26,7 +26,7 @@ android {
 
     buildTypes {
         debug {
-            buildConfigField 'String', 'CORE_BASE_URL', '"' + configuredCoreUrl.replace('"', '\\"') + '"'
+            buildConfigField 'String', 'CORE_BASE_URL', '"' + debugCoreUrl.replace('"', '\\"') + '"'
         }
         release {
             minifyEnabled false
