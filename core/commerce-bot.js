@@ -86,13 +86,25 @@ async function createAndRequestPayment(chatId, input, updateId) {
 }
 async function notifyPaidOrder(order) {
   await sendText(order.customerId, "Оплата подтверждена платёжной системой.\n" + orderSummary(order));
-  if (order.fulfillment === "delivery") {
-    const couriers = String(process.env.COMMERCE_COURIER_IDS || "").split(",").map((x) => x.trim()).filter(Boolean);
-    for (const id of couriers) {
-      try {
-        await sendText(id, "Новый оплаченный заказ на доставку:\n" + orderSummary(order) +
-          "\nАдрес: " + order.address, { inline_keyboard: [[{ text: "ВЗЯТЬ ЗАКАЗ", callback_data: "courier:assign:" + order.id }]] });
-      } catch (error) { console.error(JSON.stringify({ event: "courier_notify_failed", orderId: order.id, code: "TELEGRAM_SEND_FAILED" })); }
+  const admins = String(process.env.COMMERCE_ADMIN_IDS || "").split(",").map((x) => x.trim()).filter(Boolean);
+  if (order.fulfillment === "pickup") {
+    for (const id of admins) {
+      try { await sendText(id, "Оплаченный заказ на самовывоз:\n" + orderSummary(order)); }
+      catch { console.error(JSON.stringify({ event: "pickup_admin_notify_failed", orderId: order.id })); }
+    }
+    return;
+  }
+  const couriers = String(process.env.COMMERCE_COURIER_IDS || "").split(",").map((x) => x.trim()).filter(Boolean);
+  for (const id of couriers) {
+    try {
+      await sendText(id, "Новый оплаченный заказ на доставку:\n" + orderSummary(order) +
+        "\nАдрес: " + order.address, { inline_keyboard: [[{ text: "ВЗЯТЬ ЗАКАЗ", callback_data: "courier:assign:" + order.id }]] });
+    } catch { console.error(JSON.stringify({ event: "courier_notify_failed", orderId: order.id, code: "TELEGRAM_SEND_FAILED" })); }
+  }
+  if (!couriers.length) {
+    for (const id of admins) {
+      try { await sendText(id, "Оплаченный заказ ожидает курьера:\n" + orderSummary(order) + "\nАдрес: " + order.address); }
+      catch { console.error(JSON.stringify({ event: "delivery_admin_notify_failed", orderId: order.id })); }
     }
   }
 }
