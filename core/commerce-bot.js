@@ -77,12 +77,19 @@ async function createAndRequestPayment(chatId, input, updateId) {
   const order = commerce.createOrder({ ...input, idempotencyKey: Number.isSafeInteger(updateId) ? "telegram:" + updateId : undefined });
   try {
     const checkout = await commerce.createCheckoutSession(order.id);
+    if (checkout.alreadyPaid || checkout.order.paymentStatus === "PAID") {
+      await notifyPaidOrder(checkout.order);
+      return order;
+    }
     await sendText(chatId, orderSummary(checkout.order) + "\n\nОплатите по ссылке ниже. Заказ будет отмечен оплаченным только после проверенного уведомления Stripe.", {
       inline_keyboard: [[{ text: "ОПЛАТИТЬ В ТЕСТОВОМ РЕЖИМЕ", url: checkout.url }]]
     });
   } catch (error) {
-    await sendText(chatId, orderSummary(order) + "\n\nСсылка оплаты не создана: " + (error.code || "PAYMENT_SETUP_REQUIRED") +
-      ". Заказ НЕ оплачен. Администратору нужно настроить платёжный провайдер.");
+    const statusUncertain = ["PAYMENT_STATUS_UNAVAILABLE", "PAYMENT_STATUS_PENDING"].includes(error.code);
+    await sendText(chatId, orderSummary(commerce.getOrder(order.id) || order) + "\n\n" +
+      (statusUncertain
+        ? "Не удалось безопасно проверить предыдущую платёжную сессию. Новая ссылка НЕ создана, чтобы избежать двойного списания. Повторите /pay " + order.id + " позже или попросите администратора проверить Stripe."
+        : "Ссылка оплаты не создана: " + (error.code || "PAYMENT_SETUP_REQUIRED") + ". Оплата не подтверждена. Администратору нужно проверить настройки платёжного провайдера."));
   }
   return order;
 }
@@ -300,11 +307,18 @@ async function handleMessage(message, updateId) {
     if (order.paymentStatus === "PAID") return sendText(chatId, "Заказ уже оплачен.\n" + orderSummary(order));
     try {
       const checkout = await commerce.createCheckoutSession(order.id);
+      if (checkout.alreadyPaid || checkout.order.paymentStatus === "PAID") {
+        await notifyPaidOrder(checkout.order);
+        return;
+      }
       return sendText(chatId, orderSummary(checkout.order) + "\n\nОплата доступна по ссылке ниже. Статус изменится только после подтверждения Stripe.", {
         inline_keyboard: [[{ text: "ПОВТОРИТЬ ОПЛАТУ В ТЕСТОВОМ РЕЖИМЕ", url: checkout.url }]]
       });
     } catch (error) {
-      return sendText(chatId, "Ссылку оплаты создать не удалось: " + (error.code || "PAYMENT_SETUP_REQUIRED") + ". Заказ остаётся неоплаченным.");
+      const statusUncertain = ["PAYMENT_STATUS_UNAVAILABLE", "PAYMENT_STATUS_PENDING"].includes(error.code);
+      return sendText(chatId, statusUncertain
+        ? "Не удалось проверить предыдущую платёжную сессию. Новая ссылка не создана, чтобы избежать двойного списания. Попробуйте /pay " + orderId + " позже."
+        : "Ссылку оплаты создать не удалось: " + (error.code || "PAYMENT_SETUP_REQUIRED") + ". Оплата не подтверждена.");
     }
   }
   if (text === "/courier") {
