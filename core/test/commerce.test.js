@@ -260,6 +260,44 @@ test("Checkout creation rejects a provider response with a mismatched amount bef
   assert.ok(after.checkoutAttemptKey);
 });
 
+test("concurrent checkout requests use one Stripe idempotency key and converge on one session", async (t) => {
+  commerce.resetForTests();
+  const order = newDeliveryOrder();
+  process.env.STRIPE_SECRET_KEY = "sk_test_unit_test";
+  process.env.COMMERCE_SUCCESS_URL = "https://example.test/success";
+  process.env.COMMERCE_CANCEL_URL = "https://example.test/cancel";
+  const requests = [];
+  let signalBoth;
+  let releaseRequests;
+  const bothStarted = new Promise((resolve) => { signalBoth = resolve; });
+  const blocked = new Promise((resolve) => { releaseRequests = resolve; });
+  const expiresAt = Math.floor(Date.now() / 1000) + 3600;
+  t.mock.method(globalThis, "fetch", async (_url, options) => {
+    requests.push(options);
+    if (requests.length === 2) signalBoth();
+    await blocked;
+    return {
+      ok: true,
+      json: async () => ({
+        id: "cs_test_concurrent_one", url: "https://checkout.stripe.test/concurrent",
+        livemode: false, mode: "payment", status: "open",
+        client_reference_id: order.id, metadata: { order_id: order.id },
+        currency: "kzt", amount_total: 570000, expires_at: expiresAt
+      })
+    };
+  });
+  const first = commerce.createCheckoutSession(order.id);
+  const second = commerce.createCheckoutSession(order.id);
+  await bothStarted;
+  assert.equal(requests.length, 2);
+  assert.equal(requests[0].headers["Idempotency-Key"], requests[1].headers["Idempotency-Key"]);
+  releaseRequests();
+  const [a, b] = await Promise.all([first, second]);
+  assert.equal(a.sessionId, "cs_test_concurrent_one");
+  assert.equal(b.sessionId, "cs_test_concurrent_one");
+  assert.equal(commerce.getOrder(order.id).checkoutSessionIds.length, 1);
+});
+
 test("Stripe checkout retries reuse the persisted idempotency key after a network failure", async (t) => {
   commerce.resetForTests();
   const order = newDeliveryOrder();
