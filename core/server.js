@@ -41,7 +41,7 @@ if (process.env.NODE_ENV === "production") {
 app.disable("x-powered-by");
 app.set("trust proxy", process.env.TRUST_PROXY === "true" ? 1 : false);
 app.use(cors(CORS_ORIGIN ? { origin: CORS_ORIGIN } : { origin: false }));
-app.use(express.json({ limit: "256kb", verify: (req, _res, buf) => { if (req.originalUrl === "/api/commerce/stripe/webhook") req.rawBody = Buffer.from(buf); } }));
+app.use(express.json({ limit: "256kb", verify: (req, _res, buf) => { if (req.path === "/api/commerce/stripe/webhook") req.rawBody = Buffer.from(buf); } }));
 
 function errorBody(code, message, requestId) {
   return { ok: false, error: { code, message, requestId } };
@@ -80,6 +80,7 @@ app.use((req, res, next) => {
 
 const leadRateLimit = createRateLimiter({ windowMs: LEAD_RATE_LIMIT_WINDOW_MS, max: LEAD_RATE_LIMIT_MAX });
 const dualRateLimit = createRateLimiter({ windowMs: Math.max(1000, Number(process.env.DUAL_AI_RATE_LIMIT_WINDOW_MS || 60000)), max: Math.max(1, Number(process.env.DUAL_AI_RATE_LIMIT_MAX || 10)) });
+const courierPhotoRateLimit = createRateLimiter({ windowMs: 60000, max: 8 });
 app.use("/dual-ai", express.static(path.join(__dirname, "dual-ai", "public"), { index: "index.html" }));
 app.use("/mini-app", express.static(path.join(__dirname, "mini-app"), { index: "index.html" }));
 
@@ -231,7 +232,7 @@ app.post("/api/commerce/orders/:id/assign", requireApiKey, (req, res) => {
   }
 });
 
-app.post("/api/commerce/orders/:id/photo-upload", async (req, res) => {
+app.post("/api/commerce/orders/:id/photo-upload", courierPhotoRateLimit, async (req, res) => {
   const courierId = String(req.get("X-Courier-Id") || "").trim();
   const courierToken = String(req.get("X-Courier-Token") || "");
   if (!courierId || !courierToken) return res.status(401).json(errorBody("COURIER_AUTH_REQUIRED", "Courier authentication is required", req.requestId));
