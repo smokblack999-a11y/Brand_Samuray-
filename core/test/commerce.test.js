@@ -110,7 +110,7 @@ test("photo proof must belong to the assigned courier and is required before del
 test("expired Stripe checkout session is replaced on payment retry", async (t) => {
   commerce.resetForTests();
   const order = newDeliveryOrder();
-  commerce.attachCheckoutSession(order.id, "cs_test_expired", "https://checkout.stripe.test/expired");
+  commerce.attachCheckoutSession(order.id, "cs_test_expired", "https://checkout.stripe.com/c/pay/expired");
   const file = path.join(dataDir, "commerce-orders.json");
   const orders = JSON.parse(fs.readFileSync(file, "utf8"));
   orders[0].checkoutSessionExpiresAt = new Date(Date.now() - 60000).toISOString();
@@ -132,7 +132,7 @@ test("expired Stripe checkout session is replaced on payment retry", async (t) =
       };
     }
     lastRequest = options;
-    return { ok: true, json: async () => ({ id: "cs_test_replacement", url: "https://checkout.stripe.test/replacement", livemode: false, mode: "payment", status: "open", client_reference_id: order.id, metadata: { order_id: order.id }, currency: "kzt", amount_total: 570000, expires_at: Math.floor(Date.now() / 1000) + 3600 }) };
+    return { ok: true, json: async () => ({ id: "cs_test_replacement", url: "https://checkout.stripe.com/c/pay/replacement", livemode: false, mode: "payment", status: "open", client_reference_id: order.id, metadata: { order_id: order.id }, currency: "kzt", amount_total: 570000, expires_at: Math.floor(Date.now() / 1000) + 3600 }) };
   });
   const checkout = await commerce.createCheckoutSession(order.id);
   assert.equal(checkout.sessionId, "cs_test_replacement");
@@ -155,7 +155,7 @@ test("expired Stripe checkout session is replaced on payment retry", async (t) =
 test("a paid but expired Checkout session is recovered from Stripe without creating a second link", async (t) => {
   commerce.resetForTests();
   const order = newDeliveryOrder();
-  commerce.attachCheckoutSession(order.id, "cs_test_already_paid", "https://checkout.stripe.test/old");
+  commerce.attachCheckoutSession(order.id, "cs_test_already_paid", "https://checkout.stripe.com/c/pay/old");
   const file = path.join(dataDir, "commerce-orders.json");
   const orders = JSON.parse(fs.readFileSync(file, "utf8"));
   orders[0].checkoutSessionExpiresAt = new Date(Date.now() - 60000).toISOString();
@@ -187,7 +187,7 @@ test("a paid but expired Checkout session is recovered from Stripe without creat
 test("an expired Checkout with unresolved status does not produce another payable link", async (t) => {
   commerce.resetForTests();
   const order = newDeliveryOrder();
-  commerce.attachCheckoutSession(order.id, "cs_test_uncertain", "https://checkout.stripe.test/old");
+  commerce.attachCheckoutSession(order.id, "cs_test_uncertain", "https://checkout.stripe.com/c/pay/old");
   const file = path.join(dataDir, "commerce-orders.json");
   const orders = JSON.parse(fs.readFileSync(file, "utf8"));
   orders[0].checkoutSessionExpiresAt = new Date(Date.now() - 60000).toISOString();
@@ -215,7 +215,7 @@ test("an expired Checkout with unresolved status does not produce another payabl
 test("legacy Checkout session without stored expiry is reconciled before it can be reused", async (t) => {
   commerce.resetForTests();
   const order = newDeliveryOrder();
-  commerce.attachCheckoutSession(order.id, "cs_test_legacy_no_expiry", "https://checkout.stripe.test/legacy");
+  commerce.attachCheckoutSession(order.id, "cs_test_legacy_no_expiry", "https://checkout.stripe.com/c/pay/legacy");
   process.env.STRIPE_SECRET_KEY = "sk_test_unit_test";
   process.env.COMMERCE_SUCCESS_URL = "https://example.test/success";
   process.env.COMMERCE_CANCEL_URL = "https://example.test/cancel";
@@ -246,7 +246,7 @@ test("Checkout creation rejects a provider response with a mismatched amount bef
   t.mock.method(globalThis, "fetch", async () => ({
     ok: true,
     json: async () => ({
-      id: "cs_test_wrong_amount", url: "https://checkout.stripe.test/wrong",
+      id: "cs_test_wrong_amount", url: "https://checkout.stripe.com/c/pay/wrong",
       livemode: false, mode: "payment", status: "open",
       client_reference_id: order.id, metadata: { order_id: order.id },
       currency: "kzt", amount_total: 12345, expires_at: Math.floor(Date.now() / 1000) + 3600
@@ -279,7 +279,7 @@ test("concurrent checkout requests use one Stripe idempotency key and converge o
     return {
       ok: true,
       json: async () => ({
-        id: "cs_test_concurrent_one", url: "https://checkout.stripe.test/concurrent",
+        id: "cs_test_concurrent_one", url: "https://checkout.stripe.com/c/pay/concurrent",
         livemode: false, mode: "payment", status: "open",
         client_reference_id: order.id, metadata: { order_id: order.id },
         currency: "kzt", amount_total: 570000, expires_at: expiresAt
@@ -310,7 +310,7 @@ test("Stripe checkout retries reuse the persisted idempotency key after a networ
     calls += 1;
     keys.push(options.headers["Idempotency-Key"]);
     if (calls === 1) throw new Error("simulated network timeout");
-    return { ok: true, json: async () => ({ id: "cs_test_after_retry", url: "https://checkout.stripe.test/retry", livemode: false, mode: "payment", status: "open", client_reference_id: order.id, metadata: { order_id: order.id }, currency: "kzt", amount_total: 570000, expires_at: Math.floor(Date.now() / 1000) + 3600 }) };
+    return { ok: true, json: async () => ({ id: "cs_test_after_retry", url: "https://checkout.stripe.com/c/pay/retry", livemode: false, mode: "payment", status: "open", client_reference_id: order.id, metadata: { order_id: order.id }, currency: "kzt", amount_total: 570000, expires_at: Math.floor(Date.now() / 1000) + 3600 }) };
   });
   await assert.rejects(commerce.createCheckoutSession(order.id));
   const afterFailure = commerce.getOrder(order.id);
