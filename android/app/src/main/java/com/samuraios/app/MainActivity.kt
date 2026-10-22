@@ -11,6 +11,7 @@ import android.graphics.RectF
 import android.graphics.Typeface
 import android.location.Location
 import android.os.Bundle
+import android.system.Os
 import android.text.InputType
 import android.os.Handler
 import android.os.Looper
