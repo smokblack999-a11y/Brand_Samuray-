@@ -208,6 +208,20 @@ async function handleMessage(message, updateId) {
     const orders = commerce.listOrders({ customerId: userId });
     return sendText(chatId, orders.length ? orders.slice(0, 20).map(orderSummary).join("\n\n") : "Заказов пока нет.");
   }
+  if (text.startsWith("/pay ")) {
+    const orderId = text.slice(5).trim();
+    const order = commerce.getOrder(orderId);
+    if (!order || order.customerId !== userId) return sendText(chatId, "Заказ не найден.");
+    if (order.paymentStatus === "PAID") return sendText(chatId, "Заказ уже оплачен.\n" + orderSummary(order));
+    try {
+      const checkout = await commerce.createCheckoutSession(order.id);
+      return sendText(chatId, orderSummary(checkout.order) + "\n\nОплата доступна по ссылке ниже. Статус изменится только после подтверждения Stripe.", {
+        inline_keyboard: [[{ text: "ПОВТОРИТЬ ОПЛАТУ В ТЕСТОВОМ РЕЖИМЕ", url: checkout.url }]]
+      });
+    } catch (error) {
+      return sendText(chatId, "Ссылку оплаты создать не удалось: " + (error.code || "PAYMENT_SETUP_REQUIRED") + ". Заказ остаётся неоплаченным.");
+    }
+  }
   if (text === "/courier") {
     if (!isCourier(userId) && !isAdmin(userId)) return sendText(chatId, "Эта команда доступна только назначенным курьерам.");
     const orders = commerce.listOrders({ status: "PAID" }).filter((o) => o.fulfillment === "delivery" && !o.courierId);
@@ -232,7 +246,7 @@ async function handleMessage(message, updateId) {
       return sendText(chatId, "Заказ " + order.id + " завершён.");
     } catch (error) { return sendText(chatId, "Не удалось завершить: " + (error.code || "ERROR")); }
   }
-  if (text === "/help") return sendText(chatId, "/catalog — каталог\n/myorders — мои заказы\n/courier — заказы курьера\n/photo НОМЕР — фотоотчёт\n/done НОМЕР — завершить доставку");
+  if (text === "/help") return sendText(chatId, "/catalog — каталог\n/myorders — мои заказы\n/pay НОМЕР — повторить оплату своего заказа\n/courier — заказы курьера\n/photo НОМЕР — фотоотчёт\n/done НОМЕР — завершить доставку");
   if (text === "/admin") return sendText(chatId, isAdmin(userId) ? "Администратор подтверждён." : "Нет доступа.");
 }
 async function handleCommerceUpdate(update) {
