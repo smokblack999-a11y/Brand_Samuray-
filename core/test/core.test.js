@@ -6,6 +6,14 @@ const path = require('node:path');
 const { spawn } = require('node:child_process');
 
 const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'samurai-core-'));
+process.env.DATA_DIR = dataDir;
+process.env.COMMERCE_CURRENCY = 'KZT';
+process.env.COMMERCE_PRODUCTS_JSON = JSON.stringify([{ id: 'test-product', name: 'Test product', priceKzt: 5000 }]);
+process.env.COMMERCE_DELIVERY_ZONES_JSON = JSON.stringify({ 'test-zone': 700 });
+process.env.COMMERCE_COURIER_IDS = '777';
+process.env.COMMERCE_COURIER_TOKENS_JSON = JSON.stringify({ '777': 'test-courier-token-that-is-not-secret' });
+process.env.COMMERCE_ADMIN_IDS = '888';
+const commerce = require('../commerce');
 const port = 18000 + Math.floor(Math.random() * 1000);
 const API_KEY = 'test-core-api-key-123456';
 const WEBHOOK_SECRET = 'test-webhook-secret-123456';
@@ -34,10 +42,11 @@ test.before(async () => {
       TELEGRAM_WEBHOOK_SECRET: WEBHOOK_SECRET,
       STRIPE_WEBHOOK_SECRET: '',
       TELEGRAM_BOT_TOKEN: '',
-      COMMERCE_PRODUCTS_JSON: '[]',
-      COMMERCE_DELIVERY_ZONES_JSON: '{}',
-      COMMERCE_COURIER_IDS: '',
-      COMMERCE_ADMIN_IDS: '',
+      COMMERCE_PRODUCTS_JSON: JSON.stringify([{ id: 'test-product', name: 'Test product', priceKzt: 5000 }]),
+      COMMERCE_DELIVERY_ZONES_JSON: JSON.stringify({ 'test-zone': 700 }),
+      COMMERCE_COURIER_IDS: '777',
+      COMMERCE_COURIER_TOKENS_JSON: JSON.stringify({ '777': 'test-courier-token-that-is-not-secret' }),
+      COMMERCE_ADMIN_IDS: '888',
       MAX_MESSAGE_CHARS: '4000'
     },
     stdio: ['ignore', 'pipe', 'pipe']
@@ -218,6 +227,36 @@ test('courier photo upload rejects missing courier credentials before accepting 
   });
   assert.equal(response.status, 401);
   assert.equal((await response.json()).error.code, 'COURIER_AUTH_REQUIRED');
+});
+
+test('courier photo upload rejects non-image bytes even with valid courier authentication', async () => {
+  commerce.resetForTests();
+  const order = commerce.createOrder({
+    customerId: '500',
+    productId: 'test-product',
+    quantity: 1,
+    fulfillment: 'delivery',
+    address: 'Test address, 1',
+    deliveryZone: 'test-zone'
+  });
+  commerce.attachCheckoutSession(order.id, 'cs_test_photo_guard');
+  commerce.applyVerifiedPayment({
+    verified: true, eventId: 'evt_photo_guard', orderId: order.id,
+    sessionId: 'cs_test_photo_guard', amountKzt: 5700, currency: 'KZT'
+  });
+  commerce.assignCourier(order.id, '777');
+
+  const response = await fetch(`http://127.0.0.1:${port}/api/commerce/orders/${order.id}/photo-upload`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'image/jpeg',
+      'X-Courier-Id': '777',
+      'X-Courier-Token': 'test-courier-token-that-is-not-secret'
+    },
+    body: Buffer.from('not a real jpeg')
+  });
+  assert.equal(response.status, 415);
+  assert.equal((await response.json()).error.code, 'PHOTO_CONTENT_MISMATCH');
 });
 
 test('unknown route returns JSON 404', async () => {
