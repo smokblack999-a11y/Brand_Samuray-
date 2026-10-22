@@ -124,6 +124,43 @@ test("Telegram customer can select a quantity and the server creates the matchin
   assert.ok(sent.some((p) => String(p.text || "").includes("Оплата не подтверждена")));
 });
 
+test("private Telegram admin and courier commands expose the right order actions", async (t) => {
+  commerce.resetForTests();
+  const order = createPaidDeliveryOrder();
+  const messages = [];
+  t.mock.method(globalThis, "fetch", async (_url, options) => {
+    messages.push(JSON.parse(options.body));
+    return telegramResponse(true);
+  });
+  const messageUpdate = (updateId, userId, text) => ({
+    update_id: updateId,
+    message: {
+      message_id: updateId,
+      chat: { id: userId, type: "private" },
+      from: { id: userId, is_bot: false },
+      text
+    }
+  });
+
+  await bot.handleCommerceUpdate(messageUpdate(920, 700, "/admin"));
+  assert.ok(messages.some((p) => String(p.text || "").includes("Доставка без курьера: 1")));
+
+  messages.length = 0;
+  await bot.handleCommerceUpdate(messageUpdate(921, 700, "/order " + order.id));
+  assert.ok(messages.some((p) => String(p.text || "").includes(order.address)));
+  assert.ok(messages.some((p) => String(p.text || "").includes(order.id)));
+
+  commerce.assignCourier(order.id, "801");
+  messages.length = 0;
+  await bot.handleCommerceUpdate(messageUpdate(922, 801, "/mydelivery"));
+  assert.ok(messages.some((p) => String(p.text || "").includes(order.address)));
+
+  messages.length = 0;
+  await bot.handleCommerceUpdate(messageUpdate(923, 801, "/startdelivery " + order.id));
+  assert.equal(commerce.getOrder(order.id).status, "IN_DELIVERY");
+  assert.ok(messages.some((p) => String(p.text || "").includes("передан курьеру")));
+});
+
 test("payment notifications are persisted per recipient and a completed retry sends nothing twice", async (t) => {
   commerce.resetForTests();
   const order = createPaidDeliveryOrder();
