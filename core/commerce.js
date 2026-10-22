@@ -340,6 +340,7 @@ async function createCheckoutSession(orderId) {
       String(payload.currency || "").toUpperCase() !== order.currency ||
       payload.amount_total !== expectedMinorAmount ||
       checkoutUrl.protocol !== "https:" ||
+      checkoutUrl.hostname !== "checkout.stripe.com" ||
       !Number.isSafeInteger(payload.expires_at) ||
       payload.expires_at * 1000 <= Date.now()) {
     throw fail("PAYMENT_SESSION_INVALID", "Stripe Checkout response does not match the expected test order");
