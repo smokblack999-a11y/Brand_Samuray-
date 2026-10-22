@@ -334,18 +334,23 @@ app.post("/api/commerce/orders/:id/photo-upload", courierPhotoRateLimit, async (
   }
 });
 app.post("/api/commerce/orders/:id/proof", requireApiKey, async (req, res) => {
+  const botToken = String(process.env.TELEGRAM_BOT_TOKEN || "");
+  if (!botToken) return res.status(503).json(errorBody("TELEGRAM_NOT_CONFIGURED", "Telegram bot is not configured", req.requestId));
   try {
-    const order = commerce.attachProof(req.params.id, req.body?.courierId, {
+    let order = commerce.attachProof(req.params.id, req.body?.courierId, {
       telegramFileId: req.body?.telegramFileId, latitude: req.body?.latitude, longitude: req.body?.longitude
     });
-    await fetch("https://api.telegram.org/bot" + String(process.env.TELEGRAM_BOT_TOKEN || "") + "/sendPhoto", {
+    const response = await fetch("https://api.telegram.org/bot" + botToken + "/sendPhoto", {
       method: "POST", headers: { "content-type": "application/json" },
       body: JSON.stringify({ chat_id: order.customerId, photo: order.proof.telegramFileId, caption: "Фото по заказу " + order.id + "\nСтатус: фото получено" }),
       signal: AbortSignal.timeout(10000)
-    }).then(async (r) => { const data = await r.json().catch(() => ({})); if (!r.ok || !data.ok) throw new Error("Telegram photo delivery failed"); });
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.ok) return res.status(502).json(errorBody("CUSTOMER_PHOTO_DELIVERY_FAILED", "Photo is saved to the order; retry the proof request to attempt delivery again", req.requestId));
+    order = commerce.markPhotoDelivered(order.id, req.body?.courierId, order.proof.telegramFileId);
     return res.json({ ok: true, order, requestId: req.requestId });
   } catch (error) {
-    const status = error.code === "ORDER_NOT_FOUND" ? 404 : error.code === "FORBIDDEN" ? 403 : 400;
+    const status = error.code === "ORDER_NOT_FOUND" ? 404 : error.code === "FORBIDDEN" ? 403 : ["PHOTO_REQUIRED", "PAYMENT_NOT_CONFIRMED", "INVALID_ORDER_STATE"].includes(error.code) ? 409 : error.code ? 400 : 502;
     return res.status(status).json(errorBody(error.code || "PHOTO_DELIVERY_FAILED", error.code ? error.message : "Photo could not be delivered", req.requestId));
   }
 });
