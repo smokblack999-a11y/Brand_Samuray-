@@ -121,7 +121,7 @@ test("Telegram customer can select a quantity and the server creates the matchin
   assert.equal(orders[0].quantity, 3);
   assert.equal(orders[0].itemsTotalKzt, 15000);
   assert.equal(orders[0].paymentStatus, "AWAITING_PAYMENT");
-  assert.ok(sent.some((p) => String(p.text || "").includes("Заказ НЕ оплачен")));
+  assert.ok(sent.some((p) => String(p.text || "").includes("Оплата не подтверждена")));
 });
 
 test("payment notifications are persisted per recipient and a completed retry sends nothing twice", async (t) => {
