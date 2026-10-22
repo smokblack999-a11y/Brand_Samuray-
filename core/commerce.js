@@ -234,13 +234,53 @@ async function createCheckoutSession(orderId) {
   const cancelUrl = String(process.env.COMMERCE_CANCEL_URL || "");
   if (!/^https?:\/\//i.test(successUrl) || !/^https?:\/\//i.test(cancelUrl)) throw fail("CHECKOUT_URLS_REQUIRED", "Set COMMERCE_SUCCESS_URL and COMMERCE_CANCEL_URL");
   if (order.paymentStatus === "PAID") throw fail("ALREADY_PAID", "Order is already paid");
+  const previousExpired = Boolean(order.checkoutSessionId && order.checkoutSessionExpiresAt &&
+    Date.parse(order.checkoutSessionExpiresAt) <= Date.now());
   const checkoutReusable = order.checkoutSessionId && order.checkoutUrl &&
     (!order.checkoutSessionExpiresAt || Date.parse(order.checkoutSessionExpiresAt) > Date.now());
   if (checkoutReusable) return { order, sessionId: order.checkoutSessionId, url: order.checkoutUrl };
 
+  // Before creating a replacement, query Stripe for the old session. Its webhook may
+  // be delayed; never hand out a second payable link until Stripe confirms expiry.
+  if (previousExpired) {
+    const oldSessionId = order.checkoutSessionId;
+    const lookupResponse = await fetch("https://api.stripe.com/v1/checkout/sessions/" + encodeURIComponent(oldSessionId), {
+      method: "GET",
+      headers: { Authorization: "Bearer " + secret, Accept: "application/json" },
+      signal: AbortSignal.timeout(15000)
+    });
+    const prior = await lookupResponse.json().catch(() => ({}));
+    if (!lookupResponse.ok || prior.id !== oldSessionId) {
+      throw fail("PAYMENT_STATUS_UNAVAILABLE", "The previous Checkout session could not be verified; no replacement link was created");
+    }
+    if (prior.livemode !== false || prior.mode !== "payment" ||
+        prior.client_reference_id !== order.id || prior.metadata?.order_id !== order.id) {
+      throw fail("PAYMENT_SESSION_MISMATCH", "The previous Checkout session does not match this test order");
+    }
+    if (prior.status === "complete" && prior.payment_status === "paid") {
+      const amountMinor = Number(prior.amount_total);
+      if (!Number.isSafeInteger(amountMinor) || amountMinor <= 0 || amountMinor % 100 !== 0 ||
+          amountMinor !== order.totalKzt * 100 || String(prior.currency || "").toUpperCase() !== order.currency) {
+        throw fail("PAYMENT_MISMATCH", "The completed Checkout session does not match the order total");
+      }
+      const recovered = applyVerifiedPayment({
+        verified: true,
+        eventId: "stripe-session-reconcile:" + prior.id,
+        orderId: order.id,
+        sessionId: prior.id,
+        amountKzt: amountMinor / 100,
+        currency: String(prior.currency || "").toUpperCase(),
+        provider: "stripe_test"
+      });
+      return { order: recovered.order, sessionId: prior.id, url: null, alreadyPaid: true };
+    }
+    if (prior.status !== "expired") {
+      throw fail("PAYMENT_STATUS_PENDING", "The previous Checkout session is not confirmed expired; no replacement link was created");
+    }
+  }
+
   // Persist Stripe's idempotency key before making the network request. If the response
   // is lost, a retry reuses the same key instead of creating a second payable session.
-  const previousExpired = order.checkoutSessionExpiresAt && Date.parse(order.checkoutSessionExpiresAt) <= Date.now();
   const checkoutIdempotencyKey = previousExpired
     ? "samurai-" + order.id + "-" + crypto.randomUUID()
     : (order.checkoutAttemptKey || "samurai-" + order.id + "-" + crypto.randomUUID());
