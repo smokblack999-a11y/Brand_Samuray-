@@ -97,7 +97,7 @@ function createOrder(input) {
     unitPriceKzt: product.priceKzt, itemsTotalKzt, deliveryFeeKzt, totalKzt,
     paymentStatus: "AWAITING_PAYMENT", status: "AWAITING_PAYMENT",
     courierId: null, paymentProvider: null, paymentReference: null,
-    proof: null, createdAt: now, updatedAt: now
+    proof: null, notifications: { customerSentAt: null, courierSentIds: [], adminSentIds: [], deliveryEscalatedAt: null }, createdAt: now, updatedAt: now
   };
   const orders = readOrders();
   orders.push(order);
@@ -242,7 +242,37 @@ function attachCheckoutSession(orderId, sessionId, checkoutUrl = "https://checko
   if (!String(sessionId || "").startsWith("cs_test_")) throw fail("INVALID_CHECKOUT_SESSION", "Only a Stripe test Checkout Session is accepted");
   return updateOrder(orderId, (o) => ({ ...o, checkoutSessionId: String(sessionId), checkoutUrl, paymentProvider: "stripe_test" }));
 }
+function markNotification(orderId, kind, recipientId) {
+  const allowed = new Set(["customer", "courier", "admin", "deliveryEscalated"]);
+  if (!allowed.has(kind)) throw fail("INVALID_NOTIFICATION_KIND", "Invalid order notification kind");
+  return updateOrder(orderId, (o) => {
+    const current = o.notifications || { customerSentAt: null, courierSentIds: [], adminSentIds: [], deliveryEscalatedAt: null };
+    const notifications = {
+      customerSentAt: current.customerSentAt || null,
+      courierSentIds: Array.isArray(current.courierSentIds) ? [...current.courierSentIds] : [],
+      adminSentIds: Array.isArray(current.adminSentIds) ? [...current.adminSentIds] : [],
+      deliveryEscalatedAt: current.deliveryEscalatedAt || null
+    };
+    const now = new Date().toISOString();
+    if (kind === "customer") notifications.customerSentAt = notifications.customerSentAt || now;
+    if (kind === "courier") {
+      const id = String(recipientId || "").trim();
+      if (!id) throw fail("NOTIFICATION_RECIPIENT_REQUIRED", "Courier ID is required");
+      if (!notifications.courierSentIds.includes(id)) notifications.courierSentIds.push(id);
+    }
+    if (kind === "admin") {
+      const id = String(recipientId || "").trim();
+      if (!id) throw fail("NOTIFICATION_RECIPIENT_REQUIRED", "Admin ID is required");
+      if (!notifications.adminSentIds.includes(id)) notifications.adminSentIds.push(id);
+    }
+    if (kind === "deliveryEscalated") notifications.deliveryEscalatedAt = notifications.deliveryEscalatedAt || now;
+    return { ...o, notifications };
+  });
+}
+function listPaidOrders() {
+  return readOrders().filter((o) => o.paymentStatus === "PAID").sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+}
 function resetForTests() {
   for (const file of [ORDERS_FILE, EVENTS_FILE]) try { fs.unlinkSync(file); } catch {}
 }
-module.exports = { getCatalog, getDeliveryZones, getOrder, listOrders, createOrder, createCheckoutSession, attachCheckoutSession, applyVerifiedPayment, assignCourier, markInDelivery, attachProof, markDelivered, resetForTests };
+module.exports = { getCatalog, getDeliveryZones, getOrder, listOrders, createOrder, createCheckoutSession, attachCheckoutSession, applyVerifiedPayment, assignCourier, markInDelivery, attachProof, markDelivered, markNotification, listPaidOrders, resetForTests };
