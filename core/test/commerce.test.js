@@ -128,19 +128,36 @@ test("Stripe signature rejects tampering and accepts a current valid signature",
   assert.equal(stripe.verifyStripeSignature(raw, "t=" + (timestamp - 1000) + ",v1=" + signature, secret), false);
 });
 
+test("Stripe webhook rejects live mode, wrong Checkout mode and conflicting order references", () => {
+  commerce.resetForTests();
+  const order = newDeliveryOrder();
+  commerce.attachCheckoutSession(order.id, "cs_test_guard_123");
+  const validSession = {
+    id: "cs_test_guard_123", livemode: false, mode: "payment", status: "complete",
+    payment_status: "paid", amount_total: 570000, currency: "kzt",
+    client_reference_id: order.id, metadata: { order_id: order.id }
+  };
+  const event = { id: "evt_guard_1", type: "checkout.session.completed", livemode: false, data: { object: validSession } };
+  assert.throws(() => stripe.processStripeEvent({ ...event, livemode: true, id: "evt_guard_live" }), { code: "LIVE_PAYMENT_MODE_DISABLED" });
+  assert.throws(() => stripe.processStripeEvent({ ...event, id: "evt_guard_session_live", data: { object: { ...validSession, livemode: true } } }), { code: "INVALID_CHECKOUT_MODE" });
+  assert.throws(() => stripe.processStripeEvent({ ...event, id: "evt_guard_subscription", data: { object: { ...validSession, mode: "subscription" } } }), { code: "INVALID_CHECKOUT_MODE" });
+  assert.throws(() => stripe.processStripeEvent({ ...event, id: "evt_guard_mismatch", data: { object: { ...validSession, client_reference_id: "SAM-OTHER" } } }), { code: "INVALID_CHECKOUT_SESSION" });
+  assert.equal(commerce.getOrder(order.id).paymentStatus, "AWAITING_PAYMENT");
+});
+
 test("Stripe event only marks a matching test checkout as paid", () => {
   commerce.resetForTests();
   const order = newDeliveryOrder();
   commerce.attachCheckoutSession(order.id, "cs_test_stripe_123");
   const event = {
-    id: "evt_paid_123", type: "checkout.session.completed",
+    id: "evt_paid_123", type: "checkout.session.completed", livemode: false,
     data: { object: {
-      id: "cs_test_stripe_123", payment_status: "paid", amount_total: 570000,
+      id: "cs_test_stripe_123", livemode: false, mode: "payment", status: "complete", payment_status: "paid", amount_total: 570000,
       currency: "kzt", client_reference_id: order.id, metadata: { order_id: order.id }
     } }
   };
   const result = stripe.processStripeEvent(event);
   assert.equal(result.order.paymentStatus, "PAID");
   assert.equal(result.order.totalKzt, 5700);
-  assert.equal(stripe.processStripeEvent({ ...event, id: "evt_pending", data: { object: { ...event.data.object, payment_status: "unpaid" } } }).pending, true);
+  assert.equal(stripe.processStripeEvent({ ...event, id: "evt_pending", data: { object: { ...event.data.object, payment_status: "unpaid", status: "complete" } } }).pending, true);
 });
