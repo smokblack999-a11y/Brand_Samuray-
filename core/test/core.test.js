@@ -32,6 +32,12 @@ test.before(async () => {
       OPENAI_API_KEY: '',
       CORE_API_KEY: API_KEY,
       TELEGRAM_WEBHOOK_SECRET: WEBHOOK_SECRET,
+      STRIPE_WEBHOOK_SECRET: '',
+      TELEGRAM_BOT_TOKEN: '',
+      COMMERCE_PRODUCTS_JSON: '[]',
+      COMMERCE_DELIVERY_ZONES_JSON: '{}',
+      COMMERCE_COURIER_IDS: '',
+      COMMERCE_ADMIN_IDS: '',
       MAX_MESSAGE_CHARS: '4000'
     },
     stdio: ['ignore', 'pipe', 'pipe']
@@ -181,6 +187,37 @@ test('Telegram webhook requires secret and deduplicates business messages', asyn
   assert.equal(stats.stats.processing, 0);
   assert.equal(stats.stats.failed, 0);
   assert.equal(stats.stats.hot + stats.stats.warm + stats.stats.cold, 2);
+});
+
+test('commerce endpoints require API key and expose only configured catalog', async () => {
+  const denied = await fetch(`http://127.0.0.1:${port}/api/commerce/orders`);
+  assert.equal(denied.status, 401);
+
+  const catalogResponse = await fetch(`http://127.0.0.1:${port}/api/commerce/catalog`);
+  assert.equal(catalogResponse.status, 200);
+  const catalog = await catalogResponse.json();
+  assert.deepEqual(catalog.products, []);
+  assert.deepEqual(catalog.deliveryZones, {});
+});
+
+test('Stripe webhook fails closed when signature verification is not configured', async () => {
+  const response = await fetch(`http://127.0.0.1:${port}/api/commerce/stripe/webhook`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'Stripe-Signature': 't=123,v1=invalid' },
+    body: JSON.stringify({ id: 'evt_never_paid', type: 'checkout.session.completed' })
+  });
+  assert.equal(response.status, 503);
+  assert.equal((await response.json()).error.code, 'STRIPE_WEBHOOK_NOT_CONFIGURED');
+});
+
+test('courier photo upload rejects missing courier credentials before accepting a photo', async () => {
+  const response = await fetch(`http://127.0.0.1:${port}/api/commerce/orders/SAM-NOTREAL/photo-upload`, {
+    method: 'POST',
+    headers: { 'content-type': 'image/jpeg' },
+    body: Buffer.from([0xff, 0xd8, 0xff, 0xd9])
+  });
+  assert.equal(response.status, 401);
+  assert.equal((await response.json()).error.code, 'COURIER_AUTH_REQUIRED');
 });
 
 test('unknown route returns JSON 404', async () => {
