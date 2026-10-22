@@ -97,9 +97,13 @@ test("photo proof must belong to the assigned courier and is required before del
   commerce.assignCourier(order.id, "777");
   assert.throws(() => commerce.attachProof(order.id, "999", { telegramFileId: "file-1" }), { code: "FORBIDDEN" });
   assert.throws(() => commerce.markDelivered(order.id, "777"), { code: "PHOTO_REQUIRED" });
-  const proof = commerce.attachProof(order.id, "777", { telegramFileId: "file-1", latitude: 43.2389, longitude: 76.8897 });
+  const proof = commerce.attachProof(order.id, "777", { telegramFileId: "file-1", sha256: "a".repeat(64), latitude: 43.2389, longitude: 76.8897 });
   assert.equal(proof.status, "PHOTO_RECEIVED");
   assert.equal(proof.proof.latitude, 43.2389);
+  assert.throws(() => commerce.markPhotoDelivered(order.id, "999", "file-1"), { code: "FORBIDDEN" });
+  assert.throws(() => commerce.markPhotoDelivered(order.id, "777", "other-file"), { code: "PHOTO_PROOF_MISMATCH" });
+  const customerSent = commerce.markPhotoDelivered(order.id, "777", "file-1");
+  assert.ok(customerSent.proof.customerSentAt);
   assert.equal(commerce.markDelivered(order.id, "777").status, "DELIVERED");
 });
 
