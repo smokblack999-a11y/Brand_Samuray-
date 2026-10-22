@@ -132,7 +132,7 @@ test("expired Stripe checkout session is replaced on payment retry", async (t) =
       };
     }
     lastRequest = options;
-    return { ok: true, json: async () => ({ id: "cs_test_replacement", url: "https://checkout.stripe.test/replacement", expires_at: Math.floor(Date.now() / 1000) + 3600 }) };
+    return { ok: true, json: async () => ({ id: "cs_test_replacement", url: "https://checkout.stripe.test/replacement", livemode: false, mode: "payment", status: "open", client_reference_id: order.id, metadata: { order_id: order.id }, currency: "kzt", amount_total: 570000, expires_at: Math.floor(Date.now() / 1000) + 3600 }) };
   });
   const checkout = await commerce.createCheckoutSession(order.id);
   assert.equal(checkout.sessionId, "cs_test_replacement");
@@ -224,7 +224,7 @@ test("Stripe checkout retries reuse the persisted idempotency key after a networ
     calls += 1;
     keys.push(options.headers["Idempotency-Key"]);
     if (calls === 1) throw new Error("simulated network timeout");
-    return { ok: true, json: async () => ({ id: "cs_test_after_retry", url: "https://checkout.stripe.test/retry", expires_at: Math.floor(Date.now() / 1000) + 3600 }) };
+    return { ok: true, json: async () => ({ id: "cs_test_after_retry", url: "https://checkout.stripe.test/retry", livemode: false, mode: "payment", status: "open", client_reference_id: order.id, metadata: { order_id: order.id }, currency: "kzt", amount_total: 570000, expires_at: Math.floor(Date.now() / 1000) + 3600 }) };
   });
   await assert.rejects(commerce.createCheckoutSession(order.id));
   const afterFailure = commerce.getOrder(order.id);
