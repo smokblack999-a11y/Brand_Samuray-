@@ -212,6 +212,29 @@ test("an expired Checkout with unresolved status does not produce another payabl
   assert.equal(commerce.getOrder(order.id).checkoutSessionId, "cs_test_uncertain");
 });
 
+test("Checkout creation rejects a provider response with a mismatched amount before exposing the URL", async (t) => {
+  commerce.resetForTests();
+  const order = newDeliveryOrder();
+  process.env.STRIPE_SECRET_KEY = "sk_test_unit_test";
+  process.env.COMMERCE_SUCCESS_URL = "https://example.test/success";
+  process.env.COMMERCE_CANCEL_URL = "https://example.test/cancel";
+  t.mock.method(globalThis, "fetch", async () => ({
+    ok: true,
+    json: async () => ({
+      id: "cs_test_wrong_amount", url: "https://checkout.stripe.test/wrong",
+      livemode: false, mode: "payment", status: "open",
+      client_reference_id: order.id, metadata: { order_id: order.id },
+      currency: "kzt", amount_total: 12345, expires_at: Math.floor(Date.now() / 1000) + 3600
+    })
+  }));
+  await assert.rejects(commerce.createCheckoutSession(order.id), { code: "PAYMENT_SESSION_INVALID" });
+  const after = commerce.getOrder(order.id);
+  assert.equal(after.paymentStatus, "AWAITING_PAYMENT");
+  assert.equal(after.checkoutSessionId, undefined);
+  assert.equal(after.checkoutUrl, undefined);
+  assert.ok(after.checkoutAttemptKey);
+});
+
 test("Stripe checkout retries reuse the persisted idempotency key after a network failure", async (t) => {
   commerce.resetForTests();
   const order = newDeliveryOrder();
