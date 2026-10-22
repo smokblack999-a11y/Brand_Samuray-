@@ -9,6 +9,7 @@ const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, "data");
 const SESSION_FILE = path.join(DATA_DIR, "commerce-bot-sessions.json");
 const UPDATES_FILE = path.join(DATA_DIR, "commerce-bot-updates.json");
 const timeoutMs = Math.max(1000, Number(process.env.TELEGRAM_TIMEOUT_MS || 10000));
+const inFlightPaymentNotifications = new Set();
 
 function readSessions() {
   fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -86,65 +87,72 @@ async function createAndRequestPayment(chatId, input, updateId) {
   return order;
 }
 async function notifyPaidOrder(orderInput) {
-  let order = commerce.getOrder(orderInput.id);
-  if (!order || order.paymentStatus !== "PAID") return { skipped: true };
-  const notificationState = () => commerce.getOrder(order.id)?.notifications || {};
-  let n = notificationState();
-
-  if (!n.customerSentAt) {
-    try {
-      await sendText(order.customerId, "Оплата подтверждена платёжной системой.\n" + orderSummary(order));
-      commerce.markNotification(order.id, "customer");
-    } catch {
-      console.error(JSON.stringify({ event: "customer_payment_notify_failed", orderId: order.id }));
-    }
-  }
-
-  const admins = String(process.env.COMMERCE_ADMIN_IDS || "").split(",").map((x) => x.trim()).filter(Boolean);
-  if (order.fulfillment === "pickup") {
-    n = notificationState();
-    for (const id of admins) {
-      if (n.adminSentIds?.includes(id)) continue;
+  const orderId = String(orderInput?.id || "");
+  if (!orderId) return { skipped: true };
+  if (inFlightPaymentNotifications.has(orderId)) return { inFlight: true, orderId };
+  inFlightPaymentNotifications.add(orderId);
+  try {
+    let order = commerce.getOrder(orderInput.id);
+    if (!order || order.paymentStatus !== "PAID") return { skipped: true };
+    const notificationState = () => commerce.getOrder(order.id)?.notifications || {};
+    let n = notificationState();
+  
+    if (!n.customerSentAt) {
       try {
-        await sendText(id, "Оплаченный заказ на самовывоз:\n" + orderSummary(order));
-        commerce.markNotification(order.id, "admin", id);
+        await sendText(order.customerId, "Оплата подтверждена платёжной системой.\n" + orderSummary(order));
+        commerce.markNotification(order.id, "customer");
+      } catch {
+        console.error(JSON.stringify({ event: "customer_payment_notify_failed", orderId: order.id }));
+      }
+    }
+  
+    const admins = String(process.env.COMMERCE_ADMIN_IDS || "").split(",").map((x) => x.trim()).filter(Boolean);
+    if (order.fulfillment === "pickup") {
+      n = notificationState();
+      for (const id of admins) {
+        if (n.adminSentIds?.includes(id)) continue;
+        try {
+          await sendText(id, "Оплаченный заказ на самовывоз:\n" + orderSummary(order));
+          commerce.markNotification(order.id, "admin", id);
+          n = notificationState();
+        } catch { console.error(JSON.stringify({ event: "pickup_admin_notify_failed", orderId: order.id })); }
+      }
+      return { orderId: order.id, notifications: notificationState() };
+    }
+  
+    const couriers = String(process.env.COMMERCE_COURIER_IDS || "").split(",").map((x) => x.trim()).filter(Boolean);
+    n = notificationState();
+    for (const id of couriers) {
+      if (n.courierSentIds?.includes(id)) continue;
+      try {
+        await sendText(id, "Новый оплаченный заказ на доставку:\n" + orderSummary(order) +
+          "\nАдрес: " + order.address, { inline_keyboard: [[{ text: "ВЗЯТЬ ЗАКАЗ", callback_data: "courier:assign:" + order.id }]] });
+        commerce.markNotification(order.id, "courier", id);
         n = notificationState();
-      } catch { console.error(JSON.stringify({ event: "pickup_admin_notify_failed", orderId: order.id })); }
+      } catch { console.error(JSON.stringify({ event: "courier_notify_failed", orderId: order.id, code: "TELEGRAM_SEND_FAILED" })); }
+    }
+  
+    n = notificationState();
+    const hasCourierRecipient = couriers.some((id) => n.courierSentIds?.includes(id));
+    if (!hasCourierRecipient) {
+      for (const id of admins) {
+        if (n.adminSentIds?.includes(id)) continue;
+        try {
+          await sendText(id, "ОПЛАЧЕННЫЙ ЗАКАЗ ОЖИДАЕТ КУРЬЕРА:\n" + orderSummary(order) + "\nАдрес: " + order.address);
+          commerce.markNotification(order.id, "admin", id);
+          n = notificationState();
+        } catch { console.error(JSON.stringify({ event: "delivery_admin_notify_failed", orderId: order.id })); }
+      }
+      if (!n.deliveryEscalatedAt && (admins.length === 0 || admins.every((id) => n.adminSentIds?.includes(id)))) {
+        commerce.markNotification(order.id, "deliveryEscalated");
+        if (admins.length === 0) console.error(JSON.stringify({ event: "commerce_no_courier_or_admin_configured", orderId: order.id }));
+      }
     }
     return { orderId: order.id, notifications: notificationState() };
+  } finally {
+    inFlightPaymentNotifications.delete(orderId);
   }
-
-  const couriers = String(process.env.COMMERCE_COURIER_IDS || "").split(",").map((x) => x.trim()).filter(Boolean);
-  n = notificationState();
-  for (const id of couriers) {
-    if (n.courierSentIds?.includes(id)) continue;
-    try {
-      await sendText(id, "Новый оплаченный заказ на доставку:\n" + orderSummary(order) +
-        "\nАдрес: " + order.address, { inline_keyboard: [[{ text: "ВЗЯТЬ ЗАКАЗ", callback_data: "courier:assign:" + order.id }]] });
-      commerce.markNotification(order.id, "courier", id);
-      n = notificationState();
-    } catch { console.error(JSON.stringify({ event: "courier_notify_failed", orderId: order.id, code: "TELEGRAM_SEND_FAILED" })); }
-  }
-
-  n = notificationState();
-  const hasCourierRecipient = couriers.some((id) => n.courierSentIds?.includes(id));
-  if (!hasCourierRecipient) {
-    for (const id of admins) {
-      if (n.adminSentIds?.includes(id)) continue;
-      try {
-        await sendText(id, "ОПЛАЧЕННЫЙ ЗАКАЗ ОЖИДАЕТ КУРЬЕРА:\n" + orderSummary(order) + "\nАдрес: " + order.address);
-        commerce.markNotification(order.id, "admin", id);
-        n = notificationState();
-      } catch { console.error(JSON.stringify({ event: "delivery_admin_notify_failed", orderId: order.id })); }
-    }
-    if (!n.deliveryEscalatedAt && (admins.length === 0 || admins.every((id) => n.adminSentIds?.includes(id)))) {
-      commerce.markNotification(order.id, "deliveryEscalated");
-      if (admins.length === 0) console.error(JSON.stringify({ event: "commerce_no_courier_or_admin_configured", orderId: order.id }));
-    }
-  }
-  return { orderId: order.id, notifications: notificationState() };
 }
-
 async function retryPendingPaymentNotifications() {
   // Payment state is durable before any Telegram send. Re-check all paid orders so a
   // process restart or a Telegram outage cannot permanently lose customer/courier alerts.
