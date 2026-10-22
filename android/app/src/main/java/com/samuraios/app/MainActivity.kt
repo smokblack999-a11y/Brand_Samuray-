@@ -46,8 +46,6 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.net.HttpURLConnection
-import java.nio.file.Files
-import java.nio.file.StandardCopyOption
 import java.net.URL
 import java.net.URLEncoder
 import java.util.UUID
@@ -311,12 +309,7 @@ class MainActivity : ComponentActivity() {
                 if (!decoded.compress(Bitmap.CompressFormat.JPEG, 95, stream)) return false
                 stream.fd.sync()
             }
-            Files.move(
-                temp.toPath(),
-                photo.toPath(),
-                StandardCopyOption.REPLACE_EXISTING,
-                StandardCopyOption.ATOMIC_MOVE
-            )
+            Os.rename(temp.absolutePath, photo.absolutePath)
             true
         } catch (_: OutOfMemoryError) {
             false
