@@ -312,8 +312,8 @@ class MainActivity : ComponentActivity() {
         BitmapFactory.decodeFile(file.absolutePath, bounds)
         if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
         var sampleSize = 1
-        while (bounds.outWidth / (sampleSize * 2) >= targetWidth &&
-            bounds.outHeight / (sampleSize * 2) >= targetHeight) {
+        while (bounds.outWidth / sampleSize > targetWidth ||
+            bounds.outHeight / sampleSize > targetHeight) {
             sampleSize *= 2
         }
         return runCatching {
