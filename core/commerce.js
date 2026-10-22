@@ -284,16 +284,22 @@ async function createCheckoutSession(orderId) {
     }
   }
 
-  // Persist Stripe's idempotency key before making the network request. If the response
-  // is lost, a retry reuses the same key instead of creating a second payable session.
-  const checkoutIdempotencyKey = previousExpired
-    ? "samurai-" + order.id + "-" + crypto.randomUUID()
-    : (order.checkoutAttemptKey || "samurai-" + order.id + "-" + crypto.randomUUID());
+  // The key is deterministic for the current checkout generation. Two simultaneous
+  // retries therefore use the same Stripe idempotency key instead of creating two sessions.
+  // A new generation is allowed only after the previous session is confirmed expired.
+  const existingSessionIds = Array.isArray(order.checkoutSessionIds) ? order.checkoutSessionIds : [];
+  const knownSessionIds = [...new Set([...existingSessionIds, ...(order.checkoutSessionId ? [order.checkoutSessionId] : [])])];
+  const checkoutIdempotencyKey = "samurai-" + order.id + "-checkout-" + knownSessionIds.length;
   updateOrder(order.id, (o) => ({
     ...o,
     checkoutAttemptKey: checkoutIdempotencyKey,
     checkoutAttemptStartedAt: o.checkoutAttemptKey === checkoutIdempotencyKey ? o.checkoutAttemptStartedAt : new Date().toISOString(),
-    ...(previousExpired ? { checkoutSessionId: null, checkoutUrl: null, checkoutSessionExpiresAt: null } : {})
+    ...(previousExpired ? {
+      checkoutSessionId: null,
+      checkoutUrl: null,
+      checkoutSessionExpiresAt: null,
+      checkoutSessionIds: [...new Set([...(Array.isArray(o.checkoutSessionIds) ? o.checkoutSessionIds : []), ...(o.checkoutSessionId ? [o.checkoutSessionId] : [])])]
+    } : {})
   }));
   const form = new URLSearchParams();
   form.set("mode", "payment");
