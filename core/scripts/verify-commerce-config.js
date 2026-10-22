@@ -102,6 +102,7 @@ function validateCommerceEnv(env = process.env) {
   const courierIds = String(env.COMMERCE_COURIER_IDS || "").split(",").map((x) => x.trim()).filter(Boolean);
   const courierTokens = parseJson(env, "COMMERCE_COURIER_TOKENS_JSON", "{}", errors);
   if (courierIds.length === 0) errors.push("COMMERCE_COURIER_IDS must contain at least one courier Telegram ID");
+  if (new Set(courierIds).size !== courierIds.length) errors.push("COMMERCE_COURIER_IDS must not contain duplicates");
   for (const id of courierIds) {
     if (!/^\d{1,20}$/.test(id)) errors.push("Courier IDs must be numeric Telegram user IDs");
   }
@@ -109,11 +110,15 @@ function validateCommerceEnv(env = process.env) {
     if (!courierTokens || typeof courierTokens !== "object" || Array.isArray(courierTokens)) {
       errors.push("COMMERCE_COURIER_TOKENS_JSON must be a JSON object");
     } else {
+      const configuredTokens = [];
       for (const id of courierIds) {
         if (typeof courierTokens[id] !== "string" || courierTokens[id].length < 32 || isPlaceholderValue(courierTokens[id])) {
-          errors.push("Every configured courier needs a unique-looking upload token of at least 32 characters");
+          errors.push("Every configured courier needs a unique upload token of at least 32 characters");
+        } else {
+          configuredTokens.push(courierTokens[id]);
         }
       }
+      if (new Set(configuredTokens).size !== configuredTokens.length) errors.push("Each courier must have a different upload token");
     }
   }
 
