@@ -336,17 +336,32 @@ async function handleMessage(message, updateId) {
 }
 async function handleCommerceUpdate(update) {
   if (hasUpdate(update?.update_id)) return { duplicate: true };
-  let result;
-  if (update?.callback_query) {
-    const q = update.callback_query;
-    await answerCallback(q.id, "Принято");
-    result = await handleCallback(q, update?.update_id);
-  } else if (update?.message) {
-    result = await handleMessage(update.message, update?.update_id);
-  } else {
-    return { ignored: true };
+  const chatId = update?.callback_query?.message?.chat?.id ?? update?.message?.chat?.id;
+  try {
+    let result;
+    if (update?.callback_query) {
+      const q = update.callback_query;
+      await answerCallback(q.id, "Принято");
+      result = await handleCallback(q, update?.update_id);
+    } else if (update?.message) {
+      result = await handleMessage(update.message, update?.update_id);
+    } else {
+      return { ignored: true };
+    }
+    markUpdate(update?.update_id);
+    return result;
+  } catch (error) {
+    console.error(JSON.stringify({
+      event: "commerce_telegram_update_failed",
+      updateId: Number.isSafeInteger(update?.update_id) ? update.update_id : null,
+      code: String(error?.code || error?.name || "UNEXPECTED_ERROR").slice(0, 80)
+    }));
+    if (chatId == null) throw error;
+    // Fail closed without exposing configuration, provider responses, tokens or internal errors.
+    // If Telegram itself is unavailable, allow the webhook to retry the update.
+    await sendText(chatId, "Не удалось обработать запрос. Проверьте настройки каталога или повторите позже.");
+    markUpdate(update?.update_id);
+    return { handledError: true };
   }
-  markUpdate(update?.update_id);
-  return result;
 }
 module.exports = { handleCommerceUpdate, notifyPaidOrder, retryPendingPaymentNotifications, isCourier, isAdmin };
