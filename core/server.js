@@ -336,7 +336,7 @@ app.post("/api/commerce/stripe/webhook", (req, res) => {
   }
   try {
     const result = commerceStripe.processStripeEvent(req.body);
-    if (result.order && !result.duplicate && !result.pending) {
+    if (result.order && !result.pending) {
       void commerceBot.notifyPaidOrder(result.order).catch(() => console.error(JSON.stringify({ event: "commerce_payment_notify_failed", orderId: result.order.id, requestId: req.requestId })));
     }
     return res.json({ received: true, processed: !result.ignored && !result.pending, duplicate: Boolean(result.duplicate), requestId: req.requestId });
@@ -550,6 +550,17 @@ app.post("/api/telegram/webhook", requireWebhookSecret, async (req, res) => {
 app.use((req, res) => res.status(404).json(errorBody("NOT_FOUND", "Endpoint not found", req.requestId)));
 
 const server = app.listen(PORT, "0.0.0.0", () => console.log(`SamuraiOS Core 2.7.0 listening on :${PORT}`));
+if (String(process.env.TELEGRAM_BOT_TOKEN || "").trim()) {
+  const notificationRetryMs = Math.max(10000, Number(process.env.COMMERCE_NOTIFICATION_RETRY_MS || 60000));
+  const retryCommerceNotifications = () => {
+    void commerceBot.retryPendingPaymentNotifications().catch(() =>
+      console.error(JSON.stringify({ event: "commerce_notification_retry_worker_failed" }))
+    );
+  };
+  retryCommerceNotifications();
+  const notificationRetryTimer = setInterval(retryCommerceNotifications, notificationRetryMs);
+  notificationRetryTimer.unref();
+}
 server.requestTimeout = REQUEST_TIMEOUT_MS;
 server.headersTimeout = REQUEST_TIMEOUT_MS + 5000;
 
