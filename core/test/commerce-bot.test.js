@@ -43,6 +43,26 @@ function telegramResponse(ok = true) {
   };
 }
 
+test("commerce messages from group chats are ignored to protect delivery addresses", async (t) => {
+  commerce.resetForTests();
+  let telegramCalls = 0;
+  t.mock.method(globalThis, "fetch", async () => {
+    telegramCalls += 1;
+    return telegramResponse(true);
+  });
+  await bot.handleCommerceUpdate({
+    update_id: 909,
+    message: {
+      message_id: 1,
+      chat: { id: -10000001, type: "supergroup" },
+      from: { id: 500, is_bot: false },
+      text: "/catalog"
+    }
+  });
+  assert.equal(telegramCalls, 0);
+  assert.equal(commerce.listOrders().length, 0);
+});
+
 test("Telegram customer can select a quantity and the server creates the matching unpaid order", async (t) => {
   commerce.resetForTests();
   process.env.STRIPE_SECRET_KEY = "";
@@ -57,7 +77,7 @@ test("Telegram customer can select a quantity and the server creates the matchin
     callback_query: {
       id: "cb-" + updateId,
       from: { id: 500 },
-      message: { chat: { id: 500 } },
+      message: { chat: { id: 500, type: "private" } },
       data
     }
   });
