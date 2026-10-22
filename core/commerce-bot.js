@@ -328,6 +328,72 @@ async function handleMessage(message, updateId) {
       inline_keyboard: orders.slice(0, 20).map((o) => [{ text: o.id + " · " + o.totalKzt + " KZT", callback_data: "courier:assign:" + o.id }])
     } : undefined);
   }
+  if (text === "/admin") {
+    if (!isAdmin(userId)) return sendText(chatId, "Нет доступа.");
+    const orders = commerce.listOrders();
+    const count = (predicate) => orders.filter(predicate).length;
+    return sendText(chatId,
+      "SAMURAI · Сводка\n" +
+      "Всего заказов: " + orders.length + "\n" +
+      "Ожидают оплаты: " + count((o) => o.paymentStatus !== "PAID" && o.status !== "CANCELLED") + "\n" +
+      "Самовывоз готов: " + count((o) => o.status === "READY_FOR_PICKUP") + "\n" +
+      "Доставка без курьера: " + count((o) => o.fulfillment === "delivery" && o.paymentStatus === "PAID" && !o.courierId) + "\n" +
+      "В доставке: " + count((o) => ["COURIER_ASSIGNED", "IN_DELIVERY", "PHOTO_RECEIVED"].includes(o.status)) + "\n" +
+      "Доставлено: " + count((o) => o.status === "DELIVERED") + "\n\n" +
+      "Команды администратора: /orders, /order НОМЕР"
+    );
+  }
+  if (text === "/orders") {
+    if (!isAdmin(userId)) return sendText(chatId, "Нет доступа.");
+    const orders = commerce.listOrders().slice(0, 20);
+    return sendText(chatId, orders.length
+      ? "Последние заказы (до 20):\n\n" + orders.map((o) =>
+          orderSummary(o) + (o.fulfillment === "delivery" ? "\nАдрес: " + o.address : "")
+        ).join("\n\n---\n\n")
+      : "Заказов пока нет."
+    );
+  }
+  if (text.startsWith("/order ")) {
+    if (!isAdmin(userId)) return sendText(chatId, "Нет доступа.");
+    const orderId = text.slice(7).trim();
+    const order = commerce.getOrder(orderId);
+    if (!order) return sendText(chatId, "Заказ не найден.");
+    return sendText(chatId,
+      orderSummary(order) + "\nКлиент Telegram ID: " + order.customerId +
+      (order.fulfillment === "delivery" ? "\nАдрес: " + order.address + "\nЗона: " + order.deliveryZone : "") +
+      "\nКурьер: " + (order.courierId || "не назначен") +
+      "\nФотоотчёт: " + (order.proof ? "получен" : "нет") +
+      (order.proof?.latitude != null ? "\nGPS: " + order.proof.latitude + ", " + order.proof.longitude +
+        (order.proof.accuracyMeters == null ? "" : " ± " + order.proof.accuracyMeters + " м") : "")
+    );
+  }
+  if (text === "/mydelivery") {
+    if (!isCourier(userId) && !isAdmin(userId)) return sendText(chatId, "Эта команда доступна только курьерам.");
+    const orders = commerce.listOrders({ courierId: userId })
+      .filter((o) => !["DELIVERED", "CANCELLED"].includes(o.status));
+    return sendText(chatId, orders.length
+      ? "Ваши активные доставки:\n\n" + orders.map((o) =>
+          orderSummary(o) + "\nАдрес: " + o.address + "\nФото: " +
+          (o.proof?.customerSentAt ? "отправлено клиенту" : o.proof ? "получено, отправка ожидается" : "ожидается")
+        ).join("\n\n---\n\n")
+      : "Активных доставок нет."
+    );
+  }
+  if (text.startsWith("/startdelivery ")) {
+    if (!isCourier(userId) && !isAdmin(userId)) return sendText(chatId, "Нет доступа.");
+    const orderId = text.slice("/startdelivery ".length).trim();
+    try {
+      const current = commerce.getOrder(orderId);
+      if (!current) return sendText(chatId, "Заказ не найден.");
+      if (current.courierId !== userId) return sendText(chatId, "Заказ не назначен вам.");
+      if (current.status === "IN_DELIVERY") return sendText(chatId, "Заказ уже отмечен как находящийся в пути.");
+      const order = commerce.markInDelivery(orderId, userId);
+      await sendText(order.customerId, "Заказ " + order.id + " передан курьеру и находится в пути.");
+      return sendText(chatId, "Статус обновлён. После прибытия отправьте /photo " + order.id);
+    } catch (error) {
+      return sendText(chatId, "Не удалось начать доставку: " + (error.code || "ERROR"));
+    }
+  }
   if (text.startsWith("/photo ")) {
     if (!isCourier(userId) && !isAdmin(userId)) return sendText(chatId, "Нет доступа.");
     const orderId = text.slice(7).trim();
@@ -345,8 +411,7 @@ async function handleMessage(message, updateId) {
       return sendText(chatId, "Заказ " + order.id + " завершён.");
     } catch (error) { return sendText(chatId, "Не удалось завершить: " + (error.code || "ERROR")); }
   }
-  if (text === "/help") return sendText(chatId, "/catalog — каталог\n/myorders — мои заказы\n/pay НОМЕР — повторить оплату своего заказа\n/courier — заказы курьера\n/photo НОМЕР — фотоотчёт\n/done НОМЕР — завершить доставку");
-  if (text === "/admin") return sendText(chatId, isAdmin(userId) ? "Администратор подтверждён." : "Нет доступа.");
+  if (text === "/help") return sendText(chatId, "/catalog — каталог\n/myorders — мои заказы\n/pay НОМЕР — повторить оплату своего заказа\n/courier — очередь доставок\n/mydelivery — мои активные доставки\n/startdelivery НОМЕР — начать доставку\n/photo НОМЕР — фотоотчёт\n/done НОМЕР — завершить доставку\n\nАдминистратор: /admin, /orders, /order НОМЕР");
 }
 async function handleCommerceUpdate(update) {
   if (hasUpdate(update?.update_id)) return { duplicate: true };
