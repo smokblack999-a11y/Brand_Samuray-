@@ -23,21 +23,31 @@ function processStripeEvent(event) {
   if (!event || typeof event.id !== "string" || !event.id || !event.data?.object) {
     const error = new Error("Malformed Stripe event"); error.code = "INVALID_STRIPE_EVENT"; throw error;
   }
+  if (event.livemode !== false) {
+    const error = new Error("Live-mode Stripe events are disabled"); error.code = "LIVE_PAYMENT_MODE_DISABLED"; throw error;
+  }
   const session = event.data.object;
   if (!["checkout.session.completed", "checkout.session.async_payment_succeeded"].includes(event.type)) {
     return { ignored: true, type: event.type };
   }
-  if (session.payment_status !== "paid") return { pending: true, orderId: session.metadata?.order_id || null };
-  const orderId = String(session.metadata?.order_id || session.client_reference_id || "");
-  if (!orderId || !String(session.id || "").startsWith("cs_test_")) {
-    const error = new Error("Checkout session is not a valid configured test session"); error.code = "INVALID_CHECKOUT_SESSION"; throw error;
+  if (session.livemode !== false || session.mode !== "payment") {
+    const error = new Error("Only test-mode one-time Checkout sessions are accepted"); error.code = "INVALID_CHECKOUT_MODE"; throw error;
+  }
+  if (session.payment_status !== "paid" || session.status !== "complete") {
+    return { pending: true, orderId: session.metadata?.order_id || null };
+  }
+  const metadataOrderId = String(session.metadata?.order_id || "");
+  const clientReferenceId = String(session.client_reference_id || "");
+  if (!metadataOrderId || !clientReferenceId || metadataOrderId !== clientReferenceId ||
+      !String(session.id || "").startsWith("cs_test_")) {
+    const error = new Error("Checkout session does not match its order reference"); error.code = "INVALID_CHECKOUT_SESSION"; throw error;
   }
   const amountMinor = Number(session.amount_total);
-  if (!Number.isSafeInteger(amountMinor) || amountMinor % 100 !== 0) {
-    const error = new Error("Stripe amount is not a whole KZT amount"); error.code = "PAYMENT_AMOUNT_INVALID"; throw error;
+  if (!Number.isSafeInteger(amountMinor) || amountMinor <= 0 || amountMinor % 100 !== 0) {
+    const error = new Error("Stripe amount is not a whole KZT amount in minor units"); error.code = "PAYMENT_AMOUNT_INVALID"; throw error;
   }
   const result = commerce.applyVerifiedPayment({
-    verified: true, eventId: event.id, orderId, sessionId: session.id,
+    verified: true, eventId: event.id, orderId: metadataOrderId, sessionId: session.id,
     amountKzt: amountMinor / 100, currency: String(session.currency || "").toUpperCase(),
     provider: "stripe_test"
   });
