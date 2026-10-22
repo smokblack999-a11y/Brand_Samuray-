@@ -129,11 +129,21 @@ function applyVerifiedPayment(input) {
 
   const events = readEvents();
   const orderEventIds = Array.isArray(order.paymentEventIds) ? order.paymentEventIds : [];
-  if (events.includes(eventId) && !orderEventIds.includes(eventId)) {
+  const alreadyPaidForThisEvent = order.paymentStatus === "PAID" && order.paymentReference === eventId;
+  const alreadyAppliedToOrder = orderEventIds.includes(eventId) || alreadyPaidForThisEvent;
+  if (events.includes(eventId) && !alreadyAppliedToOrder) {
     throw fail("PAYMENT_EVENT_REPLAY_MISMATCH", "Provider event ID has already been used for a different order");
   }
-  if (orderEventIds.includes(eventId)) {
-    // Repair the secondary event ledger if a prior process stopped between its two writes.
+  if (alreadyAppliedToOrder) {
+    // Repair both ledgers if a prior process stopped between writes; this also migrates
+    // pre-versioned paid orders that only stored paymentReference.
+    if (!orderEventIds.includes(eventId)) {
+      const repaired = updateOrder(orderId, (o) => ({
+        ...o, paymentEventIds: [...(Array.isArray(o.paymentEventIds) ? o.paymentEventIds : []), eventId]
+      }));
+      if (!events.includes(eventId)) { events.push(eventId); writeJson(EVENTS_FILE, events); }
+      return { duplicate: true, order: repaired };
+    }
     if (!events.includes(eventId)) { events.push(eventId); writeJson(EVENTS_FILE, events); }
     if (order.paymentStatus !== "PAID") throw fail("PAYMENT_EVENT_STATE_MISMATCH", "Payment event is recorded but the order is not paid");
     return { duplicate: true, order };
