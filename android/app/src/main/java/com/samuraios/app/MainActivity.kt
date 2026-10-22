@@ -160,6 +160,7 @@ class MainActivity : ComponentActivity() {
         root.addView(courierIdInput, LinearLayout.LayoutParams(-1, -2))
         courierTokenInput = EditText(this).apply { hint = "Токен курьера"; inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD; setSingleLine(true); setTextColor(Color.WHITE); setHintTextColor(Color.GRAY) }
         root.addView(courierTokenInput, LinearLayout.LayoutParams(-1, -2))
+        root.addView(Button(this).apply { text = "ЗАГРУЗИТЬ МОИ АКТИВНЫЕ ЗАКАЗЫ"; setOnClickListener { loadCourierOrders() } })
         root.addView(Button(this).apply { text = "ОТПРАВИТЬ ФОТО + GPS В ЗАКАЗ"; setOnClickListener { sendSelectedPhotoToOrder() } })
         outputText = TextView(this).apply { text = "Выберите фото в галерее, затем отправьте его в Telegram."; textSize = 14f; setTextColor(Color.LTGRAY); setPadding(0, 18, 0, 18) }
         root.addView(outputText)
@@ -400,6 +401,73 @@ class MainActivity : ComponentActivity() {
                 val json = "{\"chatId\":\"${jsonEscape(chatId)}\",\"fileName\":\"${jsonEscape(photo.name)}\",\"caption\":\"${jsonEscape(caption)}\",\"base64\":\"$base64\"}"
                 apiPost("/api/telegram/send-photo", json) { result -> mainHandler.post { outputText.text = result } }
             } catch (e: Exception) { mainHandler.post { outputText.text = "ERROR: ${e.javaClass.simpleName}: ${e.message}" } }
+        }
+    }
+
+    private fun loadCourierOrders() {
+        val courierId = courierIdInput.text.toString().trim()
+        val token = courierTokenInput.text.toString()
+        if (courierId.isEmpty() || token.isEmpty()) {
+            showToast("Сначала введите Telegram ID курьера и его токен")
+            return
+        }
+        outputText.text = "Загрузка активных заказов курьера..."
+        thread {
+            var connection: HttpURLConnection? = null
+            try {
+                connection = (URL(coreUrl + "/api/commerce/courier/orders").openConnection() as HttpURLConnection).apply {
+                    requestMethod = "GET"
+                    connectTimeout = 10000
+                    readTimeout = 15000
+                    useCaches = false
+                    setRequestProperty("Accept", "application/json")
+                    setRequestProperty("X-Courier-Id", courierId)
+                    setRequestProperty("X-Courier-Token", token)
+                }
+                val code = connection.responseCode
+                val stream = if (code in 200..299) connection.inputStream else connection.errorStream
+                val body = stream?.bufferedReader()?.use { it.readText() } ?: ""
+                if (code !in 200..299) {
+                    mainHandler.post { outputText.text = "Ошибка загрузки заказов: HTTP $code\nПроверьте ID, токен и адрес Core." }
+                    return@thread
+                }
+                val json = org.json.JSONObject(body)
+                val orders = json.optJSONArray("orders") ?: org.json.JSONArray()
+                val orderIds = mutableListOf<String>()
+                val labels = mutableListOf<String>()
+                for (index in 0 until orders.length()) {
+                    val order = orders.optJSONObject(index) ?: continue
+                    val id = order.optString("id").trim()
+                    if (id.isEmpty()) continue
+                    val label = id + " · " + order.optString("productName") +
+                        " × " + order.optInt("quantity", 1) +
+                        " · " + order.optString("status") +
+                        " · " + order.optString("totalKzt") + " " + order.optString("currency") +
+                        "\n" + order.optString("address")
+                    orderIds.add(id)
+                    labels.add(label)
+                }
+                mainHandler.post {
+                    if (labels.isEmpty()) {
+                        outputText.text = "Активных назначенных заказов нет."
+                        return@post
+                    }
+                    android.app.AlertDialog.Builder(this@MainActivity)
+                        .setTitle("Выберите заказ для фотоотчёта")
+                        .setItems(labels.toTypedArray()) { _, which ->
+                            if (which in orderIds.indices) {
+                                orderIdInput.setText(orderIds[which])
+                                outputText.text = "Выбран заказ " + orderIds[which] + ". Выберите фото в галерее и нажмите «ОТПРАВИТЬ ФОТО + GPS В ЗАКАЗ»."
+                            }
+                        }
+                        .setNegativeButton("Отмена", null)
+                        .show()
+                }
+            } catch (e: Exception) {
+                mainHandler.post { outputText.text = "Не удалось загрузить заказы: " + e.javaClass.simpleName }
+            } finally {
+                connection?.disconnect()
+            }
         }
     }
 
