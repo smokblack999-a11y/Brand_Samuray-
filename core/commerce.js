@@ -193,8 +193,22 @@ async function createCheckoutSession(orderId) {
   const cancelUrl = String(process.env.COMMERCE_CANCEL_URL || "");
   if (!/^https?:\/\//i.test(successUrl) || !/^https?:\/\//i.test(cancelUrl)) throw fail("CHECKOUT_URLS_REQUIRED", "Set COMMERCE_SUCCESS_URL and COMMERCE_CANCEL_URL");
   if (order.paymentStatus === "PAID") throw fail("ALREADY_PAID", "Order is already paid");
-  const checkoutReusable = order.checkoutSessionId && order.checkoutUrl && (!order.checkoutSessionExpiresAt || Date.parse(order.checkoutSessionExpiresAt) > Date.now() + 30000);
+  const checkoutReusable = order.checkoutSessionId && order.checkoutUrl &&
+    (!order.checkoutSessionExpiresAt || Date.parse(order.checkoutSessionExpiresAt) > Date.now());
   if (checkoutReusable) return { order, sessionId: order.checkoutSessionId, url: order.checkoutUrl };
+
+  // Persist Stripe's idempotency key before making the network request. If the response
+  // is lost, a retry reuses the same key instead of creating a second payable session.
+  const previousExpired = order.checkoutSessionExpiresAt && Date.parse(order.checkoutSessionExpiresAt) <= Date.now();
+  const checkoutIdempotencyKey = previousExpired
+    ? "samurai-" + order.id + "-" + crypto.randomUUID()
+    : (order.checkoutAttemptKey || "samurai-" + order.id + "-" + crypto.randomUUID());
+  updateOrder(order.id, (o) => ({
+    ...o,
+    checkoutAttemptKey: checkoutIdempotencyKey,
+    checkoutAttemptStartedAt: o.checkoutAttemptKey === checkoutIdempotencyKey ? o.checkoutAttemptStartedAt : new Date().toISOString(),
+    ...(previousExpired ? { checkoutSessionId: null, checkoutUrl: null, checkoutSessionExpiresAt: null } : {})
+  }));
   const form = new URLSearchParams();
   form.set("mode", "payment");
   form.set("success_url", successUrl);
@@ -208,7 +222,7 @@ async function createCheckoutSession(orderId) {
   form.set("line_items[0][price_data][product_data][description]", (order.fulfillment === "delivery" ? "Доставка: " + order.deliveryZone + ". " : "Самовывоз. ") + "Заказ " + order.id);
   const response = await fetch("https://api.stripe.com/v1/checkout/sessions", {
     method: "POST",
-    headers: { Authorization: "Bearer " + secret, "Content-Type": "application/x-www-form-urlencoded" },
+    headers: { Authorization: "Bearer " + secret, "Content-Type": "application/x-www-form-urlencoded", "Idempotency-Key": checkoutIdempotencyKey },
     body: form,
     signal: AbortSignal.timeout(15000)
   });
