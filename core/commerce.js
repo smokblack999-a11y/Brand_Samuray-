@@ -190,6 +190,7 @@ function attachProof(orderId, courierId, proof) {
   }
   return updateOrder(orderId, (o) => {
     if (o.courierId !== String(courierId)) throw fail("FORBIDDEN", "Order is assigned to another courier");
+    if (o.proof?.customerSentAt && o.proof.telegramFileId !== fileId) throw fail("PHOTO_ALREADY_DELIVERED", "A different photo has already been delivered for this order");
     if (o.paymentStatus !== "PAID") throw fail("PAYMENT_NOT_CONFIRMED", "Cannot submit delivery proof before payment is confirmed");
     if (!["COURIER_ASSIGNED", "IN_DELIVERY", "PHOTO_RECEIVED"].includes(o.status)) throw fail("INVALID_ORDER_STATE", "Order is not in a deliverable state");
     return { ...o, proof: { telegramFileId: fileId, sha256: proof.sha256 || null, latitude, longitude, accuracyMeters: proof.accuracyMeters == null ? null : Number(proof.accuracyMeters), capturedAt: proof.capturedAt || null, receivedAt: new Date().toISOString(), customerSentAt: null }, status: "PHOTO_RECEIVED" };
@@ -207,7 +208,8 @@ function markPhotoDelivered(orderId, courierId, telegramFileId) {
 function markDelivered(orderId, courierId) {
   return updateOrder(orderId, (o) => {
     if (o.courierId !== String(courierId)) throw fail("FORBIDDEN", "Order is assigned to another courier");
-    if (o.status !== "PHOTO_RECEIVED") throw fail("PHOTO_REQUIRED", "Delivery proof photo is required before completion");
+    if (o.status !== "PHOTO_RECEIVED" || !o.proof) throw fail("PHOTO_REQUIRED", "Delivery proof photo is required before completion");
+    if (!o.proof.customerSentAt) throw fail("PHOTO_DELIVERY_PENDING", "Delivery photo must be delivered to the customer before completion");
     return { ...o, status: "DELIVERED", deliveredAt: new Date().toISOString() };
   });
 }
