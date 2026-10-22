@@ -54,7 +54,8 @@ Set Stripe's test webhook destination to `https://YOUR_HOST/api/commerce/stripe/
 ### Telegram commands
 
 - Customer: `/start`, `/catalog`, `/myorders`, `/pay ORDER_ID`.
-- Courier: `/start`, `/courier`, click `ВЗЯТЬ ЗАКАЗ`, then `/photo ORDER_ID` and send the photo, finally `/done ORDER_ID`.
+- Courier: `/start`, `/courier`, click `ВЗЯТЬ ЗАКАЗ`, `/mydelivery`, `/startdelivery ORDER_ID`, `/photo ORDER_ID` and send the photo, finally `/done ORDER_ID`.
+- Admin: `/start`, `/admin` for counts, `/orders` for recent orders, `/order ORDER_ID` for one order's delivery/payment status. Commands work only in private chat.
 - Admin: use the Core API endpoints with `X-API-Key`; check readiness with `GET /api/commerce/status` (the status response never returns configured secret values).
 
 ## Environment examples
