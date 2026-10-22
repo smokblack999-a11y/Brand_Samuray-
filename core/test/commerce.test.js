@@ -97,6 +97,27 @@ test("photo proof must belong to the assigned courier and is required before del
   assert.equal(commerce.markDelivered(order.id, "777").status, "DELIVERED");
 });
 
+test("expired Stripe checkout session is replaced on payment retry", async (t) => {
+  commerce.resetForTests();
+  const order = newDeliveryOrder();
+  commerce.attachCheckoutSession(order.id, "cs_test_expired", "https://checkout.stripe.test/expired");
+  const file = path.join(dataDir, "commerce-orders.json");
+  const orders = JSON.parse(fs.readFileSync(file, "utf8"));
+  orders[0].checkoutSessionExpiresAt = new Date(Date.now() - 60000).toISOString();
+  fs.writeFileSync(file, JSON.stringify(orders, null, 2) + "\n");
+  process.env.STRIPE_SECRET_KEY = "sk_test_unit_test";
+  process.env.COMMERCE_SUCCESS_URL = "https://example.test/success";
+  process.env.COMMERCE_CANCEL_URL = "https://example.test/cancel";
+  t.mock.method(globalThis, "fetch", async () => ({
+    ok: true,
+    json: async () => ({ id: "cs_test_replacement", url: "https://checkout.stripe.test/replacement", expires_at: Math.floor(Date.now() / 1000) + 3600 })
+  }));
+  const checkout = await commerce.createCheckoutSession(order.id);
+  assert.equal(checkout.sessionId, "cs_test_replacement");
+  assert.equal(checkout.order.checkoutSessionId, "cs_test_replacement");
+  assert.ok(Date.parse(checkout.order.checkoutSessionExpiresAt) > Date.now());
+});
+
 test("Stripe signature rejects tampering and accepts a current valid signature", () => {
   const raw = Buffer.from(JSON.stringify({ id: "evt_sig", type: "noop", data: { object: {} } }));
   const timestamp = Math.floor(Date.now() / 1000);
