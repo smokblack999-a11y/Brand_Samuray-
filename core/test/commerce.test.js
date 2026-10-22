@@ -78,6 +78,12 @@ test("courier assignment is blocked until a verified, exact payment is received"
     verified: true, eventId: "evt-4", orderId: order.id, sessionId: "cs_test_order_1",
     amountKzt: 5700, currency: "KZT"
   }).duplicate, true);
+  const secondOrder = newDeliveryOrder();
+  commerce.attachCheckoutSession(secondOrder.id, "cs_test_order_2");
+  assert.throws(() => commerce.applyVerifiedPayment({
+    verified: true, eventId: "evt-4", orderId: secondOrder.id, sessionId: "cs_test_order_2",
+    amountKzt: 5700, currency: "KZT"
+  }), { code: "PAYMENT_EVENT_REPLAY_MISMATCH" });
 });
 
 test("photo proof must belong to the assigned courier and is required before delivery completion", () => {
