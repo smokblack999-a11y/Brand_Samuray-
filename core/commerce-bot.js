@@ -179,37 +179,61 @@ async function handleCallback(q, updateId) {
     return sendText(chatId, "Каталог SAMURAI:", { inline_keyboard: products.map((p) => [{ text: p.name + " — " + p.priceKzt + " KZT", callback_data: "product:" + p.id }]) });
   }
   if (data.startsWith("product:")) {
-    const id = data.slice(8);
+    const id = data.slice("product:".length);
     const p = commerce.getCatalog().find((x) => x.id === id);
     if (!p) return sendText(chatId, "Товар недоступен. Откройте /catalog заново.");
-    return sendText(chatId, p.name + "\nЦена: " + p.priceKzt + " KZT\nВыберите получение:", {
-      inline_keyboard: [[{ text: "САМОВЫВОЗ", callback_data: "buy:pickup:" + id }], [{ text: "ДОСТАВКА", callback_data: "buy:delivery:" + id }]]
+    return sendText(chatId, p.name + "\nЦена за единицу: " + p.priceKzt + " KZT\nВыберите количество:", {
+      inline_keyboard: [[1, 2, 3, 5].map((quantity) => ({ text: "×" + quantity, callback_data: "quantity:" + id + ":" + quantity }))]
+    });
+  }
+  if (data.startsWith("quantity:")) {
+    const parts = data.split(":");
+    const productId = parts[1];
+    const quantity = Number(parts[2]);
+    const product = commerce.getCatalog().find((p) => p.id === productId);
+    if (!product || !Number.isSafeInteger(quantity) || quantity < 1 || quantity > 100) {
+      return sendText(chatId, "Товар или количество недоступны. Откройте /catalog заново.");
+    }
+    return sendText(chatId, product.name + " × " + quantity + "\nСумма товаров: " + product.priceKzt * quantity + " KZT\nВыберите получение:", {
+      inline_keyboard: [
+        [{ text: "САМОВЫВОЗ", callback_data: "buy:pickup:" + productId + ":" + quantity }],
+        [{ text: "ДОСТАВКА", callback_data: "buy:delivery:" + productId + ":" + quantity }]
+      ]
     });
   }
   if (data.startsWith("buy:pickup:")) {
-    const productId = data.slice("buy:pickup:".length);
-    await createAndRequestPayment(chatId, { customerId: userId, productId, quantity: 1, fulfillment: "pickup" }, updateId);
+    const parts = data.slice("buy:pickup:".length).split(":");
+    const productId = parts[0];
+    const quantity = parts[1] == null ? 1 : Number(parts[1]);
+    await createAndRequestPayment(chatId, { customerId: userId, productId, quantity, fulfillment: "pickup" }, updateId);
     return;
   }
   if (data.startsWith("buy:delivery:")) {
-    const productId = data.slice("buy:delivery:".length);
+    const parts = data.slice("buy:delivery:".length).split(":");
+    const productId = parts[0];
+    const quantity = parts[1] == null ? 1 : Number(parts[1]);
+    if (!commerce.getCatalog().some((p) => p.id === productId) || !Number.isSafeInteger(quantity) || quantity < 1 || quantity > 100) {
+      return sendText(chatId, "Товар или количество недоступны. Откройте /catalog заново.");
+    }
     const zones = commerce.getDeliveryZones();
-    const buttons = Object.entries(zones).map(([zone, fee], index) => [{ text: zone + " — доставка " + fee + " KZT", callback_data: "zone:" + productId + ":" + index }]);
+    const buttons = Object.entries(zones).map(([zone, fee], index) => [{ text: zone + " — доставка " + fee + " KZT", callback_data: "zone:" + productId + ":" + quantity + ":" + index }]);
     if (!buttons.length) return sendText(chatId, "Зоны доставки не настроены.");
     return sendText(chatId, "Выберите зону доставки:", { inline_keyboard: buttons });
   }
   if (data.startsWith("zone:")) {
     const parts = data.split(":");
     const productId = parts[1];
-    const zoneIndex = Number(parts[2]);
+    const hasQuantity = parts.length >= 4;
+    const quantity = hasQuantity ? Number(parts[2]) : 1;
+    const zoneIndex = Number(hasQuantity ? parts[3] : parts[2]);
     const zone = Object.keys(commerce.getDeliveryZones())[zoneIndex];
-    if (!Number.isSafeInteger(zoneIndex) || !zone) return sendText(chatId, "Зона доставки не найдена.");
-    if (!commerce.getDeliveryZones()[zone]) {
-      const zones = commerce.getDeliveryZones();
-      if (!Object.prototype.hasOwnProperty.call(zones, zone)) return sendText(chatId, "Зона доставки не найдена.");
+    if (!Number.isSafeInteger(quantity) || quantity < 1 || quantity > 100 ||
+        !Number.isSafeInteger(zoneIndex) || !zone ||
+        !commerce.getCatalog().some((p) => p.id === productId)) {
+      return sendText(chatId, "Товар, количество или зона доставки недоступны.");
     }
-    setSession(userId, { state: "delivery_address", productId, zone });
-    return sendText(chatId, "Отправьте полный адрес одной строкой. Зона: " + zone + ". Не отправляйте платёжные данные.");
+    setSession(userId, { state: "delivery_address", productId, quantity, zone });
+    return sendText(chatId, "Отправьте полный адрес одной строкой. Зона: " + zone + ". Количество: " + quantity + ". Не отправляйте платёжные данные.");
   }
   if (data.startsWith("courier:assign:")) {
     if (!isCourier(userId) && !isAdmin(userId)) return sendText(chatId, "Нет доступа к заказам курьера.");
@@ -250,7 +274,7 @@ async function handleMessage(message, updateId) {
   }
   if (session?.state === "delivery_address" && text && !text.startsWith("/")) {
     try {
-      await createAndRequestPayment(chatId, { customerId: userId, productId: session.productId, quantity: 1, fulfillment: "delivery", address: text, deliveryZone: session.zone }, updateId);
+      await createAndRequestPayment(chatId, { customerId: userId, productId: session.productId, quantity: session.quantity || 1, fulfillment: "delivery", address: text, deliveryZone: session.zone }, updateId);
       setSession(userId, null);
     } catch (error) { await sendText(chatId, "Не удалось создать заказ: " + (error.code || "ERROR")); }
     return;
