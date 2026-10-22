@@ -85,4 +85,4 @@ cd android
 ./gradlew assembleDebug -PCORE_BASE_URL=https://YOUR_DEPLOYED_CORE_HOST
 ```
 
-Do not ship the placeholder `https://core.example.invalid` as a usable endpoint. Core must be deployed and the courier token configured before Android photo upload can work. Each courier and customer must open the bot and send `/start` before the bot can message them.
+Do not ship the placeholder `https://core.example.invalid` as a usable endpoint. Core must be deployed and the courier token configured before Android photo upload can work. Each courier and customer must open the bot in a private chat and send `/start` before the bot can message them. Commerce commands and delivery-address capture are ignored in group chats to avoid exposing private addresses.
