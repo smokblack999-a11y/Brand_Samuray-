@@ -10,6 +10,7 @@ const SESSION_FILE = path.join(DATA_DIR, "commerce-bot-sessions.json");
 const UPDATES_FILE = path.join(DATA_DIR, "commerce-bot-updates.json");
 const timeoutMs = Math.max(1000, Number(process.env.TELEGRAM_TIMEOUT_MS || 10000));
 const inFlightPaymentNotifications = new Set();
+const inFlightTelegramUpdates = new Set();
 
 function readSessions() {
   fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -414,33 +415,42 @@ async function handleMessage(message, updateId) {
   if (text === "/help") return sendText(chatId, "/catalog — каталог\n/myorders — мои заказы\n/pay НОМЕР — повторить оплату своего заказа\n/courier — очередь доставок\n/mydelivery — мои активные доставки\n/startdelivery НОМЕР — начать доставку\n/photo НОМЕР — фотоотчёт\n/done НОМЕР — завершить доставку\n\nАдминистратор: /admin, /orders, /order НОМЕР");
 }
 async function handleCommerceUpdate(update) {
-  if (hasUpdate(update?.update_id)) return { duplicate: true };
+  const rawUpdateId = update?.update_id;
+  const updateId = Number.isSafeInteger(rawUpdateId) ? rawUpdateId : null;
+  const updateKey = updateId == null ? null : String(updateId);
+  if (updateId != null && hasUpdate(updateId)) return { duplicate: true };
+  if (updateKey && inFlightTelegramUpdates.has(updateKey)) return { duplicate: true, inFlight: true };
+  if (updateKey) inFlightTelegramUpdates.add(updateKey);
   const chatId = update?.callback_query?.message?.chat?.id ?? update?.message?.chat?.id;
   try {
-    let result;
-    if (update?.callback_query) {
-      const q = update.callback_query;
-      await answerCallback(q.id, "Принято");
-      result = await handleCallback(q, update?.update_id);
-    } else if (update?.message) {
-      result = await handleMessage(update.message, update?.update_id);
-    } else {
-      return { ignored: true };
+    try {
+      let result;
+      if (update?.callback_query) {
+        const q = update.callback_query;
+        await answerCallback(q.id, "Принято");
+        result = await handleCallback(q, updateId);
+      } else if (update?.message) {
+        result = await handleMessage(update.message, updateId);
+      } else {
+        return { ignored: true };
+      }
+      markUpdate(updateId);
+      return result;
+    } catch (error) {
+      console.error(JSON.stringify({
+        event: "commerce_telegram_update_failed",
+        updateId,
+        code: String(error?.code || error?.name || "UNEXPECTED_ERROR").slice(0, 80)
+      }));
+      if (chatId == null) throw error;
+      // Do not expose configuration, provider responses, tokens or internal errors.
+      // If Telegram itself is unavailable, let Telegram retry the update.
+      await sendText(chatId, "Не удалось обработать запрос. Проверьте настройки каталога или повторите позже.");
+      markUpdate(updateId);
+      return { handledError: true };
     }
-    markUpdate(update?.update_id);
-    return result;
-  } catch (error) {
-    console.error(JSON.stringify({
-      event: "commerce_telegram_update_failed",
-      updateId: Number.isSafeInteger(update?.update_id) ? update.update_id : null,
-      code: String(error?.code || error?.name || "UNEXPECTED_ERROR").slice(0, 80)
-    }));
-    if (chatId == null) throw error;
-    // Fail closed without exposing configuration, provider responses, tokens or internal errors.
-    // If Telegram itself is unavailable, allow the webhook to retry the update.
-    await sendText(chatId, "Не удалось обработать запрос. Проверьте настройки каталога или повторите позже.");
-    markUpdate(update?.update_id);
-    return { handledError: true };
+  } finally {
+    if (updateKey) inFlightTelegramUpdates.delete(updateKey);
   }
 }
 module.exports = { handleCommerceUpdate, notifyPaidOrder, retryPendingPaymentNotifications, isCourier, isAdmin };
