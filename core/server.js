@@ -286,16 +286,43 @@ app.post("/api/commerce/orders/:id/assign", requireApiKey, (req, res) => {
   }
 });
 
-app.post("/api/commerce/orders/:id/photo-upload", courierPhotoRateLimit, serializeCourierPhotoUpload, async (req, res) => {
+function authenticateCommerceCourier(req) {
   const courierId = String(req.get("X-Courier-Id") || "").trim();
   const courierToken = String(req.get("X-Courier-Token") || "");
-  if (!courierId || !courierToken) return res.status(401).json(errorBody("COURIER_AUTH_REQUIRED", "Courier authentication is required", req.requestId));
-  if (!commerceBot.isCourier(courierId) && !commerceBot.isAdmin(courierId)) return res.status(403).json(errorBody("COURIER_FORBIDDEN", "Courier is not authorized", req.requestId));
+  if (!courierId || !courierToken) return { ok: false, status: 401, code: "COURIER_AUTH_REQUIRED", message: "Courier authentication is required" };
+  if (!commerceBot.isCourier(courierId) && !commerceBot.isAdmin(courierId)) {
+    return { ok: false, status: 403, code: "COURIER_FORBIDDEN", message: "Courier is not authorized" };
+  }
   let courierTokens;
   try { courierTokens = JSON.parse(process.env.COMMERCE_COURIER_TOKENS_JSON || "{}"); }
-  catch { return res.status(503).json(errorBody("COURIER_AUTH_MISCONFIGURED", "Courier authentication is not configured correctly", req.requestId)); }
-  const expectedToken = courierTokens && typeof courierTokens === "object" ? courierTokens[courierId] : null;
-  if (typeof expectedToken !== "string" || !safeEqual(expectedToken, courierToken)) return res.status(401).json(errorBody("COURIER_UNAUTHORIZED", "Courier authentication failed", req.requestId));
+  catch { return { ok: false, status: 503, code: "COURIER_AUTH_MISCONFIGURED", message: "Courier authentication is not configured correctly" }; }
+  const expectedToken = courierTokens && typeof courierTokens === "object" && !Array.isArray(courierTokens)
+    ? courierTokens[courierId] : null;
+  if (typeof expectedToken !== "string" || !safeEqual(expectedToken, courierToken)) {
+    return { ok: false, status: 401, code: "COURIER_UNAUTHORIZED", message: "Courier authentication failed" };
+  }
+  return { ok: true, courierId };
+}
+
+app.get("/api/commerce/courier/orders", (req, res) => {
+  const auth = authenticateCommerceCourier(req);
+  if (!auth.ok) return res.status(auth.status).json(errorBody(auth.code, auth.message, req.requestId));
+  const orders = commerce.listOrders({ courierId: auth.courierId })
+    .filter((o) => o.fulfillment === "delivery" && !["DELIVERED", "CANCELLED"].includes(o.status))
+    .map((o) => ({
+      id: o.id, productName: o.productName, quantity: o.quantity,
+      address: o.address, deliveryZone: o.deliveryZone, currency: o.currency,
+      totalKzt: o.totalKzt, paymentStatus: o.paymentStatus, status: o.status,
+      hasPhoto: Boolean(o.proof), photoDelivered: Boolean(o.proof?.customerSentAt),
+      createdAt: o.createdAt
+    }));
+  return res.json({ ok: true, courierId: auth.courierId, orders, requestId: req.requestId });
+});
+
+app.post("/api/commerce/orders/:id/photo-upload", courierPhotoRateLimit, serializeCourierPhotoUpload, async (req, res) => {
+  const auth = authenticateCommerceCourier(req);
+  if (!auth.ok) return res.status(auth.status).json(errorBody(auth.code, auth.message, req.requestId));
+  const courierId = auth.courierId;
 
   try {
     const order = commerce.getOrder(req.params.id);
