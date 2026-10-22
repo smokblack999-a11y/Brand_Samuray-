@@ -119,7 +119,18 @@ test("expired Stripe checkout session is replaced on payment retry", async (t) =
   process.env.COMMERCE_SUCCESS_URL = "https://example.test/success";
   process.env.COMMERCE_CANCEL_URL = "https://example.test/cancel";
   let lastRequest;
-  t.mock.method(globalThis, "fetch", async (_url, options) => {
+  const requests = [];
+  t.mock.method(globalThis, "fetch", async (url, options) => {
+    requests.push({ url, options });
+    if (options.method === "GET") {
+      return {
+        ok: true,
+        json: async () => ({
+          id: "cs_test_expired", livemode: false, mode: "payment", status: "expired",
+          payment_status: "unpaid", client_reference_id: order.id, metadata: { order_id: order.id }
+        })
+      };
+    }
     lastRequest = options;
     return { ok: true, json: async () => ({ id: "cs_test_replacement", url: "https://checkout.stripe.test/replacement", expires_at: Math.floor(Date.now() / 1000) + 3600 }) };
   });
@@ -127,6 +138,9 @@ test("expired Stripe checkout session is replaced on payment retry", async (t) =
   assert.equal(checkout.sessionId, "cs_test_replacement");
   assert.equal(checkout.order.checkoutSessionId, "cs_test_replacement");
   assert.ok(Date.parse(checkout.order.checkoutSessionExpiresAt) > Date.now());
+  assert.equal(requests.length, 2);
+  assert.equal(requests[0].options.method, "GET");
+  assert.match(requests[0].url, /cs_test_expired$/);
   assert.equal(lastRequest.headers["Idempotency-Key"], checkout.order.checkoutAttemptKey);
   const submitted = new URLSearchParams(lastRequest.body);
   assert.equal(submitted.get("line_items[0][price_data][unit_amount]"), "570000");
@@ -136,6 +150,66 @@ test("expired Stripe checkout session is replaced on payment retry", async (t) =
     sessionId: "cs_test_expired", amountKzt: 5700, currency: "KZT", provider: "stripe_test"
   });
   assert.equal(delayedWebhook.order.paymentStatus, "PAID");
+});
+
+test("a paid but expired Checkout session is recovered from Stripe without creating a second link", async (t) => {
+  commerce.resetForTests();
+  const order = newDeliveryOrder();
+  commerce.attachCheckoutSession(order.id, "cs_test_already_paid", "https://checkout.stripe.test/old");
+  const file = path.join(dataDir, "commerce-orders.json");
+  const orders = JSON.parse(fs.readFileSync(file, "utf8"));
+  orders[0].checkoutSessionExpiresAt = new Date(Date.now() - 60000).toISOString();
+  fs.writeFileSync(file, JSON.stringify(orders, null, 2) + "\\n");
+  process.env.STRIPE_SECRET_KEY = "sk_test_unit_test";
+  process.env.COMMERCE_SUCCESS_URL = "https://example.test/success";
+  process.env.COMMERCE_CANCEL_URL = "https://example.test/cancel";
+  const requests = [];
+  t.mock.method(globalThis, "fetch", async (url, options) => {
+    requests.push({ url, options });
+    return {
+      ok: true,
+      json: async () => ({
+        id: "cs_test_already_paid", livemode: false, mode: "payment", status: "complete",
+        payment_status: "paid", amount_total: 570000, currency: "kzt",
+        client_reference_id: order.id, metadata: { order_id: order.id }
+      })
+    };
+  });
+  const recovered = await commerce.createCheckoutSession(order.id);
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].options.method, "GET");
+  assert.equal(recovered.alreadyPaid, true);
+  assert.equal(recovered.url, null);
+  assert.equal(recovered.order.paymentStatus, "PAID");
+  assert.equal(commerce.getOrder(order.id).paymentStatus, "PAID");
+});
+
+test("an expired Checkout with unresolved status does not produce another payable link", async (t) => {
+  commerce.resetForTests();
+  const order = newDeliveryOrder();
+  commerce.attachCheckoutSession(order.id, "cs_test_uncertain", "https://checkout.stripe.test/old");
+  const file = path.join(dataDir, "commerce-orders.json");
+  const orders = JSON.parse(fs.readFileSync(file, "utf8"));
+  orders[0].checkoutSessionExpiresAt = new Date(Date.now() - 60000).toISOString();
+  fs.writeFileSync(file, JSON.stringify(orders, null, 2) + "\\n");
+  process.env.STRIPE_SECRET_KEY = "sk_test_unit_test";
+  process.env.COMMERCE_SUCCESS_URL = "https://example.test/success";
+  process.env.COMMERCE_CANCEL_URL = "https://example.test/cancel";
+  const requests = [];
+  t.mock.method(globalThis, "fetch", async (url, options) => {
+    requests.push({ url, options });
+    return {
+      ok: true,
+      json: async () => ({
+        id: "cs_test_uncertain", livemode: false, mode: "payment", status: "open",
+        payment_status: "unpaid", client_reference_id: order.id, metadata: { order_id: order.id }
+      })
+    };
+  });
+  await assert.rejects(commerce.createCheckoutSession(order.id), { code: "PAYMENT_STATUS_PENDING" });
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].options.method, "GET");
+  assert.equal(commerce.getOrder(order.id).checkoutSessionId, "cs_test_uncertain");
 });
 
 test("Stripe checkout retries reuse the persisted idempotency key after a network failure", async (t) => {
