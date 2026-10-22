@@ -309,6 +309,7 @@ app.get("/api/commerce/courier/orders", (req, res) => {
   if (!auth.ok) return res.status(auth.status).json(errorBody(auth.code, auth.message, req.requestId));
   const orders = commerce.listOrders({ courierId: auth.courierId })
     .filter((o) => o.fulfillment === "delivery" && !["DELIVERED", "CANCELLED"].includes(o.status))
+    .slice(0, 50)
     .map((o) => ({
       id: o.id, productName: o.productName, quantity: o.quantity,
       address: o.address, deliveryZone: o.deliveryZone, currency: o.currency,
