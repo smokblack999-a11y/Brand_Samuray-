@@ -96,7 +96,7 @@ function createOrder(input) {
     fulfillment, address, deliveryZone, currency: CURRENCY,
     unitPriceKzt: product.priceKzt, itemsTotalKzt, deliveryFeeKzt, totalKzt,
     paymentStatus: "AWAITING_PAYMENT", status: "AWAITING_PAYMENT",
-    courierId: null, paymentProvider: null, paymentReference: null,
+    courierId: null, paymentProvider: null, paymentReference: null, paymentEventIds: [],
     proof: null, notifications: { customerSentAt: null, courierSentIds: [], adminSentIds: [], deliveryEscalatedAt: null }, createdAt: now, updatedAt: now
   };
   const orders = readOrders();
@@ -119,27 +119,46 @@ function applyVerifiedPayment(input) {
   const eventId = String(input.eventId || "").trim();
   const orderId = String(input.orderId || "").trim();
   if (!eventId || !orderId) throw fail("PAYMENT_REFERENCE_REQUIRED", "Provider event ID and order ID are required");
-  if (!Number.isSafeInteger(input.amountKzt) || input.amountKzt < 0) throw fail("INVALID_PAYMENT_AMOUNT", "Invalid payment amount");
+  if (!Number.isSafeInteger(input.amountKzt) || input.amountKzt <= 0) throw fail("INVALID_PAYMENT_AMOUNT", "Invalid payment amount");
   const currency = String(input.currency || "").toUpperCase();
-  const events = readEvents();
-  if (events.includes(eventId)) return { duplicate: true, order: getOrder(orderId) };
   const order = getOrder(orderId);
   if (!order) throw fail("ORDER_NOT_FOUND", "Order not found");
   if (!order.checkoutSessionId || input.sessionId !== order.checkoutSessionId) throw fail("PAYMENT_SESSION_MISMATCH", "Payment session does not match the order");
-  if (order.paymentStatus === "PAID") {
-    if (order.totalKzt !== input.amountKzt || order.currency !== currency) throw fail("PAYMENT_MISMATCH", "Payment does not match the order");
-    events.push(eventId); writeJson(EVENTS_FILE, events);
-    return { duplicate: true, order };
-  }
   if (order.totalKzt !== input.amountKzt || order.currency !== currency) throw fail("PAYMENT_MISMATCH", "Payment amount or currency does not match the order");
 
+  const events = readEvents();
+  const orderEventIds = Array.isArray(order.paymentEventIds) ? order.paymentEventIds : [];
+  if (events.includes(eventId) && !orderEventIds.includes(eventId)) {
+    throw fail("PAYMENT_EVENT_REPLAY_MISMATCH", "Provider event ID has already been used for a different order");
+  }
+  if (orderEventIds.includes(eventId)) {
+    // Repair the secondary event ledger if a prior process stopped between its two writes.
+    if (!events.includes(eventId)) { events.push(eventId); writeJson(EVENTS_FILE, events); }
+    if (order.paymentStatus !== "PAID") throw fail("PAYMENT_EVENT_STATE_MISMATCH", "Payment event is recorded but the order is not paid");
+    return { duplicate: true, order };
+  }
+  if (order.paymentStatus === "PAID") {
+    const updated = updateOrder(orderId, (o) => ({
+      ...o,
+      paymentEventIds: [...(Array.isArray(o.paymentEventIds) ? o.paymentEventIds : []), eventId]
+    }));
+    events.push(eventId); writeJson(EVENTS_FILE, events);
+    return { duplicate: true, order: updated };
+  }
   const updated = updateOrder(orderId, (o) => ({
-    ...o, paymentStatus: "PAID", status: o.fulfillment === "delivery" ? "PAID" : "READY_FOR_PICKUP",
-    paymentProvider: String(input.provider || "unknown"), paymentReference: eventId, paidAt: new Date().toISOString()
+    ...o,
+    paymentStatus: "PAID",
+    status: o.fulfillment === "delivery" ? "PAID" : "READY_FOR_PICKUP",
+    paymentProvider: String(input.provider || "unknown"),
+    paymentReference: eventId,
+    paymentEventIds: [...(Array.isArray(o.paymentEventIds) ? o.paymentEventIds : []), eventId],
+    paidAt: new Date().toISOString()
   }));
-  events.push(eventId); writeJson(EVENTS_FILE, events);
+  events.push(eventId);
+  writeJson(EVENTS_FILE, events);
   return { duplicate: false, order: updated };
 }
+
 function assignCourier(orderId, courierId) {
   const id = String(courierId || "").trim();
   if (!id) throw fail("COURIER_REQUIRED", "Courier ID is required");
