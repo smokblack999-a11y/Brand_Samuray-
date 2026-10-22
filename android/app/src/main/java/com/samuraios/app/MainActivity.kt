@@ -218,7 +218,7 @@ class MainActivity : ComponentActivity() {
         if (photos.isEmpty()) { galleryContainer.addView(TextView(this).apply { text = "Пока нет фото"; setTextColor(Color.GRAY) }); return }
         photos.forEach { photo ->
             val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(0, 6, 0, 6) }
-            val image = ImageView(this).apply { setImageURI(android.net.Uri.fromFile(photo)); scaleType = ImageView.ScaleType.CENTER_CROP }
+            val image = ImageView(this).apply { setImageBitmap(decodeSampledBitmap(photo, 360, 260)); scaleType = ImageView.ScaleType.CENTER_CROP; contentDescription = "Миниатюра " + photo.name }
             row.addView(image, LinearLayout.LayoutParams(180, 130))
             val meta = Vault.metadata(photo)
             val text = TextView(this).apply { text = if (meta?.has("latitude") == true && !meta.isNull("latitude")) "${photo.name}\nGPS: ${meta.optDouble("latitude")}, ${meta.optDouble("longitude")}\n± ${meta.optDouble("accuracyMeters", 0.0)} m" else photo.name + "\nGPS: нет fix"; setTextColor(Color.LTGRAY); setPadding(12, 0, 0, 0) }
@@ -306,6 +306,24 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun decodeSampledBitmap(file: File, targetWidth: Int, targetHeight: Int): Bitmap? {
+        if (!file.isFile || !file.canRead() || targetWidth <= 0 || targetHeight <= 0) return null
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(file.absolutePath, bounds)
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+        var sampleSize = 1
+        while (bounds.outWidth / (sampleSize * 2) >= targetWidth &&
+            bounds.outHeight / (sampleSize * 2) >= targetHeight) {
+            sampleSize *= 2
+        }
+        return runCatching {
+            BitmapFactory.decodeFile(file.absolutePath, BitmapFactory.Options().apply {
+                inSampleSize = sampleSize
+                inPreferredConfig = Bitmap.Config.RGB_565
+            })
+        }.getOrNull()
+    }
+
     private fun openPhotoViewer(photo: File) {
         val dialog = android.app.Dialog(this)
         val content = LinearLayout(this).apply {
@@ -314,7 +332,7 @@ class MainActivity : ComponentActivity() {
             setBackgroundColor(Color.BLACK)
         }
         val image = ImageView(this).apply {
-            setImageURI(android.net.Uri.fromFile(photo))
+            setImageBitmap(decodeSampledBitmap(photo, 1600, 1600))
             scaleType = ImageView.ScaleType.FIT_CENTER
             adjustViewBounds = true
             contentDescription = "Фото " + photo.name
