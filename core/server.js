@@ -207,6 +207,42 @@ app.get("/api/commerce/catalog", (_req, res) => {
   try { return res.json({ ok: true, currency: process.env.COMMERCE_CURRENCY || "KZT", products: commerce.getCatalog(), deliveryZones: commerce.getDeliveryZones() }); }
   catch (error) { return res.status(503).json(errorBody(error.code || "COMMERCE_CONFIG_INVALID", "Commerce catalog is not configured", _req.requestId)); }
 });
+
+app.get("/api/commerce/status", requireApiKey, (_req, res) => {
+  let catalogCount = 0;
+  let deliveryZoneCount = 0;
+  let configurationError = null;
+  try {
+    catalogCount = commerce.getCatalog().length;
+    deliveryZoneCount = Object.keys(commerce.getDeliveryZones()).length;
+  } catch (error) {
+    configurationError = error.code || "COMMERCE_CONFIG_INVALID";
+  }
+  let courierTokens = {};
+  let courierTokenConfigValid = true;
+  try { courierTokens = JSON.parse(process.env.COMMERCE_COURIER_TOKENS_JSON || "{}"); }
+  catch { courierTokenConfigValid = false; }
+  if (!courierTokens || typeof courierTokens !== "object" || Array.isArray(courierTokens)) courierTokenConfigValid = false;
+  const courierIds = String(process.env.COMMERCE_COURIER_IDS || "").split(",").map((x) => x.trim()).filter(Boolean);
+  const adminIds = String(process.env.COMMERCE_ADMIN_IDS || "").split(",").map((x) => x.trim()).filter(Boolean);
+  const telegramConfigured = Boolean(String(process.env.TELEGRAM_BOT_TOKEN || "").trim());
+  const stripeTestKeyConfigured = String(process.env.STRIPE_SECRET_KEY || "").startsWith("sk_test_");
+  const stripeWebhookConfigured = Boolean(String(process.env.STRIPE_WEBHOOK_SECRET || "").trim());
+  const courierUploadConfigured = courierTokenConfigValid && courierIds.length > 0 &&
+    courierIds.every((id) => typeof courierTokens[id] === "string" && courierTokens[id].length >= 32);
+  return res.json({
+    ok: true,
+    requestId: _req.requestId,
+    mode: "stripe-test-only",
+    configurationError,
+    catalog: { configured: catalogCount > 0, count: catalogCount },
+    deliveryZones: { configured: deliveryZoneCount > 0, count: deliveryZoneCount },
+    telegram: { configured: telegramConfigured },
+    payment: { testSecretConfigured: stripeTestKeyConfigured, webhookSecretConfigured: stripeWebhookConfigured },
+    couriers: { configured: courierUploadConfigured, count: courierIds.length },
+    admins: { configured: adminIds.length > 0, count: adminIds.length }
+  });
+});
 app.get("/api/commerce/orders", requireApiKey, (req, res) => {
   return res.json({ ok: true, orders: commerce.listOrders({ customerId: req.query.customerId, courierId: req.query.courierId, status: req.query.status }), requestId: req.requestId });
 });
