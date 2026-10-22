@@ -168,7 +168,7 @@ async function handleCallback(q, updateId) {
   const userId = String(q.from?.id || "");
   const chatId = q.message?.chat?.id;
   const data = String(q.data || "");
-  if (!userId || !chatId) return;
+  if (!userId || !chatId || q.message?.chat?.type !== "private") return;
   if (data === "myorders") {
     const orders = commerce.listOrders({ customerId: userId });
     return sendText(chatId, orders.length ? orders.slice(0, 20).map(orderSummary).join("\n\n") : "Заказов пока нет.");
@@ -248,7 +248,7 @@ async function handleCallback(q, updateId) {
 async function handleMessage(message, updateId) {
   const chatId = message.chat?.id;
   const userId = String(message.from?.id || "");
-  if (!chatId || !userId || message.from?.is_bot) return;
+  if (!chatId || !userId || message.from?.is_bot || message.chat?.type !== "private") return;
   const text = String(message.text || "").trim();
   const session = readSessions()[userId];
   if (message.photo?.length && session?.state === "awaiting_order_photo") {
