@@ -234,10 +234,15 @@ async function createCheckoutSession(orderId) {
   const cancelUrl = String(process.env.COMMERCE_CANCEL_URL || "");
   if (!/^https?:\/\//i.test(successUrl) || !/^https?:\/\//i.test(cancelUrl)) throw fail("CHECKOUT_URLS_REQUIRED", "Set COMMERCE_SUCCESS_URL and COMMERCE_CANCEL_URL");
   if (order.paymentStatus === "PAID") throw fail("ALREADY_PAID", "Order is already paid");
-  const previousExpired = Boolean(order.checkoutSessionId && order.checkoutSessionExpiresAt &&
-    Date.parse(order.checkoutSessionExpiresAt) <= Date.now());
+  const previousExpired = Boolean(order.checkoutSessionId && (
+    !order.checkoutSessionExpiresAt ||
+    !Number.isFinite(Date.parse(order.checkoutSessionExpiresAt)) ||
+    Date.parse(order.checkoutSessionExpiresAt) <= Date.now()
+  ));
   const checkoutReusable = order.checkoutSessionId && order.checkoutUrl &&
-    (!order.checkoutSessionExpiresAt || Date.parse(order.checkoutSessionExpiresAt) > Date.now());
+    order.checkoutSessionExpiresAt &&
+    Number.isFinite(Date.parse(order.checkoutSessionExpiresAt)) &&
+    Date.parse(order.checkoutSessionExpiresAt) > Date.now();
   if (checkoutReusable) return { order, sessionId: order.checkoutSessionId, url: order.checkoutUrl };
 
   // Before creating a replacement, query Stripe for the old session. Its webhook may
