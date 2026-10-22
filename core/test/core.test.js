@@ -270,6 +270,51 @@ test('courier photo upload rejects non-image bytes even with valid courier authe
   assert.equal((await response.json()).error.code, 'PHOTO_CONTENT_MISMATCH');
 });
 
+test('courier orders API requires the individual token and returns only that courier active assigned orders', async () => {
+  commerce.resetForTests();
+  function makePaidDelivery(customerId, eventId, sessionId) {
+    const order = commerce.createOrder({
+      customerId,
+      productId: 'test-product',
+      quantity: 1,
+      fulfillment: 'delivery',
+      address: 'Private address for ' + customerId,
+      deliveryZone: 'test-zone'
+    });
+    commerce.attachCheckoutSession(order.id, sessionId);
+    commerce.applyVerifiedPayment({
+      verified: true, eventId, orderId: order.id, sessionId,
+      amountKzt: 5700, currency: 'KZT'
+    });
+    return order;
+  }
+  const assignedToCaller = makePaidDelivery('500', 'evt_courier_list_1', 'cs_test_courier_list_1');
+  commerce.assignCourier(assignedToCaller.id, '777');
+  const assignedElsewhere = makePaidDelivery('600', 'evt_courier_list_2', 'cs_test_courier_list_2');
+  commerce.assignCourier(assignedElsewhere.id, '999');
+
+  const noToken = await fetch(`http://127.0.0.1:${port}/api/commerce/courier/orders`, {
+    headers: { 'X-Courier-Id': '777' }
+  });
+  assert.equal(noToken.status, 401);
+
+  const wrongToken = await fetch(`http://127.0.0.1:${port}/api/commerce/courier/orders`, {
+    headers: { 'X-Courier-Id': '777', 'X-Courier-Token': 'wrong-token' }
+  });
+  assert.equal(wrongToken.status, 401);
+
+  const response = await fetch(`http://127.0.0.1:${port}/api/commerce/courier/orders`, {
+    headers: { 'X-Courier-Id': '777', 'X-Courier-Token': 'test-courier-token-that-is-not-secret' }
+  });
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.courierId, '777');
+  assert.equal(body.orders.length, 1);
+  assert.equal(body.orders[0].id, assignedToCaller.id);
+  assert.equal(body.orders[0].address, 'Private address for 500');
+  assert.equal(JSON.stringify(body).includes('Private address for 600'), false);
+});
+
 test('unknown route returns JSON 404', async () => {
   const r = await fetch(`http://127.0.0.1:${port}/does-not-exist`);
   assert.equal(r.status, 404);
