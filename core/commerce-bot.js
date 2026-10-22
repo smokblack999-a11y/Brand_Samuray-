@@ -236,6 +236,7 @@ async function handleMessage(message, updateId) {
       const order = commerce.attachProof(orderId, userId, { telegramFileId: photo.file_id, latitude: gps ? Number(gps[1]) : null, longitude: gps ? Number(gps[2]) : null });
       setSession(userId, null);
       await tg("sendPhoto", { chat_id: order.customerId, photo: photo.file_id, caption: "Фото по заказу " + order.id + (gps ? "\nGPS: " + gps[1] + ", " + gps[2] : "") + "\nСтатус: фото получено" });
+      commerce.markPhotoDelivered(order.id, userId, photo.file_id);
       await sendText(chatId, "Фото привязано к заказу " + order.id + " и отправлено клиенту. Для завершения: /done " + order.id);
     } catch (error) { await sendText(chatId, "Фото не принято: " + (error.code || "ERROR")); }
     return;
