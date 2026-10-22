@@ -43,6 +43,31 @@ function telegramResponse(ok = true) {
   };
 }
 
+test("invalid catalog configuration returns a safe Telegram message instead of retrying forever", async (t) => {
+  const original = process.env.COMMERCE_PRODUCTS_JSON;
+  const payloads = [];
+  t.mock.method(globalThis, "fetch", async (_url, options) => {
+    payloads.push(JSON.parse(options.body));
+    return telegramResponse(true);
+  });
+  process.env.COMMERCE_PRODUCTS_JSON = "not-json";
+  try {
+    const result = await bot.handleCommerceUpdate({
+      update_id: 908,
+      message: { message_id: 2, chat: { id: 500, type: "private" }, from: { id: 500, is_bot: false }, text: "/catalog" }
+    });
+    assert.equal(result.handledError, true);
+    const reply = payloads.find((p) => p.method === undefined && p.text);
+    assert.ok(reply);
+    assert.match(reply.text, /Не удалось обработать запрос/);
+    assert.equal(reply.text.includes("COMMERCE_PRODUCTS_JSON"), false);
+    assert.equal(reply.text.includes("not-json"), false);
+  } finally {
+    if (original === undefined) delete process.env.COMMERCE_PRODUCTS_JSON;
+    else process.env.COMMERCE_PRODUCTS_JSON = original;
+  }
+});
+
 test("commerce messages from group chats are ignored to protect delivery addresses", async (t) => {
   commerce.resetForTests();
   let telegramCalls = 0;
