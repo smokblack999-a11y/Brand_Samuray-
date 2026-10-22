@@ -11,6 +11,8 @@ import android.graphics.RectF
 import android.graphics.Typeface
 import android.location.Location
 import android.os.Bundle
+import android.system.Os
+import android.text.InputType
 import android.os.Handler
 import android.os.Looper
 import android.util.Base64
@@ -31,6 +33,7 @@ import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
+import androidx.exifinterface.media.ExifInterface
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import com.google.android.gms.location.LocationServices
@@ -59,6 +62,9 @@ class MainActivity : ComponentActivity() {
     private lateinit var outputText: TextView
     private lateinit var chatIdInput: EditText
     private lateinit var messageInput: EditText
+    private lateinit var orderIdInput: EditText
+    private lateinit var courierIdInput: EditText
+    private lateinit var courierTokenInput: EditText
     private lateinit var galleryContainer: LinearLayout
     private var imageCapture: ImageCapture? = null
     private var boundCamera: androidx.camera.core.Camera? = null
@@ -71,22 +77,50 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         cameraExecutor = Executors.newSingleThreadExecutor()
         buildUi()
-        if (hasPermissions()) startCamera() else ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.CAMERA, Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION), permissionRequest)
+        if (hasCameraPermission()) {
+            startCamera()
+            if (!hasLocationPermission()) requestLocationPermissions()
+        } else {
+            ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.CAMERA), permissionRequest)
+        }
         refreshGallery()
         checkCoreStatus()
     }
 
     override fun onDestroy() { cameraExecutor?.shutdown(); super.onDestroy() }
 
-    private fun hasPermissions(): Boolean =
-        ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED &&
-        (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
-            ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED)
+    private fun hasCameraPermission(): Boolean =
+        ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
+
+    private fun hasLocationPermission(): Boolean =
+        ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
+            ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+
+    private fun requestLocationPermissions() {
+        if (!hasLocationPermission()) {
+            ActivityCompat.requestPermissions(
+                this,
+                arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION),
+                permissionRequest + 1
+            )
+        }
+    }
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == permissionRequest && hasPermissions()) startCamera()
-        else showToast("Для камеры и GPS нужны разрешения")
+        when (requestCode) {
+            permissionRequest -> {
+                if (hasCameraPermission()) {
+                    startCamera()
+                    if (!hasLocationPermission()) requestLocationPermissions()
+                } else {
+                    showToast("Для съёмки нужно разрешение камеры")
+                }
+            }
+            permissionRequest + 1 -> {
+                if (!hasLocationPermission()) showToast("GPS не разрешён — фото всё равно можно снимать без координат")
+            }
+        }
     }
 
     private fun buildUi() {
@@ -119,6 +153,15 @@ class MainActivity : ComponentActivity() {
         root.addView(messageInput, LinearLayout.LayoutParams(-1, -2))
         root.addView(Button(this).apply { text = "ОТПРАВИТЬ СООБЩЕНИЕ"; setOnClickListener { sendTelegramMessage() } })
         root.addView(Button(this).apply { text = "ОТПРАВИТЬ ВЫБРАННОЕ ФОТО"; setOnClickListener { sendSelectedPhoto() } })
+        root.addView(TextView(this).apply { text = "Фотоотчёт курьера по заказу"; textSize = 18f; setTextColor(Color.WHITE); setPadding(0, 20, 0, 8) })
+        orderIdInput = EditText(this).apply { hint = "Номер заказа SAM-..."; setSingleLine(true); setTextColor(Color.WHITE); setHintTextColor(Color.GRAY) }
+        root.addView(orderIdInput, LinearLayout.LayoutParams(-1, -2))
+        courierIdInput = EditText(this).apply { hint = "Telegram ID курьера"; inputType = InputType.TYPE_CLASS_NUMBER; setSingleLine(true); setTextColor(Color.WHITE); setHintTextColor(Color.GRAY) }
+        root.addView(courierIdInput, LinearLayout.LayoutParams(-1, -2))
+        courierTokenInput = EditText(this).apply { hint = "Токен курьера"; inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD; setSingleLine(true); setTextColor(Color.WHITE); setHintTextColor(Color.GRAY) }
+        root.addView(courierTokenInput, LinearLayout.LayoutParams(-1, -2))
+        root.addView(Button(this).apply { text = "ЗАГРУЗИТЬ МОИ АКТИВНЫЕ ЗАКАЗЫ"; setOnClickListener { loadCourierOrders() } })
+        root.addView(Button(this).apply { text = "ОТПРАВИТЬ ФОТО + GPS В ЗАКАЗ"; setOnClickListener { sendSelectedPhotoToOrder() } })
         outputText = TextView(this).apply { text = "Выберите фото в галерее, затем отправьте его в Telegram."; textSize = 14f; setTextColor(Color.LTGRAY); setPadding(0, 18, 0, 18) }
         root.addView(outputText)
         setContentView(ScrollView(this).apply { addView(root) })
@@ -178,7 +221,7 @@ class MainActivity : ComponentActivity() {
         if (photos.isEmpty()) { galleryContainer.addView(TextView(this).apply { text = "Пока нет фото"; setTextColor(Color.GRAY) }); return }
         photos.forEach { photo ->
             val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(0, 6, 0, 6) }
-            val image = ImageView(this).apply { setImageURI(android.net.Uri.fromFile(photo)); scaleType = ImageView.ScaleType.CENTER_CROP }
+            val image = ImageView(this).apply { setImageBitmap(decodeSampledBitmap(photo, 360, 260)); scaleType = ImageView.ScaleType.CENTER_CROP; contentDescription = "Миниатюра " + photo.name }
             row.addView(image, LinearLayout.LayoutParams(180, 130))
             val meta = Vault.metadata(photo)
             val text = TextView(this).apply { text = if (meta?.has("latitude") == true && !meta.isNull("latitude")) "${photo.name}\nGPS: ${meta.optDouble("latitude")}, ${meta.optDouble("longitude")}\n± ${meta.optDouble("accuracyMeters", 0.0)} m" else photo.name + "\nGPS: нет fix"; setTextColor(Color.LTGRAY); setPadding(12, 0, 0, 0) }
@@ -198,17 +241,36 @@ class MainActivity : ComponentActivity() {
         }
         executor.execute {
             val stamped = stampPhoto(photo, location, timestamp)
+            val exifSaved = saveExifMetadata(photo, location, timestamp)
             Vault.saveMetadata(photo, location?.latitude, location?.longitude, location?.accuracy, timestamp)
             mainHandler.post {
                 refreshGallery()
+                val visibleStamp = if (stamped) "видимая отметка нанесена" else "видимая отметка не нанесена"
+                val exifStatus = if (exifSaved) "EXIF сохранён" else "EXIF не сохранён"
                 outputText.text = if (location != null) {
                     "Фото сохранено · GPS " + String.format(Locale.US, "%.6f, %.6f ± %.1f м", location.latitude, location.longitude, location.accuracy) +
-                        " · отметка " + if (stamped) "на фото" else "не нанесена"
+                        " · " + visibleStamp + " · " + exifStatus
                 } else {
-                    "Фото сохранено · GPS недоступен · отметка " + if (stamped) "на фото" else "не нанесена"
+                    "Фото сохранено · GPS недоступен · " + visibleStamp + " · " + exifStatus
                 }
                 if (noGpsMessage != null) showToast(noGpsMessage)
             }
+        }
+    }
+
+    private fun saveExifMetadata(photo: File, location: Location?, timestamp: Long): Boolean {
+        return try {
+            val exif = ExifInterface(photo.absolutePath)
+            exif.setAttribute(
+                ExifInterface.TAG_DATETIME_ORIGINAL,
+                SimpleDateFormat("yyyy:MM:dd HH:mm:ss", Locale.US).format(Date(timestamp))
+            )
+            exif.setAttribute(ExifInterface.TAG_SOFTWARE, "SAMURAIOS")
+            if (location != null) exif.setLatLong(location.latitude, location.longitude)
+            exif.saveAttributes()
+            true
+        } catch (_: Exception) {
+            false
         }
     }
 
@@ -249,12 +311,7 @@ class MainActivity : ComponentActivity() {
                 if (!decoded.compress(Bitmap.CompressFormat.JPEG, 95, stream)) return false
                 stream.fd.sync()
             }
-            FileInputStream(temp).use { input ->
-                FileOutputStream(photo, false).use { output ->
-                    input.copyTo(output)
-                    output.fd.sync()
-                }
-            }
+            Os.rename(temp.absolutePath, photo.absolutePath)
             true
         } catch (_: OutOfMemoryError) {
             false
@@ -266,6 +323,24 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun decodeSampledBitmap(file: File, targetWidth: Int, targetHeight: Int): Bitmap? {
+        if (!file.isFile || !file.canRead() || targetWidth <= 0 || targetHeight <= 0) return null
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(file.absolutePath, bounds)
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+        var sampleSize = 1
+        while (bounds.outWidth / sampleSize > targetWidth ||
+            bounds.outHeight / sampleSize > targetHeight) {
+            sampleSize *= 2
+        }
+        return runCatching {
+            BitmapFactory.decodeFile(file.absolutePath, BitmapFactory.Options().apply {
+                inSampleSize = sampleSize
+                inPreferredConfig = Bitmap.Config.RGB_565
+            })
+        }.getOrNull()
+    }
+
     private fun openPhotoViewer(photo: File) {
         val dialog = android.app.Dialog(this)
         val content = LinearLayout(this).apply {
@@ -274,7 +349,7 @@ class MainActivity : ComponentActivity() {
             setBackgroundColor(Color.BLACK)
         }
         val image = ImageView(this).apply {
-            setImageURI(android.net.Uri.fromFile(photo))
+            setImageBitmap(decodeSampledBitmap(photo, 1600, 1600))
             scaleType = ImageView.ScaleType.FIT_CENTER
             adjustViewBounds = true
             contentDescription = "Фото " + photo.name
@@ -329,6 +404,107 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun loadCourierOrders() {
+        val courierId = courierIdInput.text.toString().trim()
+        val token = courierTokenInput.text.toString()
+        if (courierId.isEmpty() || token.isEmpty()) {
+            showToast("Сначала введите Telegram ID курьера и его токен")
+            return
+        }
+        outputText.text = "Загрузка активных заказов курьера..."
+        thread {
+            var connection: HttpURLConnection? = null
+            try {
+                connection = (URL(coreUrl + "/api/commerce/courier/orders").openConnection() as HttpURLConnection).apply {
+                    requestMethod = "GET"
+                    connectTimeout = 10000
+                    readTimeout = 15000
+                    useCaches = false
+                    setRequestProperty("Accept", "application/json")
+                    setRequestProperty("X-Courier-Id", courierId)
+                    setRequestProperty("X-Courier-Token", token)
+                }
+                val code = connection.responseCode
+                val stream = if (code in 200..299) connection.inputStream else connection.errorStream
+                val body = stream?.bufferedReader()?.use { it.readText() } ?: ""
+                if (code !in 200..299) {
+                    mainHandler.post { outputText.text = "Ошибка загрузки заказов: HTTP $code\nПроверьте ID, токен и адрес Core." }
+                    return@thread
+                }
+                val json = org.json.JSONObject(body)
+                val orders = json.optJSONArray("orders") ?: org.json.JSONArray()
+                val orderIds = mutableListOf<String>()
+                val labels = mutableListOf<String>()
+                for (index in 0 until orders.length()) {
+                    val order = orders.optJSONObject(index) ?: continue
+                    val id = order.optString("id").trim()
+                    if (id.isEmpty()) continue
+                    val label = id + " · " + order.optString("productName") +
+                        " × " + order.optInt("quantity", 1) +
+                        " · " + order.optString("status") +
+                        " · " + order.optString("totalKzt") + " " + order.optString("currency") +
+                        "\n" + order.optString("address")
+                    orderIds.add(id)
+                    labels.add(label)
+                }
+                mainHandler.post {
+                    if (labels.isEmpty()) {
+                        outputText.text = "Активных назначенных заказов нет."
+                        return@post
+                    }
+                    android.app.AlertDialog.Builder(this@MainActivity)
+                        .setTitle("Выберите заказ для фотоотчёта")
+                        .setItems(labels.toTypedArray()) { _, which ->
+                            if (which in orderIds.indices) {
+                                orderIdInput.setText(orderIds[which])
+                                outputText.text = "Выбран заказ " + orderIds[which] + ". Выберите фото в галерее и нажмите «ОТПРАВИТЬ ФОТО + GPS В ЗАКАЗ»."
+                            }
+                        }
+                        .setNegativeButton("Отмена", null)
+                        .show()
+                }
+            } catch (e: Exception) {
+                mainHandler.post { outputText.text = "Не удалось загрузить заказы: " + e.javaClass.simpleName }
+            } finally {
+                connection?.disconnect()
+            }
+        }
+    }
+
+    private fun sendSelectedPhotoToOrder() {
+        val photo = selectedPhoto ?: run { showToast("Сначала выберите фото в галерее"); return }
+        val orderId = orderIdInput.text.toString().trim()
+        val courierId = courierIdInput.text.toString().trim()
+        val token = courierTokenInput.text.toString()
+        if (orderId.isEmpty() || courierId.isEmpty() || token.isEmpty()) {
+            showToast("Нужны номер заказа, Telegram ID курьера и токен")
+            return
+        }
+        if (photo.length() <= 0L || photo.length() > 10L * 1024L * 1024L) {
+            showToast("Фото должно быть размером до 10 МБ")
+            return
+        }
+        val meta = Vault.metadata(photo)
+        val lat = meta?.optDouble("latitude", Double.NaN) ?: Double.NaN
+        val lon = meta?.optDouble("longitude", Double.NaN) ?: Double.NaN
+        val accuracy = meta?.optDouble("accuracyMeters", Double.NaN) ?: Double.NaN
+        val timestamp = meta?.optLong("timestamp", 0L) ?: 0L
+        outputText.text = "Отправка фото по заказу $orderId..."
+        apiPostPhoto(
+            "/api/commerce/orders/" + encodeUrl(orderId) + "/photo-upload",
+            photo, courierId, token,
+            if (lat.isFinite() && lon.isFinite()) lat else null,
+            if (lat.isFinite() && lon.isFinite()) lon else null,
+            if (accuracy.isFinite() && accuracy >= 0) accuracy else null,
+            if (timestamp > 0L) timestamp else null
+        ) { result ->
+            mainHandler.post {
+                outputText.text = result
+                if (!result.startsWith("ERROR:")) courierTokenInput.setText("")
+            }
+        }
+    }
+
     private fun apiGet(path: String, callback: (String) -> Unit) {
         thread {
             var connection: HttpURLConnection? = null
@@ -357,6 +533,55 @@ class MainActivity : ComponentActivity() {
                 val code = connection.responseCode; val stream = if (code in 200..299) connection.inputStream else connection.errorStream; val body = stream?.bufferedReader()?.use { it.readText() } ?: ""
                 callback(if (code in 200..299) body else "ERROR: HTTP $code\n$body")
             } catch (e: Exception) { callback("ERROR: ${e.javaClass.simpleName}: ${e.message}") } finally { connection?.disconnect() }
+        }
+    }
+
+    private fun apiPostPhoto(
+        path: String,
+        photo: File,
+        courierId: String,
+        courierToken: String,
+        latitude: Double?,
+        longitude: Double?,
+        accuracyMeters: Double?,
+        capturedAt: Long?,
+        callback: (String) -> Unit
+    ) {
+        thread {
+            var connection: HttpURLConnection? = null
+            try {
+                connection = (URL(coreUrl + path).openConnection() as HttpURLConnection).apply {
+                    requestMethod = "POST"
+                    connectTimeout = 10000
+                    readTimeout = 45000
+                    useCaches = false
+                    doOutput = true
+                    setRequestProperty("Content-Type", "image/jpeg")
+                    setRequestProperty("Accept", "application/json")
+                    setRequestProperty("X-Courier-Id", courierId)
+                    setRequestProperty("X-Courier-Token", courierToken)
+                    setRequestProperty("X-Request-ID", UUID.randomUUID().toString())
+                    if (latitude != null && longitude != null) {
+                        setRequestProperty("X-Photo-Latitude", latitude.toString())
+                        setRequestProperty("X-Photo-Longitude", longitude.toString())
+                    }
+                    if (accuracyMeters != null) setRequestProperty("X-Photo-Accuracy", accuracyMeters.toString())
+                    if (capturedAt != null) setRequestProperty("X-Photo-Timestamp", capturedAt.toString())
+                }
+                connection.setFixedLengthStreamingMode(photo.length())
+                connection.outputStream.use { output ->
+                    photo.inputStream().use { input -> input.copyTo(output) }
+                    output.flush()
+                }
+                val code = connection.responseCode
+                val stream = if (code in 200..299) connection.inputStream else connection.errorStream
+                val body = stream?.bufferedReader()?.use { it.readText() } ?: ""
+                callback(if (code in 200..299) body else "ERROR: HTTP $code\n$body")
+            } catch (e: Exception) {
+                callback("ERROR: ${e.javaClass.simpleName}: ${e.message}")
+            } finally {
+                connection?.disconnect()
+            }
         }
     }
 

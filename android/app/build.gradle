@@ -3,6 +3,9 @@ plugins {
     id 'org.jetbrains.kotlin.android'
 }
 
+def configuredCoreUrl = project.findProperty('CORE_BASE_URL') ?: 'https://core.example.invalid'
+def debugCoreUrl = project.findProperty('CORE_BASE_URL') ?: 'http://10.0.2.2:8787'
+
 android {
     namespace 'com.samuraios.app'
     compileSdk 35
@@ -14,7 +17,6 @@ android {
         versionCode 4
         versionName '1.2.1'
 
-        def configuredCoreUrl = project.findProperty('CORE_BASE_URL') ?: 'https://core.example.invalid'
         buildConfigField 'String', 'CORE_BASE_URL', '"' + configuredCoreUrl.replace('"', '\\"') + '"'
     }
 
@@ -24,11 +26,11 @@ android {
 
     buildTypes {
         debug {
-            buildConfigField 'String', 'CORE_BASE_URL', '"http://10.0.2.2:8787"'
+            buildConfigField 'String', 'CORE_BASE_URL', '"' + debugCoreUrl.replace('"', '\\"') + '"'
         }
         release {
             minifyEnabled false
-            buildConfigField 'String', 'CORE_BASE_URL', '"https://core.example.invalid"'
+            buildConfigField 'String', 'CORE_BASE_URL', '"' + configuredCoreUrl.replace('"', '\\"') + '"'
         }
     }
 
