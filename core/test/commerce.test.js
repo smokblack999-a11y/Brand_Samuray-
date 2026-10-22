@@ -126,6 +126,12 @@ test("expired Stripe checkout session is replaced on payment retry", async (t) =
   assert.equal(lastRequest.headers["Idempotency-Key"], checkout.order.checkoutAttemptKey);
   const submitted = new URLSearchParams(lastRequest.body);
   assert.equal(submitted.get("line_items[0][price_data][unit_amount]"), "570000");
+  assert.deepEqual(checkout.order.checkoutSessionIds, ["cs_test_expired", "cs_test_replacement"]);
+  const delayedWebhook = commerce.applyVerifiedPayment({
+    verified: true, eventId: "evt_delayed_old_session", orderId: order.id,
+    sessionId: "cs_test_expired", amountKzt: 5700, currency: "KZT", provider: "stripe_test"
+  });
+  assert.equal(delayedWebhook.order.paymentStatus, "PAID");
 });
 
 test("Stripe checkout retries reuse the persisted idempotency key after a network failure", async (t) => {
