@@ -266,6 +266,10 @@ app.post("/api/commerce/orders/:id/photo-upload", courierPhotoRateLimit, async (
     }
     const photoBytes = await readRawBody(req, 10 * 1024 * 1024);
     if (!photoBytes.length) return res.status(400).json(errorBody("EMPTY_PHOTO", "Photo body is empty", req.requestId));
+    const isJpeg = mime === "image/jpeg" && photoBytes.length >= 3 && photoBytes[0] === 0xff && photoBytes[1] === 0xd8 && photoBytes[2] === 0xff;
+    const isPng = mime === "image/png" && photoBytes.length >= 8 && photoBytes.subarray(0, 8).equals(Buffer.from("89504e470d0a1a0a", "hex"));
+    const isWebp = mime === "image/webp" && photoBytes.length >= 12 && photoBytes.toString("ascii", 0, 4) === "RIFF" && photoBytes.toString("ascii", 8, 12) === "WEBP";
+    if (!isJpeg && !isPng && !isWebp) return res.status(415).json(errorBody("PHOTO_CONTENT_MISMATCH", "Photo bytes do not match the declared image type", req.requestId));
     const botToken = String(process.env.TELEGRAM_BOT_TOKEN || "");
     if (!botToken) return res.status(503).json(errorBody("TELEGRAM_NOT_CONFIGURED", "Telegram bot is not configured", req.requestId));
 
