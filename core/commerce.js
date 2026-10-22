@@ -193,7 +193,8 @@ async function createCheckoutSession(orderId) {
   const cancelUrl = String(process.env.COMMERCE_CANCEL_URL || "");
   if (!/^https?:\/\//i.test(successUrl) || !/^https?:\/\//i.test(cancelUrl)) throw fail("CHECKOUT_URLS_REQUIRED", "Set COMMERCE_SUCCESS_URL and COMMERCE_CANCEL_URL");
   if (order.paymentStatus === "PAID") throw fail("ALREADY_PAID", "Order is already paid");
-  if (order.checkoutSessionId && order.checkoutUrl) return { order, sessionId: order.checkoutSessionId, url: order.checkoutUrl };
+  const checkoutReusable = order.checkoutSessionId && order.checkoutUrl && (!order.checkoutSessionExpiresAt || Date.parse(order.checkoutSessionExpiresAt) > Date.now() + 30000);
+  if (checkoutReusable) return { order, sessionId: order.checkoutSessionId, url: order.checkoutUrl };
   const form = new URLSearchParams();
   form.set("mode", "payment");
   form.set("success_url", successUrl);
@@ -219,7 +220,7 @@ async function createCheckoutSession(orderId) {
   }
   const updated = updateOrder(order.id, (o) => {
     if (o.paymentStatus === "PAID") throw fail("ALREADY_PAID", "Order is already paid");
-    return { ...o, checkoutSessionId: payload.id, checkoutUrl: payload.url, paymentProvider: "stripe_test" };
+    return { ...o, checkoutSessionId: payload.id, checkoutUrl: payload.url, checkoutSessionExpiresAt: Number.isSafeInteger(payload.expires_at) ? new Date(payload.expires_at * 1000).toISOString() : null, paymentProvider: "stripe_test" };
   });
   return { order: updated, sessionId: payload.id, url: payload.url };
 }
