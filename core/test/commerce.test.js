@@ -260,6 +260,25 @@ test("Checkout creation rejects a provider response with a mismatched amount bef
   assert.ok(after.checkoutAttemptKey);
 });
 
+test("Checkout creation refuses a non-Stripe hosted URL even with matching order details", async (t) => {
+  commerce.resetForTests();
+  const order = newDeliveryOrder();
+  process.env.STRIPE_SECRET_KEY = "sk_test_unit_test";
+  process.env.COMMERCE_SUCCESS_URL = "https://example.test/success";
+  process.env.COMMERCE_CANCEL_URL = "https://example.test/cancel";
+  t.mock.method(globalThis, "fetch", async () => ({
+    ok: true,
+    json: async () => ({
+      id: "cs_test_wrong_host", url: "https://checkout.stripe.com.attacker.example/c/pay/fake",
+      livemode: false, mode: "payment", status: "open",
+      client_reference_id: order.id, metadata: { order_id: order.id },
+      currency: "kzt", amount_total: 570000, expires_at: Math.floor(Date.now() / 1000) + 3600
+    })
+  }));
+  await assert.rejects(commerce.createCheckoutSession(order.id), { code: "PAYMENT_SESSION_INVALID" });
+  assert.equal(commerce.getOrder(order.id).checkoutUrl, undefined);
+});
+
 test("concurrent checkout requests use one Stripe idempotency key and converge on one session", async (t) => {
   commerce.resetForTests();
   const order = newDeliveryOrder();
