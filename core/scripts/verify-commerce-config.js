@@ -1,4 +1,5 @@
 "use strict";
+require("dotenv").config();
 
 const PLACEHOLDER_HOSTS = new Set(["example.com", "example.org", "example.net", "example.test", "core.example.invalid"]);
 
