@@ -96,15 +96,17 @@ async function notifyPaidOrder(order) {
     return;
   }
   const couriers = String(process.env.COMMERCE_COURIER_IDS || "").split(",").map((x) => x.trim()).filter(Boolean);
+  let notifiedCouriers = 0;
   for (const id of couriers) {
     try {
       await sendText(id, "Новый оплаченный заказ на доставку:\n" + orderSummary(order) +
         "\nАдрес: " + order.address, { inline_keyboard: [[{ text: "ВЗЯТЬ ЗАКАЗ", callback_data: "courier:assign:" + order.id }]] });
+      notifiedCouriers += 1;
     } catch { console.error(JSON.stringify({ event: "courier_notify_failed", orderId: order.id, code: "TELEGRAM_SEND_FAILED" })); }
   }
-  if (!couriers.length) {
+  if (notifiedCouriers === 0) {
     for (const id of admins) {
-      try { await sendText(id, "Оплаченный заказ ожидает курьера:\n" + orderSummary(order) + "\nАдрес: " + order.address); }
+      try { await sendText(id, "ОПЛАЧЕННЫЙ ЗАКАЗ ОЖИДАЕТ КУРЬЕРА:\n" + orderSummary(order) + "\nАдрес: " + order.address); }
       catch { console.error(JSON.stringify({ event: "delivery_admin_notify_failed", orderId: order.id })); }
     }
   }
