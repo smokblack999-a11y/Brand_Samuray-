@@ -159,7 +159,7 @@ test("a paid but expired Checkout session is recovered from Stripe without creat
   const file = path.join(dataDir, "commerce-orders.json");
   const orders = JSON.parse(fs.readFileSync(file, "utf8"));
   orders[0].checkoutSessionExpiresAt = new Date(Date.now() - 60000).toISOString();
-  fs.writeFileSync(file, JSON.stringify(orders, null, 2) + "\\n");
+  fs.writeFileSync(file, JSON.stringify(orders, null, 2) + "\n");
   process.env.STRIPE_SECRET_KEY = "sk_test_unit_test";
   process.env.COMMERCE_SUCCESS_URL = "https://example.test/success";
   process.env.COMMERCE_CANCEL_URL = "https://example.test/cancel";
@@ -191,7 +191,7 @@ test("an expired Checkout with unresolved status does not produce another payabl
   const file = path.join(dataDir, "commerce-orders.json");
   const orders = JSON.parse(fs.readFileSync(file, "utf8"));
   orders[0].checkoutSessionExpiresAt = new Date(Date.now() - 60000).toISOString();
-  fs.writeFileSync(file, JSON.stringify(orders, null, 2) + "\\n");
+  fs.writeFileSync(file, JSON.stringify(orders, null, 2) + "\n");
   process.env.STRIPE_SECRET_KEY = "sk_test_unit_test";
   process.env.COMMERCE_SUCCESS_URL = "https://example.test/success";
   process.env.COMMERCE_CANCEL_URL = "https://example.test/cancel";
