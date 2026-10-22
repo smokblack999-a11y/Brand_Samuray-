@@ -142,6 +142,12 @@ test("private Telegram admin and courier commands expose the right order actions
     }
   });
 
+  await bot.handleCommerceUpdate(messageUpdate(919, 500, "/orders"));
+  const denied = messages.find((p) => String(p.text || "").includes("Нет доступа"));
+  assert.ok(denied);
+  assert.equal(denied.text.includes(order.address), false);
+
+  messages.length = 0;
   await bot.handleCommerceUpdate(messageUpdate(920, 700, "/admin"));
   assert.ok(messages.some((p) => String(p.text || "").includes("Доставка без курьера: 1")));
 
@@ -159,6 +165,41 @@ test("private Telegram admin and courier commands expose the right order actions
   await bot.handleCommerceUpdate(messageUpdate(923, 801, "/startdelivery " + order.id));
   assert.equal(commerce.getOrder(order.id).status, "IN_DELIVERY");
   assert.ok(messages.some((p) => String(p.text || "").includes("передан курьеру")));
+});
+
+test("courier Telegram photo is attached to the assigned paid order and delivered to its customer", async (t) => {
+  commerce.resetForTests();
+  const paid = createPaidDeliveryOrder();
+  commerce.assignCourier(paid.id, "801");
+  const calls = [];
+  t.mock.method(globalThis, "fetch", async (url, options) => {
+    calls.push({ url, payload: JSON.parse(options.body) });
+    return telegramResponse(true);
+  });
+  await bot.handleCommerceUpdate({
+    update_id: 930,
+    message: { message_id: 1, chat: { id: 801, type: "private" }, from: { id: 801, is_bot: false }, text: "/photo " + paid.id }
+  });
+  await bot.handleCommerceUpdate({
+    update_id: 931,
+    message: {
+      message_id: 2,
+      chat: { id: 801, type: "private" },
+      from: { id: 801, is_bot: false },
+      caption: "GPS: 43.238900, 76.889700",
+      photo: [{ file_id: "file-small" }, { file_id: "file-large" }]
+    }
+  });
+  const saved = commerce.getOrder(paid.id);
+  assert.equal(saved.status, "PHOTO_RECEIVED");
+  assert.equal(saved.proof.telegramFileId, "file-large");
+  assert.equal(saved.proof.latitude, 43.2389);
+  assert.equal(saved.proof.longitude, 76.8897);
+  assert.ok(saved.proof.customerSentAt);
+  const customerPhoto = calls.find((c) => c.url.endsWith("/sendPhoto") && String(c.payload.chat_id) === "500");
+  assert.ok(customerPhoto);
+  assert.equal(customerPhoto.payload.photo, "file-large");
+  assert.ok(customerPhoto.payload.caption.includes(paid.id));
 });
 
 test("payment notifications are persisted per recipient and a completed retry sends nothing twice", async (t) => {
