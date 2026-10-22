@@ -202,6 +202,41 @@ test("courier Telegram photo is attached to the assigned paid order and delivere
   assert.ok(customerPhoto.payload.caption.includes(paid.id));
 });
 
+test("concurrent delivery of the same Telegram update is handled only once", async (t) => {
+  commerce.resetForTests();
+  let calls = 0;
+  let signalStarted;
+  let releaseFirst;
+  const started = new Promise((resolve) => { signalStarted = resolve; });
+  const blocked = new Promise((resolve) => { releaseFirst = resolve; });
+  t.mock.method(globalThis, "fetch", async (_url, _options) => {
+    calls += 1;
+    if (calls === 1) {
+      signalStarted();
+      await blocked;
+    }
+    return telegramResponse(true);
+  });
+  const update = {
+    update_id: 940,
+    callback_query: {
+      id: "cb-940",
+      from: { id: 500 },
+      message: { chat: { id: 500, type: "private" } },
+      data: "product:sample-1"
+    }
+  };
+  const first = bot.handleCommerceUpdate(update);
+  await started;
+  const concurrent = await bot.handleCommerceUpdate(update);
+  assert.equal(concurrent.duplicate, true);
+  assert.equal(concurrent.inFlight, true);
+  releaseFirst();
+  await first;
+  assert.equal(calls, 2);
+  assert.equal(commerce.listOrders().length, 0);
+});
+
 test("payment notifications are persisted per recipient and a completed retry sends nothing twice", async (t) => {
   commerce.resetForTests();
   const order = createPaidDeliveryOrder();
