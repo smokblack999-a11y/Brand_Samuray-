@@ -212,6 +212,31 @@ test("an expired Checkout with unresolved status does not produce another payabl
   assert.equal(commerce.getOrder(order.id).checkoutSessionId, "cs_test_uncertain");
 });
 
+test("legacy Checkout session without stored expiry is reconciled before it can be reused", async (t) => {
+  commerce.resetForTests();
+  const order = newDeliveryOrder();
+  commerce.attachCheckoutSession(order.id, "cs_test_legacy_no_expiry", "https://checkout.stripe.test/legacy");
+  process.env.STRIPE_SECRET_KEY = "sk_test_unit_test";
+  process.env.COMMERCE_SUCCESS_URL = "https://example.test/success";
+  process.env.COMMERCE_CANCEL_URL = "https://example.test/cancel";
+  const requests = [];
+  t.mock.method(globalThis, "fetch", async (url, options) => {
+    requests.push({ url, options });
+    return {
+      ok: true,
+      json: async () => ({
+        id: "cs_test_legacy_no_expiry", livemode: false, mode: "payment",
+        status: "open", payment_status: "unpaid",
+        client_reference_id: order.id, metadata: { order_id: order.id }
+      })
+    };
+  });
+  await assert.rejects(commerce.createCheckoutSession(order.id), { code: "PAYMENT_STATUS_PENDING" });
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].options.method, "GET");
+  assert.equal(commerce.getOrder(order.id).checkoutSessionId, "cs_test_legacy_no_expiry");
+});
+
 test("Checkout creation rejects a provider response with a mismatched amount before exposing the URL", async (t) => {
   commerce.resetForTests();
   const order = newDeliveryOrder();
