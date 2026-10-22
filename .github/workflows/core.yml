@@ -59,6 +59,7 @@ jobs:
           node --check lead-engine.js
           node --check scripts/set-webhook.js
           node --check scripts/verify-config.js
+          node --check scripts/verify-commerce-config.js
           node --check media-ingest.js
           node --check webapp-auth.js
           node --check hamylion-adapter.js
