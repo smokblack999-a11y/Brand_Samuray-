@@ -76,6 +76,7 @@ Prices are stored as whole KZT. Stripe lists KZT as a two-decimal currency; API 
 
 ## Safety limits / not yet implemented
 - This implementation intentionally refuses live Stripe keys. No real charge is enabled.
+- On checkout retry after an expired session, Core queries Stripe first: it recovers an already-paid session or stops if the previous session is not confirmed expired. It does not issue a second payable link while the prior session status is uncertain.
 - Test-mode Stripe does not prove that a merchant account in Kazakhstan is eligible for live Stripe processing. Confirm provider/country eligibility before selecting the production provider.
 - JSON file storage is suitable only for a single-instance prototype. Do not scale horizontally or run multiple Core instances against the same files. Move orders, payment events, notification outbox and sessions to a transactional shared database before production traffic.
 - Do not use DEMO catalog entries or example delivery prices for real customers.
