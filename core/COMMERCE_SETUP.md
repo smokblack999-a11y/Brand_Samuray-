@@ -5,7 +5,7 @@ This is a first implementation slice for the Telegram order workflow. It is not 
 ## Features in this branch
 - Server-side product prices and delivery-zone fees from environment configuration.
 - Persistent JSON order records with unique order IDs.
-- Customer Telegram commands: `/start`, `/catalog`, `/myorders`.
+- Customer Telegram commands: `/start`, `/catalog`, `/myorders`, and `/pay ORDER_ID` to retry checkout for the customer's own unpaid order.
 - Courier workflow: `/courier`, `/photo ORDER_ID`, `/done ORDER_ID`.
 - Test-only Stripe Checkout creation; `PAID` is set only after a valid Stripe signature, a paid Checkout Session, exact amount/currency and matching session ID.
 - Courier assignment is blocked until payment is verified. Proof photos are bound to an order and sent to that order's customer.
