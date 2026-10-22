@@ -9,7 +9,8 @@ This is a first implementation slice for the Telegram order workflow. It is not 
 - Courier workflow: `/courier`, `/photo ORDER_ID`, `/done ORDER_ID`.
 - Test-only Stripe Checkout creation; `PAID` is set only after a valid Stripe signature, a paid Checkout Session, exact amount/currency and matching session ID.
 - Courier assignment is blocked until payment is verified. Proof photos are bound to an order and sent to that order's customer.
-- Duplicate Telegram update IDs and Stripe event IDs are tracked.
+- Duplicate Telegram updates, Stripe payment events, Checkout creation retries and per-recipient Telegram notification results are tracked.
+- Payment notification failures are retried by a single-instance worker after restart; successful recipient notifications are not intentionally resent.
 
 ## Required configuration
 If `core/.env` already exists, do NOT overwrite it: preserve the current secrets and settings, and merge only the commerce variables from `core/.env.example`. If it does not exist, copy the example first. Replace the DEMO product and delivery-zone values before using the bot.
@@ -43,14 +44,14 @@ COMMERCE_SUCCESS_URL=https://example.com/payment/success
 COMMERCE_CANCEL_URL=https://example.com/payment/cancel
 ```
 
-Prices are stored as whole KZT. Stripe API amounts for KZT use minor units, so this implementation sends and validates KZT totals multiplied by 100.
+Prices are stored as whole KZT. Stripe lists KZT as a two-decimal currency; API amounts use minor units, so this implementation sends and validates KZT totals multiplied by 100. Confirm the payment provider supports KZT for the eventual merchant account: [Stripe currency documentation](https://docs.stripe.com/currencies).
 
 ## Safety limits / not yet implemented
 - This implementation intentionally refuses live Stripe keys. No real charge is enabled.
 - Test-mode Stripe does not prove that a merchant account in Kazakhstan is eligible for live Stripe processing. Confirm provider/country eligibility before selecting the production provider.
-- JSON file storage is suitable only for a single-instance prototype. Use a transactional database before concurrent production traffic.
+- JSON file storage is suitable only for a single-instance prototype. Do not scale horizontally or run multiple Core instances against the same files. Move orders, payment events, notification outbox and sessions to a transactional shared database before production traffic.
 - Do not use DEMO catalog entries or example delivery prices for real customers.
-- Android gallery-photo upload with captured GPS metadata is wired to an order-specific endpoint, but has not yet been built or device-tested. The courier must be assigned to the order, be listed in COMMERCE_COURIER_IDS, and authenticate with a per-courier token. GPS is optional and is not cryptographic proof of location.
+- Android gallery-photo upload with captured GPS metadata is included in the CI-built debug APK, but has not yet been tested on the user's physical device. Uploads are limited to 8 per minute per client IP and 10 MiB, validate image signatures, and use SHA-256 to make retries safe when Telegram delivery fails. The courier must be assigned to the order, be listed in COMMERCE_COURIER_IDS, and authenticate with a per-courier token. GPS is optional and is not cryptographic proof of location.
 - No real deployment, live webhook delivery, live payment, courier-device test or end-to-end APK test has been performed by this branch creation.
 
 ## API
