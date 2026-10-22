@@ -319,6 +319,16 @@ app.post("/api/commerce/orders/:id/photo-upload", courierPhotoRateLimit, seriali
         (capturedAtMs != null && (!Number.isSafeInteger(capturedAtMs) || capturedAtMs < 0 || capturedAtMs > Date.now() + 86400000))) {
       return res.status(400).json(errorBody("INVALID_PHOTO_METADATA", "Invalid GPS metadata", req.requestId));
     }
+    const declaredLengthHeader = req.get("content-length");
+    if (declaredLengthHeader != null) {
+      const declaredLength = Number(declaredLengthHeader);
+      if (!Number.isSafeInteger(declaredLength) || declaredLength < 0) {
+        return res.status(400).json(errorBody("INVALID_CONTENT_LENGTH", "Invalid photo content length", req.requestId));
+      }
+      if (declaredLength > 10 * 1024 * 1024) {
+        return res.status(413).json(errorBody("MEDIA_TOO_LARGE", "Photo must be 10 MiB or smaller", req.requestId));
+      }
+    }
     const photoBytes = await readRawBody(req, 10 * 1024 * 1024);
     if (!photoBytes.length) return res.status(400).json(errorBody("EMPTY_PHOTO", "Photo body is empty", req.requestId));
     const isJpeg = mime === "image/jpeg" && photoBytes.length >= 3 && photoBytes[0] === 0xff && photoBytes[1] === 0xd8 && photoBytes[2] === 0xff;
