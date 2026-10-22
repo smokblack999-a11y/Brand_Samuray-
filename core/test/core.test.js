@@ -207,6 +207,17 @@ test('commerce endpoints require API key and expose only configured catalog', as
   const catalog = await catalogResponse.json();
   assert.deepEqual(catalog.products, [{ id: 'test-product', name: 'Test product', priceKzt: 5000, active: true }]);
   assert.deepEqual(catalog.deliveryZones, { 'test-zone': 700 });
+
+  const statusResponse = await api('/api/commerce/status');
+  assert.equal(statusResponse.status, 200);
+  const status = await statusResponse.json();
+  assert.equal(status.mode, 'stripe-test-only');
+  assert.equal(status.catalog.count, 1);
+  assert.equal(status.deliveryZones.count, 1);
+  assert.equal(status.payment.testSecretConfigured, false);
+  assert.equal(status.payment.webhookSecretConfigured, false);
+  assert.equal(JSON.stringify(status).includes('test-courier-token-that-is-not-secret'), false);
+  assert.equal(JSON.stringify(status).includes('STRIPE_SECRET_KEY='), false);
 });
 
 test('Stripe webhook fails closed when signature verification is not configured', async () => {
