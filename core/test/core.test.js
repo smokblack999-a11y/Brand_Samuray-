@@ -205,8 +205,8 @@ test('commerce endpoints require API key and expose only configured catalog', as
   const catalogResponse = await fetch(`http://127.0.0.1:${port}/api/commerce/catalog`);
   assert.equal(catalogResponse.status, 200);
   const catalog = await catalogResponse.json();
-  assert.deepEqual(catalog.products, []);
-  assert.deepEqual(catalog.deliveryZones, {});
+  assert.deepEqual(catalog.products, [{ id: 'test-product', name: 'Test product', priceKzt: 5000, active: true }]);
+  assert.deepEqual(catalog.deliveryZones, { 'test-zone': 700 });
 });
 
 test('Stripe webhook fails closed when signature verification is not configured', async () => {
