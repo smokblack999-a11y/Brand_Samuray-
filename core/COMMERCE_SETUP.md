@@ -78,11 +78,11 @@ npm test
 
 ## Android API target
 
-The debug build defaults to \`http://10.0.2.2:8787\`, which works for an Android emulator only. For a real phone, build against a deployed HTTPS Core URL:
+The debug build defaults to `http://10.0.2.2:8787`, which works for an Android emulator only. For a real phone, build against a deployed HTTPS Core URL:
 
-\`\`\`sh
+```sh
 cd android
 ./gradlew assembleDebug -PCORE_BASE_URL=https://YOUR_DEPLOYED_CORE_HOST
-\`\`\`
+```
 
-Do not ship the placeholder \`https://core.example.invalid\` as a usable endpoint. Core must be deployed and the courier token configured before Android photo upload can work. Each courier must open the bot and send \`/start\` before the bot can message them.
+Do not ship the placeholder `https://core.example.invalid` as a usable endpoint. Core must be deployed and the courier token configured before Android photo upload can work. Each courier and customer must open the bot and send `/start` before the bot can message them.
