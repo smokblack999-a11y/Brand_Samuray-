@@ -32,6 +32,7 @@ import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
+import androidx.exifinterface.media.ExifInterface
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import com.google.android.gms.location.LocationServices
@@ -238,17 +239,36 @@ class MainActivity : ComponentActivity() {
         }
         executor.execute {
             val stamped = stampPhoto(photo, location, timestamp)
+            val exifSaved = saveExifMetadata(photo, location, timestamp)
             Vault.saveMetadata(photo, location?.latitude, location?.longitude, location?.accuracy, timestamp)
             mainHandler.post {
                 refreshGallery()
+                val visibleStamp = if (stamped) "видимая отметка нанесена" else "видимая отметка не нанесена"
+                val exifStatus = if (exifSaved) "EXIF сохранён" else "EXIF не сохранён"
                 outputText.text = if (location != null) {
                     "Фото сохранено · GPS " + String.format(Locale.US, "%.6f, %.6f ± %.1f м", location.latitude, location.longitude, location.accuracy) +
-                        " · отметка " + if (stamped) "на фото" else "не нанесена"
+                        " · " + visibleStamp + " · " + exifStatus
                 } else {
-                    "Фото сохранено · GPS недоступен · отметка " + if (stamped) "на фото" else "не нанесена"
+                    "Фото сохранено · GPS недоступен · " + visibleStamp + " · " + exifStatus
                 }
                 if (noGpsMessage != null) showToast(noGpsMessage)
             }
+        }
+    }
+
+    private fun saveExifMetadata(photo: File, location: Location?, timestamp: Long): Boolean {
+        return try {
+            val exif = ExifInterface(photo.absolutePath)
+            exif.setAttribute(
+                ExifInterface.TAG_DATETIME_ORIGINAL,
+                SimpleDateFormat("yyyy:MM:dd HH:mm:ss", Locale.US).format(Date(timestamp))
+            )
+            exif.setAttribute(ExifInterface.TAG_SOFTWARE, "SAMURAIOS")
+            if (location != null) exif.setLatLong(location.latitude, location.longitude)
+            exif.saveAttributes()
+            true
+        } catch (_: Exception) {
+            false
         }
     }
 
