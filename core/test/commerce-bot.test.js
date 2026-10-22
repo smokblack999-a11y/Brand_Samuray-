@@ -43,6 +43,42 @@ function telegramResponse(ok = true) {
   };
 }
 
+test("Telegram customer can select a quantity and the server creates the matching unpaid order", async (t) => {
+  commerce.resetForTests();
+  process.env.STRIPE_SECRET_KEY = "";
+  const sent = [];
+  t.mock.method(globalThis, "fetch", async (_url, options) => {
+    const payload = JSON.parse(options.body);
+    sent.push(payload);
+    return telegramResponse(true);
+  });
+  const callback = (updateId, data) => ({
+    update_id: updateId,
+    callback_query: {
+      id: "cb-" + updateId,
+      from: { id: 500 },
+      message: { chat: { id: 500 } },
+      data
+    }
+  });
+
+  await bot.handleCommerceUpdate(callback(910, "product:sample-1"));
+  assert.ok(sent.some((p) => p.reply_markup?.inline_keyboard?.[0]?.some((b) => b.callback_data === "quantity:sample-1:3")));
+
+  sent.length = 0;
+  await bot.handleCommerceUpdate(callback(911, "quantity:sample-1:3"));
+  assert.ok(sent.some((p) => p.reply_markup?.inline_keyboard?.[0]?.some((b) => b.callback_data === "buy:pickup:sample-1:3")));
+
+  sent.length = 0;
+  await bot.handleCommerceUpdate(callback(912, "buy:pickup:sample-1:3"));
+  const orders = commerce.listOrders({ customerId: "500" });
+  assert.equal(orders.length, 1);
+  assert.equal(orders[0].quantity, 3);
+  assert.equal(orders[0].itemsTotalKzt, 15000);
+  assert.equal(orders[0].paymentStatus, "AWAITING_PAYMENT");
+  assert.ok(sent.some((p) => String(p.text || "").includes("Заказ НЕ оплачен")));
+});
+
 test("payment notifications are persisted per recipient and a completed retry sends nothing twice", async (t) => {
   commerce.resetForTests();
   const order = createPaidDeliveryOrder();
