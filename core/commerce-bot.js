@@ -1,6 +1,7 @@
 "use strict";
 
 const fs = require("node:fs");
+const crypto = require("node:crypto");
 const path = require("node:path");
 const commerce = require("./commerce");
 
@@ -17,7 +18,7 @@ function readSessions() {
 function setSession(userId, value) {
   const all = readSessions();
   if (value) all[String(userId)] = value; else delete all[String(userId)];
-  const tmp = SESSION_FILE + ".tmp";
+  const tmp = SESSION_FILE + "." + crypto.randomUUID() + ".tmp";
   fs.writeFileSync(tmp, JSON.stringify(all, null, 2) + "\n", { mode: 0o600 });
   fs.renameSync(tmp, SESSION_FILE);
 }
@@ -35,7 +36,7 @@ function markUpdate(updateId) {
   if (!ids.includes(updateId)) writeAtomic(UPDATES_FILE, ids.concat(updateId).slice(-10000));
 }
 function writeAtomic(file, value) {
-  const tmp = file + ".tmp";
+  const tmp = file + "." + crypto.randomUUID() + ".tmp";
   fs.writeFileSync(tmp, JSON.stringify(value, null, 2) + "\n", { mode: 0o600 });
   fs.renameSync(tmp, file);
 }
