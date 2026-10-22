@@ -250,6 +250,7 @@ app.post("/api/commerce/orders/:id/photo-upload", courierPhotoRateLimit, async (
     if (order.paymentStatus !== "PAID") return res.status(409).json(errorBody("PAYMENT_NOT_CONFIRMED", "Photo upload is blocked until payment is confirmed", req.requestId));
     const mime = String(req.get("content-type") || "").split(";")[0].toLowerCase();
     if (!["image/jpeg", "image/png", "image/webp"].includes(mime)) return res.status(415).json(errorBody("UNSUPPORTED_PHOTO_TYPE", "Use JPEG, PNG or WebP", req.requestId));
+
     const latitudeRaw = req.get("X-Photo-Latitude");
     const longitudeRaw = req.get("X-Photo-Longitude");
     const latitude = latitudeRaw == null || latitudeRaw === "" ? null : Number(latitudeRaw);
@@ -270,22 +271,43 @@ app.post("/api/commerce/orders/:id/photo-upload", courierPhotoRateLimit, async (
     const isPng = mime === "image/png" && photoBytes.length >= 8 && photoBytes.subarray(0, 8).equals(Buffer.from("89504e470d0a1a0a", "hex"));
     const isWebp = mime === "image/webp" && photoBytes.length >= 12 && photoBytes.toString("ascii", 0, 4) === "RIFF" && photoBytes.toString("ascii", 8, 12) === "WEBP";
     if (!isJpeg && !isPng && !isWebp) return res.status(415).json(errorBody("PHOTO_CONTENT_MISMATCH", "Photo bytes do not match the declared image type", req.requestId));
+    const photoSha256 = crypto.createHash("sha256").update(photoBytes).digest("hex");
     const botToken = String(process.env.TELEGRAM_BOT_TOKEN || "");
     if (!botToken) return res.status(503).json(errorBody("TELEGRAM_NOT_CONFIGURED", "Telegram bot is not configured", req.requestId));
 
-    const form = new FormData();
-    form.append("chat_id", courierId);
-    form.append("photo", new Blob([photoBytes], { type: mime }), "samurai-order-" + order.id + (mime === "image/png" ? ".png" : mime === "image/webp" ? ".webp" : ".jpg"));
-    form.append("caption", "Фотоотчёт загружен для заказа " + order.id);
-    const uploadResponse = await fetch("https://api.telegram.org/bot" + botToken + "/sendPhoto", { method: "POST", body: form, signal: AbortSignal.timeout(20000) });
-    const uploadData = await uploadResponse.json().catch(() => ({}));
-    const fileId = uploadData?.result?.photo?.[uploadData.result.photo.length - 1]?.file_id;
-    if (!uploadResponse.ok || uploadData.ok !== true || !fileId) return res.status(502).json(errorBody("TELEGRAM_UPLOAD_FAILED", "Could not upload photo to Telegram", req.requestId));
+    let currentOrder = commerce.getOrder(order.id);
+    const currentProof = currentOrder?.proof;
+    if (currentProof?.customerSentAt && currentProof.sha256 !== photoSha256) {
+      return res.status(409).json(errorBody("PHOTO_ALREADY_DELIVERED", "A different photo has already been delivered for this order", req.requestId));
+    }
+    if (currentProof?.sha256 && currentProof.sha256 !== photoSha256) {
+      return res.status(409).json(errorBody("PHOTO_RETRY_MISMATCH", "Retry the original photo upload while its delivery is pending", req.requestId));
+    }
 
-    const saved = commerce.attachProof(order.id, courierId, {
-      telegramFileId: fileId, latitude, longitude, accuracyMeters,
-      capturedAt: capturedAtMs == null ? null : new Date(capturedAtMs).toISOString()
-    });
+    let fileId = currentProof?.sha256 === photoSha256 ? currentProof.telegramFileId : null;
+    let saved = currentOrder;
+    if (!fileId) {
+      const form = new FormData();
+      form.append("chat_id", courierId);
+      form.append("photo", new Blob([photoBytes], { type: mime }), "samurai-order-" + order.id + (mime === "image/png" ? ".png" : mime === "image/webp" ? ".webp" : ".jpg"));
+      form.append("caption", "Фотоотчёт загружен для заказа " + order.id);
+      const uploadResponse = await fetch("https://api.telegram.org/bot" + botToken + "/sendPhoto", {
+        method: "POST", body: form, signal: AbortSignal.timeout(20000)
+      });
+      const uploadData = await uploadResponse.json().catch(() => ({}));
+      fileId = uploadData?.result?.photo?.[uploadData.result.photo.length - 1]?.file_id;
+      if (!uploadResponse.ok || uploadData.ok !== true || !fileId) {
+        return res.status(502).json(errorBody("TELEGRAM_UPLOAD_FAILED", "Could not upload photo to Telegram", req.requestId));
+      }
+
+      saved = commerce.attachProof(order.id, courierId, {
+        telegramFileId: fileId, sha256: photoSha256, latitude, longitude, accuracyMeters,
+        capturedAt: capturedAtMs == null ? null : new Date(capturedAtMs).toISOString()
+      });
+    } else if (currentProof.customerSentAt) {
+      return res.json({ ok: true, alreadyUploaded: true, order: currentOrder, customerNotified: true, requestId: req.requestId });
+    }
+
     const caption = "Фото по заказу " + saved.id + "\nGPS: " + (latitude == null ? "недоступен" : latitude + ", " + longitude) +
       "\nТочность GPS: " + (accuracyMeters == null ? "не указана" : accuracyMeters + " м") + "\nСтатус: фото получено";
     const customerResponse = await fetch("https://api.telegram.org/bot" + botToken + "/sendPhoto", {
@@ -294,7 +316,10 @@ app.post("/api/commerce/orders/:id/photo-upload", courierPhotoRateLimit, async (
       signal: AbortSignal.timeout(15000)
     });
     const customerData = await customerResponse.json().catch(() => ({}));
-    if (!customerResponse.ok || customerData.ok !== true) return res.status(502).json(errorBody("CUSTOMER_PHOTO_DELIVERY_FAILED", "Photo saved to the order but Telegram could not deliver it to the customer", req.requestId));
+    if (!customerResponse.ok || customerData.ok !== true) {
+      return res.status(502).json(errorBody("CUSTOMER_PHOTO_DELIVERY_FAILED", "Photo is saved to the order; retry the same photo to attempt customer delivery again", req.requestId));
+    }
+    saved = commerce.markPhotoDelivered(order.id, courierId, fileId);
     if (latitude != null) {
       void fetch("https://api.telegram.org/bot" + botToken + "/sendLocation", {
         method: "POST", headers: { "content-type": "application/json" },
@@ -304,11 +329,10 @@ app.post("/api/commerce/orders/:id/photo-upload", courierPhotoRateLimit, async (
     }
     return res.json({ ok: true, order: saved, customerNotified: true, requestId: req.requestId });
   } catch (error) {
-    const status = error.code === "MEDIA_TOO_LARGE" ? 413 : error.code === "ORDER_NOT_FOUND" ? 404 : error.code === "FORBIDDEN" ? 403 : ["INVALID_LOCATION", "PHOTO_REQUIRED", "PAYMENT_NOT_CONFIRMED", "INVALID_ORDER_STATE"].includes(error.code) ? 409 : error.code ? 400 : 502;
+    const status = error.code === "MEDIA_TOO_LARGE" ? 413 : error.code === "ORDER_NOT_FOUND" ? 404 : error.code === "FORBIDDEN" ? 403 : ["INVALID_LOCATION", "PHOTO_REQUIRED", "PAYMENT_NOT_CONFIRMED", "INVALID_ORDER_STATE", "PHOTO_ALREADY_DELIVERED", "PHOTO_RETRY_MISMATCH"].includes(error.code) ? 409 : error.code ? 400 : 502;
     return res.status(status).json(errorBody(error.code || "PHOTO_UPLOAD_FAILED", error.code ? error.message : "Photo upload failed", req.requestId));
   }
 });
-
 app.post("/api/commerce/orders/:id/proof", requireApiKey, async (req, res) => {
   try {
     const order = commerce.attachProof(req.params.id, req.body?.courierId, {
