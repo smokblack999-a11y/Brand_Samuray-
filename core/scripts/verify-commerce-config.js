@@ -44,7 +44,7 @@ function validateCommerceEnv(env = process.env) {
 
   if (String(env.CORE_API_KEY || "").length < 16 || isPlaceholderValue(env.CORE_API_KEY)) errors.push("CORE_API_KEY must be a real secret of at least 16 characters");
   if (String(env.TELEGRAM_WEBHOOK_SECRET || "").length < 16 || isPlaceholderValue(env.TELEGRAM_WEBHOOK_SECRET)) errors.push("TELEGRAM_WEBHOOK_SECRET must be a real secret of at least 16 characters");
-  if (env.TELEGRAM_BOT_TOKEN && !/^\\d{5,}:[A-Za-z0-9_-]{20,}$/.test(String(env.TELEGRAM_BOT_TOKEN))) errors.push("TELEGRAM_BOT_TOKEN does not match the expected BotFather token format");
+  if (env.TELEGRAM_BOT_TOKEN && !/^\d{5,}:[A-Za-z0-9_-]{20,}$/.test(String(env.TELEGRAM_BOT_TOKEN))) errors.push("TELEGRAM_BOT_TOKEN does not match the expected BotFather token format");
 
   const webhookUrl = String(env.TELEGRAM_WEBHOOK_URL || "");
   if (webhookUrl && (!isHttpsUrl(webhookUrl) || isPlaceholderUrl(webhookUrl) || !new URL(webhookUrl).pathname.endsWith("/api/telegram/webhook"))) {
