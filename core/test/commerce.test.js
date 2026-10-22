@@ -108,14 +108,41 @@ test("expired Stripe checkout session is replaced on payment retry", async (t) =
   process.env.STRIPE_SECRET_KEY = "sk_test_unit_test";
   process.env.COMMERCE_SUCCESS_URL = "https://example.test/success";
   process.env.COMMERCE_CANCEL_URL = "https://example.test/cancel";
-  t.mock.method(globalThis, "fetch", async () => ({
-    ok: true,
-    json: async () => ({ id: "cs_test_replacement", url: "https://checkout.stripe.test/replacement", expires_at: Math.floor(Date.now() / 1000) + 3600 })
-  }));
+  let lastRequest;
+  t.mock.method(globalThis, "fetch", async (_url, options) => {
+    lastRequest = options;
+    return { ok: true, json: async () => ({ id: "cs_test_replacement", url: "https://checkout.stripe.test/replacement", expires_at: Math.floor(Date.now() / 1000) + 3600 }) };
+  });
   const checkout = await commerce.createCheckoutSession(order.id);
   assert.equal(checkout.sessionId, "cs_test_replacement");
   assert.equal(checkout.order.checkoutSessionId, "cs_test_replacement");
   assert.ok(Date.parse(checkout.order.checkoutSessionExpiresAt) > Date.now());
+  assert.equal(lastRequest.headers["Idempotency-Key"], checkout.order.checkoutAttemptKey);
+  const submitted = new URLSearchParams(lastRequest.body);
+  assert.equal(submitted.get("line_items[0][price_data][unit_amount]"), "570000");
+});
+
+test("Stripe checkout retries reuse the persisted idempotency key after a network failure", async (t) => {
+  commerce.resetForTests();
+  const order = newDeliveryOrder();
+  process.env.STRIPE_SECRET_KEY = "sk_test_unit_test";
+  process.env.COMMERCE_SUCCESS_URL = "https://example.test/success";
+  process.env.COMMERCE_CANCEL_URL = "https://example.test/cancel";
+  let calls = 0;
+  const keys = [];
+  t.mock.method(globalThis, "fetch", async (_url, options) => {
+    calls += 1;
+    keys.push(options.headers["Idempotency-Key"]);
+    if (calls === 1) throw new Error("simulated network timeout");
+    return { ok: true, json: async () => ({ id: "cs_test_after_retry", url: "https://checkout.stripe.test/retry", expires_at: Math.floor(Date.now() / 1000) + 3600 }) };
+  });
+  await assert.rejects(commerce.createCheckoutSession(order.id));
+  const afterFailure = commerce.getOrder(order.id);
+  assert.ok(afterFailure.checkoutAttemptKey);
+  const result = await commerce.createCheckoutSession(order.id);
+  assert.equal(result.sessionId, "cs_test_after_retry");
+  assert.equal(keys.length, 2);
+  assert.equal(keys[0], keys[1]);
 });
 
 test("Stripe signature rejects tampering and accepts a current valid signature", () => {
