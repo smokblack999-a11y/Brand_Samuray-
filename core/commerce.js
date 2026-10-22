@@ -96,7 +96,7 @@ function createOrder(input) {
     fulfillment, address, deliveryZone, currency: CURRENCY,
     unitPriceKzt: product.priceKzt, itemsTotalKzt, deliveryFeeKzt, totalKzt,
     paymentStatus: "AWAITING_PAYMENT", status: "AWAITING_PAYMENT",
-    courierId: null, paymentProvider: null, paymentReference: null, paymentEventIds: [],
+    courierId: null, paymentProvider: null, paymentReference: null, paymentEventIds: [], checkoutSessionIds: [],
     proof: null, notifications: { customerSentAt: null, courierSentIds: [], adminSentIds: [], deliveryEscalatedAt: null }, createdAt: now, updatedAt: now
   };
   const orders = readOrders();
@@ -123,7 +123,8 @@ function applyVerifiedPayment(input) {
   const currency = String(input.currency || "").toUpperCase();
   const order = getOrder(orderId);
   if (!order) throw fail("ORDER_NOT_FOUND", "Order not found");
-  if (!order.checkoutSessionId || input.sessionId !== order.checkoutSessionId) throw fail("PAYMENT_SESSION_MISMATCH", "Payment session does not match the order");
+  const acceptedSessions = Array.isArray(order.checkoutSessionIds) ? order.checkoutSessionIds : (order.checkoutSessionId ? [order.checkoutSessionId] : []);
+  if (!input.sessionId || !acceptedSessions.includes(input.sessionId)) throw fail("PAYMENT_SESSION_MISMATCH", "Payment session does not match the order");
   if (order.totalKzt !== input.amountKzt || order.currency !== currency) throw fail("PAYMENT_MISMATCH", "Payment amount or currency does not match the order");
 
   const events = readEvents();
@@ -253,13 +254,13 @@ async function createCheckoutSession(orderId) {
   }
   const updated = updateOrder(order.id, (o) => {
     if (o.paymentStatus === "PAID") throw fail("ALREADY_PAID", "Order is already paid");
-    return { ...o, checkoutSessionId: payload.id, checkoutUrl: payload.url, checkoutSessionExpiresAt: Number.isSafeInteger(payload.expires_at) ? new Date(payload.expires_at * 1000).toISOString() : null, paymentProvider: "stripe_test" };
+    return { ...o, checkoutSessionId: payload.id, checkoutSessionIds: [...new Set([...(Array.isArray(o.checkoutSessionIds) ? o.checkoutSessionIds : []), payload.id])], checkoutUrl: payload.url, checkoutSessionExpiresAt: Number.isSafeInteger(payload.expires_at) ? new Date(payload.expires_at * 1000).toISOString() : null, paymentProvider: "stripe_test" };
   });
   return { order: updated, sessionId: payload.id, url: payload.url };
 }
 function attachCheckoutSession(orderId, sessionId, checkoutUrl = "https://checkout.stripe.test/session") {
   if (!String(sessionId || "").startsWith("cs_test_")) throw fail("INVALID_CHECKOUT_SESSION", "Only a Stripe test Checkout Session is accepted");
-  return updateOrder(orderId, (o) => ({ ...o, checkoutSessionId: String(sessionId), checkoutUrl, paymentProvider: "stripe_test" }));
+  return updateOrder(orderId, (o) => ({ ...o, checkoutSessionId: String(sessionId), checkoutSessionIds: [...new Set([...(Array.isArray(o.checkoutSessionIds) ? o.checkoutSessionIds : []), String(sessionId)])], checkoutUrl, paymentProvider: "stripe_test" }));
 }
 function markNotification(orderId, kind, recipientId) {
   const allowed = new Set(["customer", "courier", "admin", "deliveryEscalated"]);
