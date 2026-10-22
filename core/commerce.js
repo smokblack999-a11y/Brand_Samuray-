@@ -313,9 +313,29 @@ async function createCheckoutSession(orderId) {
     error.providerStatus = response.status;
     throw error;
   }
+  let checkoutUrl;
+  try {
+    checkoutUrl = new URL(payload.url);
+  } catch {
+    throw fail("PAYMENT_SESSION_INVALID", "Stripe returned an invalid Checkout URL");
+  }
+  const expectedMinorAmount = order.totalKzt * 100;
+  if (!String(payload.id).startsWith("cs_test_") ||
+      payload.livemode !== false ||
+      payload.mode !== "payment" ||
+      payload.status !== "open" ||
+      payload.client_reference_id !== order.id ||
+      payload.metadata?.order_id !== order.id ||
+      String(payload.currency || "").toUpperCase() !== order.currency ||
+      payload.amount_total !== expectedMinorAmount ||
+      checkoutUrl.protocol !== "https:" ||
+      !Number.isSafeInteger(payload.expires_at) ||
+      payload.expires_at * 1000 <= Date.now()) {
+    throw fail("PAYMENT_SESSION_INVALID", "Stripe Checkout response does not match the expected test order");
+  }
   const updated = updateOrder(order.id, (o) => {
     if (o.paymentStatus === "PAID") throw fail("ALREADY_PAID", "Order is already paid");
-    return { ...o, checkoutSessionId: payload.id, checkoutSessionIds: [...new Set([...(Array.isArray(o.checkoutSessionIds) ? o.checkoutSessionIds : []), payload.id])], checkoutUrl: payload.url, checkoutSessionExpiresAt: Number.isSafeInteger(payload.expires_at) ? new Date(payload.expires_at * 1000).toISOString() : null, paymentProvider: "stripe_test" };
+    return { ...o, checkoutSessionId: payload.id, checkoutSessionIds: [...new Set([...(Array.isArray(o.checkoutSessionIds) ? o.checkoutSessionIds : []), payload.id])], checkoutUrl: checkoutUrl.toString(), checkoutSessionExpiresAt: new Date(payload.expires_at * 1000).toISOString(), paymentProvider: "stripe_test" };
   });
   return { order: updated, sessionId: payload.id, url: payload.url };
 }
