@@ -229,6 +229,13 @@ async function handleMessage(message, updateId) {
   const session = readSessions()[userId];
   if (message.photo?.length && session?.state === "awaiting_order_photo") {
     const orderId = session.orderId;
+    const existingOrder = commerce.getOrder(orderId);
+    const incomingPhoto = message.photo[message.photo.length - 1];
+    if (existingOrder?.proof?.customerSentAt && existingOrder.proof.telegramFileId === incomingPhoto.file_id) {
+      setSession(userId, null);
+      await sendText(chatId, "Фото по заказу " + orderId + " уже доставлено клиенту; повторную отправку не выполнял.");
+      return;
+    }
     const photo = message.photo[message.photo.length - 1];
     const caption = String(message.caption || "");
     const gps = caption.match(/GPS:\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)/i);
