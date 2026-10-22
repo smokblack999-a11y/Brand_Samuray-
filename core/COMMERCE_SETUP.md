@@ -29,6 +29,34 @@ If `core/.env` already exists, do NOT overwrite it: preserve the current secrets
 
 Set Stripe's test webhook destination to `https://YOUR_HOST/api/commerce/stripe/webhook` and subscribe to `checkout.session.completed` and `checkout.session.async_payment_succeeded`. Configure Telegram's webhook to `/api/telegram/webhook` using the configured secret token.
 
+## First launch checklist
+
+1. Create a Telegram bot with BotFather and set its token in `core/.env`. The Core server must be deployed to a public HTTPS hostname.
+2. Preserve any existing `core/.env` values. If there is no file yet, copy the example: `cp .env.example .env`.
+3. Set a strong `CORE_API_KEY` and `TELEGRAM_WEBHOOK_SECRET`. Generate values locally without posting them in chat:
+   ```sh
+   node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+   ```
+   Run it separately for the Core API key, webhook secret and each courier token. Never reuse a token between couriers.
+4. Replace the sample catalog and delivery zone JSON with real item IDs, names, integer KZT prices and delivery fees. Do not use the example product or the example amount with customers.
+5. Add your Telegram numeric user ID to `COMMERCE_ADMIN_IDS`; add each courier's numeric user ID to `COMMERCE_COURIER_IDS`; place matching different 64-character-or-longer random tokens in `COMMERCE_COURIER_TOKENS_JSON`.
+6. Put Stripe's `sk_test_...` key and its `whsec_...` webhook signing secret into `core/.env`. Configure the test webhook at `https://YOUR_DEPLOYED_HOST/api/commerce/stripe/webhook`.
+7. Run the checks from the `core/` directory:
+   ```sh
+   npm ci
+   npm test
+   npm run verify-commerce
+   ```
+   The preflight checks formatting and required settings without printing secrets. It does not prove the Telegram token, Stripe credentials, public network routes or webhook delivery are valid.
+8. Configure Telegram's webhook with `npm run set-webhook` after reviewing `TELEGRAM_WEBHOOK_URL` and `TELEGRAM_WEBHOOK_SECRET`. Then open the bot in private chat and send `/start` for each customer, administrator and courier.
+9. Perform the full TEST flow: select item/quantity → pickup or delivery → test Checkout → wait for signed Stripe event → assign courier → upload photo/GPS → confirm the right customer receives the right photo → mark delivered. Do not change to live payments based only on a passing build.
+
+### Telegram commands
+
+- Customer: `/start`, `/catalog`, `/myorders`, `/pay ORDER_ID`.
+- Courier: `/start`, `/courier`, click `ВЗЯТЬ ЗАКАЗ`, then `/photo ORDER_ID` and send the photo, finally `/done ORDER_ID`.
+- Admin: use the Core API endpoints with `X-API-Key`; check readiness with `GET /api/commerce/status` (the status response never returns configured secret values).
+
 ## Environment examples
 
 ```dotenv
@@ -72,8 +100,12 @@ node --check server.js
 node --check commerce.js
 node --check commerce-stripe.js
 node --check commerce-bot.js
+node --check scripts/verify-commerce-config.js
 node --test test/commerce.test.js
+node --test test/commerce-bot.test.js
+node --test test/verify-commerce-config.test.js
 npm test
+npm run verify-commerce
 ```
 
 ## Android API target
