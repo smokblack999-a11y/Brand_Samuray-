@@ -81,6 +81,24 @@ app.use((req, res, next) => {
 const leadRateLimit = createRateLimiter({ windowMs: LEAD_RATE_LIMIT_WINDOW_MS, max: LEAD_RATE_LIMIT_MAX });
 const dualRateLimit = createRateLimiter({ windowMs: Math.max(1000, Number(process.env.DUAL_AI_RATE_LIMIT_WINDOW_MS || 60000)), max: Math.max(1, Number(process.env.DUAL_AI_RATE_LIMIT_MAX || 10)) });
 const courierPhotoRateLimit = createRateLimiter({ windowMs: 60000, max: 8 });
+const activeCourierPhotoUploads = new Set();
+function serializeCourierPhotoUpload(req, res, next) {
+  const orderId = String(req.params.id || "");
+  if (!orderId) return next();
+  if (activeCourierPhotoUploads.has(orderId)) {
+    return res.status(409).json(errorBody("PHOTO_UPLOAD_IN_PROGRESS", "A photo upload for this order is already in progress", req.requestId));
+  }
+  activeCourierPhotoUploads.add(orderId);
+  let released = false;
+  const release = () => {
+    if (released) return;
+    released = true;
+    activeCourierPhotoUploads.delete(orderId);
+  };
+  res.once("finish", release);
+  res.once("close", release);
+  return next();
+}
 app.use("/dual-ai", express.static(path.join(__dirname, "dual-ai", "public"), { index: "index.html" }));
 app.use("/mini-app", express.static(path.join(__dirname, "mini-app"), { index: "index.html" }));
 
@@ -268,7 +286,7 @@ app.post("/api/commerce/orders/:id/assign", requireApiKey, (req, res) => {
   }
 });
 
-app.post("/api/commerce/orders/:id/photo-upload", courierPhotoRateLimit, async (req, res) => {
+app.post("/api/commerce/orders/:id/photo-upload", courierPhotoRateLimit, serializeCourierPhotoUpload, async (req, res) => {
   const courierId = String(req.get("X-Courier-Id") || "").trim();
   const courierToken = String(req.get("X-Courier-Token") || "");
   if (!courierId || !courierToken) return res.status(401).json(errorBody("COURIER_AUTH_REQUIRED", "Courier authentication is required", req.requestId));
