@@ -192,7 +192,16 @@ function attachProof(orderId, courierId, proof) {
     if (o.courierId !== String(courierId)) throw fail("FORBIDDEN", "Order is assigned to another courier");
     if (o.paymentStatus !== "PAID") throw fail("PAYMENT_NOT_CONFIRMED", "Cannot submit delivery proof before payment is confirmed");
     if (!["COURIER_ASSIGNED", "IN_DELIVERY", "PHOTO_RECEIVED"].includes(o.status)) throw fail("INVALID_ORDER_STATE", "Order is not in a deliverable state");
-    return { ...o, proof: { telegramFileId: fileId, latitude, longitude, accuracyMeters: proof.accuracyMeters == null ? null : Number(proof.accuracyMeters), capturedAt: proof.capturedAt || null, receivedAt: new Date().toISOString() }, status: "PHOTO_RECEIVED" };
+    return { ...o, proof: { telegramFileId: fileId, sha256: proof.sha256 || null, latitude, longitude, accuracyMeters: proof.accuracyMeters == null ? null : Number(proof.accuracyMeters), capturedAt: proof.capturedAt || null, receivedAt: new Date().toISOString(), customerSentAt: null }, status: "PHOTO_RECEIVED" };
+  });
+}
+function markPhotoDelivered(orderId, courierId, telegramFileId) {
+  const fileId = String(telegramFileId || "").trim();
+  if (!fileId) throw fail("PHOTO_REQUIRED", "Telegram photo file ID is required");
+  return updateOrder(orderId, (o) => {
+    if (o.courierId !== String(courierId)) throw fail("FORBIDDEN", "Order is assigned to another courier");
+    if (!o.proof || o.proof.telegramFileId !== fileId) throw fail("PHOTO_PROOF_MISMATCH", "Photo does not match the order proof");
+    return { ...o, proof: { ...o.proof, customerSentAt: o.proof.customerSentAt || new Date().toISOString() } };
   });
 }
 function markDelivered(orderId, courierId) {
@@ -295,4 +304,4 @@ function listPaidOrders() {
 function resetForTests() {
   for (const file of [ORDERS_FILE, EVENTS_FILE]) try { fs.unlinkSync(file); } catch {}
 }
-module.exports = { getCatalog, getDeliveryZones, getOrder, listOrders, createOrder, createCheckoutSession, attachCheckoutSession, applyVerifiedPayment, assignCourier, markInDelivery, attachProof, markDelivered, markNotification, listPaidOrders, resetForTests };
+module.exports = { getCatalog, getDeliveryZones, getOrder, listOrders, createOrder, createCheckoutSession, attachCheckoutSession, applyVerifiedPayment, assignCourier, markInDelivery, attachProof, markPhotoDelivered, markDelivered, markNotification, listPaidOrders, resetForTests };
