@@ -496,6 +496,25 @@ test("verified payment and notification outbox are committed together and dedupl
   assert.equal(commerce.listOutboxJobsForTests().length, 1);
 });
 
+test("order and payment transitions are recorded in transactional audit without address or customer identifiers", () => {
+  commerce.resetForTests();
+  const order = newDeliveryOrder();
+  commerce.attachCheckoutSession(order.id, "cs_test_audit_paid");
+  commerce.applyVerifiedPayment({
+    verified: true, eventId: "evt_audit_paid", orderId: order.id,
+    sessionId: "cs_test_audit_paid", amountKzt: 5700, currency: "KZT", provider: "stripe_test"
+  });
+  const audit = commerce.listOrderAuditEvents(order.id);
+  assert.ok(audit.some((event) => event.eventType === "ORDER_CREATED"));
+  const paidEvent = audit.find((event) =>
+    event.toPaymentStatus === "PAID" && event.details?.changedFields?.includes("paymentStatus")
+  );
+  assert.ok(paidEvent);
+  assert.equal(paidEvent.toStatus, "PAID");
+  assert.equal(JSON.stringify(audit).includes("улица Тестовая"), false);
+  assert.equal(JSON.stringify(audit).includes("12345"), false);
+});
+
 test("provider event ID cannot be replayed against another Checkout session on the same order", () => {
   commerce.resetForTests();
   const order = newDeliveryOrder();
