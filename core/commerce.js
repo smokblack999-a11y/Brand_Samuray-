@@ -1,27 +1,22 @@
 "use strict";
 
 const crypto = require("node:crypto");
-const fs = require("node:fs");
-const path = require("node:path");
+const {
+  withTransaction,
+  readOrders,
+  writeOrders,
+  readEvents,
+  writeEvents,
+  enqueuePaymentNotification,
+  claimPendingOutboxJobs,
+  completeOutboxJob,
+  retryOutboxJob,
+  listOutboxJobsForTests,
+  resetForTests: resetStorageForTests
+} = require("./commerce-storage");
 
-const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, "data");
-const ORDERS_FILE = path.join(DATA_DIR, "commerce-orders.json");
-const EVENTS_FILE = path.join(DATA_DIR, "commerce-payment-events.json");
 const CURRENCY = String(process.env.COMMERCE_CURRENCY || "KZT").toUpperCase();
 
-function readJson(file, fallback) {
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  if (!fs.existsSync(file)) fs.writeFileSync(file, JSON.stringify(fallback, null, 2) + "\n", { flag: "wx" });
-  return JSON.parse(fs.readFileSync(file, "utf8"));
-}
-function writeJson(file, value) {
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  const temp = file + "." + crypto.randomUUID() + ".tmp";
-  fs.writeFileSync(temp, JSON.stringify(value, null, 2) + "\n", { flag: "wx", mode: 0o600 });
-  fs.renameSync(temp, file);
-}
-function readOrders() { return readJson(ORDERS_FILE, []); }
-function readEvents() { return readJson(EVENTS_FILE, []); }
 function fail(code, message) { const e = new Error(message); e.code = code; return e; }
 
 function parseConfig(raw, name) {
@@ -57,7 +52,7 @@ function listOrders(filter = {}) {
     (filter.status == null || o.status === filter.status)
   ).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
-function createOrder(input) {
+function createOrderInternal(input) {
   const customerId = String(input.customerId || "").trim();
   const idempotencyKey = String(input.idempotencyKey || "").trim();
   const productId = String(input.productId || "").trim();
@@ -107,20 +102,25 @@ function createOrder(input) {
   };
   const orders = readOrders();
   orders.push(order);
-  writeJson(ORDERS_FILE, orders);
+  writeOrders(orders);
   return order;
 }
-function updateOrder(id, mutate) {
-  const orders = readOrders();
-  const i = orders.findIndex((o) => o.id === String(id));
-  if (i < 0) throw fail("ORDER_NOT_FOUND", "Order not found");
-  const next = mutate({ ...orders[i] });
-  next.updatedAt = new Date().toISOString();
-  orders[i] = next;
-  writeJson(ORDERS_FILE, orders);
-  return next;
+function createOrder(input) {
+  return withTransaction(() => createOrderInternal(input));
 }
-function applyVerifiedPayment(input) {
+function updateOrder(id, mutate) {
+  return withTransaction(() => {
+    const orders = readOrders();
+    const i = orders.findIndex((o) => o.id === String(id));
+    if (i < 0) throw fail("ORDER_NOT_FOUND", "Order not found");
+    const next = mutate({ ...orders[i] });
+    next.updatedAt = new Date().toISOString();
+    orders[i] = next;
+    writeOrders(orders);
+    return next;
+  });
+}
+function applyVerifiedPaymentInternal(input) {
   if (input?.verified !== true) throw fail("PAYMENT_NOT_VERIFIED", "Payment must be verified by the payment provider");
   const eventId = String(input.eventId || "").trim();
   const orderId = String(input.orderId || "").trim();
@@ -151,7 +151,7 @@ function applyVerifiedPayment(input) {
       item && (item.sessionId === String(input.sessionId) || item.eventId === eventId)
     ) || null;
     if (alreadyAppliedToOrder) {
-      if (!events.includes(eventId)) { events.push(eventId); writeJson(EVENTS_FILE, events); }
+      if (!events.includes(eventId)) { events.push(eventId); writeEvents(events); }
       return { duplicate: true, duplicatePayment: true, order, incident: existingIncident };
     }
     const incident = existingIncident || {
@@ -171,7 +171,7 @@ function applyVerifiedPayment(input) {
         ? (Array.isArray(o.duplicatePaymentIncidents) ? o.duplicatePaymentIncidents : [])
         : [...(Array.isArray(o.duplicatePaymentIncidents) ? o.duplicatePaymentIncidents : []), incident]
     }));
-    if (!events.includes(eventId)) { events.push(eventId); writeJson(EVENTS_FILE, events); }
+    if (!events.includes(eventId)) { events.push(eventId); writeEvents(events); }
     return { duplicate: true, duplicatePayment: true, order: updated, incident };
   }
 
@@ -182,10 +182,10 @@ function applyVerifiedPayment(input) {
       const repaired = updateOrder(orderId, (o) => ({
         ...o, paymentEventIds: [...(Array.isArray(o.paymentEventIds) ? o.paymentEventIds : []), eventId]
       }));
-      if (!events.includes(eventId)) { events.push(eventId); writeJson(EVENTS_FILE, events); }
+      if (!events.includes(eventId)) { events.push(eventId); writeEvents(events); }
       return { duplicate: true, order: repaired };
     }
-    if (!events.includes(eventId)) { events.push(eventId); writeJson(EVENTS_FILE, events); }
+    if (!events.includes(eventId)) { events.push(eventId); writeEvents(events); }
     if (order.paymentStatus !== "PAID") throw fail("PAYMENT_EVENT_STATE_MISMATCH", "Payment event is recorded but the order is not paid");
     return { duplicate: true, order };
   }
@@ -213,14 +213,14 @@ function applyVerifiedPayment(input) {
           incident
         ]
       }));
-      events.push(eventId); writeJson(EVENTS_FILE, events);
+      events.push(eventId); writeEvents(events);
       return { duplicate: true, duplicatePayment: true, order: updated, incident };
     }
     const updated = updateOrder(orderId, (o) => ({
       ...o,
       paymentEventIds: [...new Set([...(Array.isArray(o.paymentEventIds) ? o.paymentEventIds : []), eventId])]
     }));
-    events.push(eventId); writeJson(EVENTS_FILE, events);
+    events.push(eventId); writeEvents(events);
     return { duplicate: true, order: updated };
   }
   const updated = updateOrder(orderId, (o) => ({
@@ -235,8 +235,12 @@ function applyVerifiedPayment(input) {
     paidAt: new Date().toISOString()
   }));
   events.push(eventId);
-  writeJson(EVENTS_FILE, events);
+  writeEvents(events);
+  enqueuePaymentNotification(updated.id);
   return { duplicate: false, order: updated };
+}
+function applyVerifiedPayment(input) {
+  return withTransaction(() => applyVerifiedPaymentInternal(input));
 }
 
 function assignCourier(orderId, courierId) {
@@ -459,7 +463,7 @@ function submitPaymentReceipt(orderId, customerId, receipt) {
   });
 }
 
-function reconcileManualBankPayment(orderId, adminId, bankReference) {
+function reconcileManualBankPaymentInternal(orderId, adminId, bankReference) {
   const reviewer = String(adminId || "").trim();
   const reference = String(bankReference || "").trim();
   if (!/^\d{1,20}$/.test(reviewer)) throw fail("ADMIN_ID_REQUIRED", "A valid administrator Telegram ID is required");
@@ -478,7 +482,7 @@ function reconcileManualBankPayment(orderId, adminId, bankReference) {
   );
   if (existingRef) throw fail("PAYMENT_REFERENCE_REPLAY", "This bank reference has already been used for another order");
 
-  return updateOrder(orderId, (o) => {
+  const paidOrder = updateOrder(orderId, (o) => {
     if (o.paymentStatus === "PAID") throw fail("ALREADY_PAID", "Order is already paid");
     if (["CANCELLED", "DELIVERED", "REFUNDED"].includes(o.status)) {
       throw fail("ORDER_NOT_REVIEWABLE", "Closed orders cannot be reconciled as paid");
@@ -520,6 +524,11 @@ function reconcileManualBankPayment(orderId, adminId, bankReference) {
       ]
     };
   });
+  enqueuePaymentNotification(paidOrder.id);
+  return paidOrder;
+}
+function reconcileManualBankPayment(orderId, adminId, bankReference) {
+  return withTransaction(() => reconcileManualBankPaymentInternal(orderId, adminId, bankReference));
 }
 
 function markPaymentReceiptAdminNotified(orderId, telegramFileId, adminId) {
@@ -585,7 +594,20 @@ function markNotification(orderId, kind, recipientId) {
 function listPaidOrders() {
   return readOrders().filter((o) => o.paymentStatus === "PAID").sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 }
-function resetForTests() {
-  for (const file of [ORDERS_FILE, EVENTS_FILE]) try { fs.unlinkSync(file); } catch {}
+function updateOrderForTests(orderId, patch) {
+  if (String(process.env.NODE_ENV || "").toLowerCase() === "production") {
+    throw fail("TEST_HELPER_DISABLED", "Test-only order mutation is disabled in production");
+  }
+  return updateOrder(orderId, (order) => ({ ...order, ...patch }));
 }
-module.exports = { getCatalog, getDeliveryZones, getOrder, listOrders, createOrder, createCheckoutSession, attachCheckoutSession, applyVerifiedPayment, assignCourier, markInDelivery, attachProof, markPhotoDelivered, markDelivered, submitPaymentReceipt, markPaymentReceiptAdminNotified, listPaymentReviewOrders, reconcileManualBankPayment, markNotification, markDuplicatePaymentIncidentNotified, listPaidOrders, resetForTests };
+function resetForTests() {
+  resetStorageForTests();
+}
+module.exports = {
+  getCatalog, getDeliveryZones, getOrder, listOrders, createOrder, createCheckoutSession,
+  attachCheckoutSession, applyVerifiedPayment, assignCourier, markInDelivery, attachProof,
+  markPhotoDelivered, markDelivered, submitPaymentReceipt, markPaymentReceiptAdminNotified,
+  listPaymentReviewOrders, reconcileManualBankPayment, markNotification,
+  markDuplicatePaymentIncidentNotified, listPaidOrders, resetForTests, updateOrderForTests,
+  claimPendingOutboxJobs, completeOutboxJob, retryOutboxJob, listOutboxJobsForTests
+};
