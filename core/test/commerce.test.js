@@ -12,6 +12,7 @@ process.env.DATA_DIR = dataDir;
 process.env.COMMERCE_CURRENCY = "KZT";
 process.env.COMMERCE_PRODUCTS_JSON = JSON.stringify([{ id: "sample-1", name: "Тестовый товар", priceKzt: 5000 }]);
 process.env.COMMERCE_DELIVERY_ZONES_JSON = JSON.stringify({ "Алматы-1": 700 });
+process.env.COMMERCE_ADMIN_IDS = "700";
 
 const commerce = require("../commerce");
 const stripe = require("../commerce-stripe");
@@ -101,6 +102,9 @@ test("manual bank reconciliation requires review, stores audit data and blocks r
   });
   assert.throws(() => commerce.reconcileManualBankPayment(order.id, "700", "bad"), {
     code: "BANK_REFERENCE_INVALID"
+  });
+  assert.throws(() => commerce.reconcileManualBankPayment(order.id, "701", "BANK-REF-UNAUTH-001"), {
+    code: "ADMIN_NOT_AUTHORIZED"
   });
 
   const confirmed = commerce.reconcileManualBankPayment(order.id, "700", "BANK-REF-2026-001");
