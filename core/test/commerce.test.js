@@ -485,6 +485,11 @@ test("verified payment and notification outbox are committed together and dedupl
   assert.equal(paid.order.paymentStatus, "PAID");
   assert.equal(commerce.listOutboxJobsForTests().length, 1);
   assert.equal(commerce.listOutboxJobsForTests()[0].orderId, order.id);
+  const attempts = commerce.listPaymentAttemptsForTests(order.id);
+  assert.equal(attempts.length, 1);
+  assert.equal(attempts[0].status, "SUCCEEDED");
+  assert.deepEqual(attempts[0].providerEventIds, ["evt_outbox_paid"]);
+  assert.equal(attempts[0].expectedAmountMinor, 570000);
 
   const duplicate = commerce.applyVerifiedPayment(payment);
   assert.equal(duplicate.duplicate, true);
