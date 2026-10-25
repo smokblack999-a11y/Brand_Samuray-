@@ -70,6 +70,7 @@ jobs:
           node --check dual-ai/engine.js
           node --check commerce.js
           node --check commerce-stripe.js
+          node --check stripe-webhook-policy.js
           node --check commerce-bot.js
 
       - name: Unit tests
