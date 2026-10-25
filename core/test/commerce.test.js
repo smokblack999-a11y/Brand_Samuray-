@@ -496,6 +496,22 @@ test("verified payment and notification outbox are committed together and dedupl
   assert.equal(commerce.listOutboxJobsForTests().length, 1);
 });
 
+test("provider event ID cannot be replayed against another Checkout session on the same order", () => {
+  commerce.resetForTests();
+  const order = newDeliveryOrder();
+  commerce.attachCheckoutSession(order.id, "cs_test_event_bound_first");
+  const originalPayment = {
+    verified: true, eventId: "evt_bound_once", orderId: order.id,
+    sessionId: "cs_test_event_bound_first", amountKzt: 5700, currency: "KZT", provider: "stripe_test"
+  };
+  commerce.applyVerifiedPayment(originalPayment);
+  commerce.attachCheckoutSession(order.id, "cs_test_event_bound_second");
+  assert.throws(() => commerce.applyVerifiedPayment({
+    ...originalPayment, sessionId: "cs_test_event_bound_second"
+  }), { code: "PAYMENT_EVENT_REPLAY_MISMATCH" });
+  assert.equal(commerce.getOrder(order.id).paymentSessionId, "cs_test_event_bound_first");
+});
+
 test("a second successful Checkout session is recorded as an admin reconciliation incident", () => {
   commerce.resetForTests();
   const order = newDeliveryOrder();
