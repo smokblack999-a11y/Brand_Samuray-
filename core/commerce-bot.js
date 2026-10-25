@@ -99,6 +99,18 @@ async function createAndRequestPayment(chatId, input, updateId) {
   }
   return order;
 }
+function hasPendingPaymentNotifications(order) {
+  const n = order?.notifications || {};
+  if (!n.customerSentAt) return true;
+  const admins = String(process.env.COMMERCE_ADMIN_IDS || "").split(",").map((x) => x.trim()).filter(Boolean);
+  const couriers = String(process.env.COMMERCE_COURIER_IDS || "").split(",").map((x) => x.trim()).filter(Boolean);
+  const adminSent = Array.isArray(n.adminSentIds) ? n.adminSentIds : [];
+  const courierSent = Array.isArray(n.courierSentIds) ? n.courierSentIds : [];
+  if (order.fulfillment === "pickup") return admins.some((id) => !adminSent.includes(id));
+  if (couriers.length && couriers.some((id) => courierSent.includes(id))) return false;
+  return admins.some((id) => !adminSent.includes(id));
+}
+
 async function notifyPaidOrder(orderInput) {
   const orderId = String(orderInput?.id || "");
   if (!orderId) return { skipped: true };
@@ -130,7 +142,8 @@ async function notifyPaidOrder(orderInput) {
           n = notificationState();
         } catch { console.error(JSON.stringify({ event: "pickup_admin_notify_failed", orderId: order.id })); }
       }
-      return { orderId: order.id, notifications: notificationState() };
+      const current = commerce.getOrder(order.id) || order;
+      return { orderId: order.id, notifications: notificationState(), pending: hasPendingPaymentNotifications(current) };
     }
   
     const couriers = String(process.env.COMMERCE_COURIER_IDS || "").split(",").map((x) => x.trim()).filter(Boolean);
@@ -161,7 +174,8 @@ async function notifyPaidOrder(orderInput) {
         if (admins.length === 0) console.error(JSON.stringify({ event: "commerce_no_courier_or_admin_configured", orderId: order.id }));
       }
     }
-    return { orderId: order.id, notifications: notificationState() };
+    const current = commerce.getOrder(order.id) || order;
+    return { orderId: order.id, notifications: notificationState(), pending: hasPendingPaymentNotifications(current) };
   } finally {
     inFlightPaymentNotifications.delete(orderId);
   }
@@ -236,15 +250,42 @@ async function notifyPaymentReceiptAdmins(orderInput, receiptFileId) {
 }
 
 async function retryPendingPaymentNotifications() {
-  // Payment state is durable before any Telegram send. Re-check all paid orders so a
-  // process restart or a Telegram outage cannot permanently lose customer/courier alerts.
+  // Durable outbox jobs are written in the same SQLite transaction as payment state.
+  // A lease allows safe recovery after a process crash; delivery remains idempotent per recipient.
+  const outboxJobs = commerce.claimPendingOutboxJobs(25);
+  for (const job of outboxJobs) {
+    try {
+      if (job.type !== "payment_notifications") {
+        commerce.retryOutboxJob(job.id, "UNSUPPORTED_OUTBOX_JOB");
+        continue;
+      }
+      const order = commerce.getOrder(job.orderId);
+      if (!order || order.paymentStatus !== "PAID") {
+        commerce.completeOutboxJob(job.id);
+        continue;
+      }
+      const result = await notifyPaidOrder(order);
+      if (result.inFlight || result.pending) {
+        commerce.retryOutboxJob(job.id, result.inFlight ? "NOTIFICATION_IN_FLIGHT" : "NOTIFICATIONS_PENDING");
+      } else {
+        commerce.completeOutboxJob(job.id);
+      }
+    } catch (error) {
+      commerce.retryOutboxJob(job.id, error?.code || "NOTIFICATION_FAILED");
+      console.error(JSON.stringify({ event: "commerce_outbox_job_failed", orderId: job.orderId, jobId: job.id }));
+    }
+  }
+
+  // Keep the scan as a migration/recovery path for old paid orders created before the outbox.
   const orders = commerce.listPaidOrders();
   for (const order of orders) {
     try { await notifyPaidOrder(order); }
     catch { console.error(JSON.stringify({ event: "commerce_notification_retry_failed", orderId: order.id })); }
   }
+
   let duplicatePaymentIncidentsScanned = 0;
-  for (const order of orders) {
+  // Late settlement incidents may belong to CANCELLED/REFUNDED orders, not only paid ones.
+  for (const order of commerce.listOrders()) {
     if (Array.isArray(order.duplicatePaymentIncidents) &&
         order.duplicatePaymentIncidents.some((incident) => incident.status === "REVIEW_REQUIRED")) {
       duplicatePaymentIncidentsScanned += 1;
@@ -252,12 +293,14 @@ async function retryPendingPaymentNotifications() {
       catch { console.error(JSON.stringify({ event: "duplicate_payment_retry_failed", orderId: order.id })); }
     }
   }
+
   const receiptOrders = commerce.listPaymentReviewOrders();
   for (const order of receiptOrders) {
     try { await notifyPaymentReceiptAdmins(order); }
     catch { console.error(JSON.stringify({ event: "payment_receipt_retry_failed", orderId: order.id })); }
   }
   return {
+    scannedOutboxJobs: outboxJobs.length,
     scannedPaidOrders: orders.length,
     scannedReceiptOrders: receiptOrders.length,
     duplicatePaymentIncidentsScanned
