@@ -49,6 +49,10 @@ function isCourier(userId) {
 function isAdmin(userId) {
   return String(process.env.COMMERCE_ADMIN_IDS || "").split(",").map((x) => x.trim()).filter(Boolean).includes(String(userId));
 }
+function manualBankConfirmationEnabled() {
+  return process.env.NODE_ENV !== "production" &&
+    String(process.env.COMMERCE_MANUAL_BANK_CONFIRM_ENABLED || "").trim().toLowerCase() === "true";
+}
 async function tg(method, payload) {
   const token = String(process.env.TELEGRAM_BOT_TOKEN || "");
   if (!token) throw new Error("TELEGRAM_BOT_TOKEN is not configured");
@@ -330,6 +334,7 @@ async function handleCallback(q, updateId) {
   }
   if (data.startsWith("bank:confirm:")) {
     if (!isAdmin(userId)) return sendText(chatId, "Нет доступа.");
+    if (!manualBankConfirmationEnabled()) return sendText(chatId, "Ручное подтверждение банка отключено. Эта функция доступна только в явно включённом тестовом/staging окружении; production запрещён.");
     const orderId = data.slice("bank:confirm:".length);
     const pending = readSessions()[userId];
     if (!pending || pending.state !== "confirm_bank_payment" || pending.orderId !== orderId) {
@@ -507,6 +512,7 @@ async function handleMessage(message, updateId) {
   }
   if (text.startsWith("/confirmbank ")) {
     if (!isAdmin(userId)) return sendText(chatId, "Нет доступа.");
+    if (!manualBankConfirmationEnabled()) return sendText(chatId, "Ручное подтверждение банка отключено. Установите COMMERCE_MANUAL_BANK_CONFIRM_ENABLED=true только в тестовом/staging окружении. В production эта команда всегда запрещена.");
     const parts = text.slice("/confirmbank ".length).trim().split(/\s+/);
     if (parts.length !== 2) return sendText(chatId, "Формат: /confirmbank НОМЕР_ЗАКАЗА БАНКОВСКАЯ_ССЫЛКА");
     const [orderId, bankReference] = parts;
