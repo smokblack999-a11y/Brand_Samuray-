@@ -7,6 +7,10 @@ const {
   writeOrders,
   readEvents,
   writeEvents,
+  getPaymentAttemptByKey,
+  getPaymentAttemptBySession,
+  upsertPaymentAttempt,
+  listPaymentAttemptsForTests,
   readBotSessions,
   setBotSession,
   hasTelegramUpdate,
@@ -22,6 +26,30 @@ const {
 const CURRENCY = String(process.env.COMMERCE_CURRENCY || "KZT").toUpperCase();
 
 function fail(code, message) { const e = new Error(message); e.code = code; return e; }
+
+function recordStripeAttempt(order, sessionId, status, eventId, verified = true, metadata = {}) {
+  const sid = String(sessionId || "").trim();
+  if (!sid) throw fail("PAYMENT_SESSION_MISMATCH", "Payment session ID is required for attempt recording");
+  const existing = getPaymentAttemptBySession("stripe", "test", sid);
+  const attemptKey = existing?.attemptKey ||
+    (order.checkoutSessionId === sid && order.checkoutAttemptKey
+      ? order.checkoutAttemptKey
+      : "legacy:" + order.id + ":" + sid);
+  const now = new Date().toISOString();
+  return upsertPaymentAttempt({
+    attemptKey,
+    orderId: order.id,
+    provider: "stripe",
+    environment: "test",
+    expectedAmountMinor: order.totalKzt * 100,
+    currency: order.currency,
+    providerSessionId: sid,
+    status,
+    providerEventIds: eventId ? [eventId] : [],
+    verifiedAt: verified ? now : null,
+    metadata: { source: existing ? "checkout_attempt" : "legacy_or_recovered", ...metadata }
+  });
+}
 
 function parseConfig(raw, name) {
   if (!raw) return [];
