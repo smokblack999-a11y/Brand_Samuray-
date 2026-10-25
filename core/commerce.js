@@ -190,6 +190,7 @@ function applyVerifiedPaymentInternal(input) {
     ) || null;
     if (alreadyAppliedToOrder) {
       if (!events.includes(eventId)) { events.push(eventId); writeEvents(events); }
+      recordStripeAttempt(order, input.sessionId, "REVIEW_REQUIRED", eventId, true, { reason: "PAYMENT_AFTER_ORDER_CLOSED" });
       return { duplicate: true, duplicatePayment: true, order, incident: existingIncident };
     }
     const incident = existingIncident || {
@@ -210,6 +211,7 @@ function applyVerifiedPaymentInternal(input) {
         : [...(Array.isArray(o.duplicatePaymentIncidents) ? o.duplicatePaymentIncidents : []), incident]
     }));
     if (!events.includes(eventId)) { events.push(eventId); writeEvents(events); }
+    recordStripeAttempt(updated, input.sessionId, "REVIEW_REQUIRED", eventId, true, { reason: "PAYMENT_AFTER_ORDER_CLOSED" });
     return { duplicate: true, duplicatePayment: true, order: updated, incident };
   }
 
@@ -221,10 +223,12 @@ function applyVerifiedPaymentInternal(input) {
         ...o, paymentEventIds: [...(Array.isArray(o.paymentEventIds) ? o.paymentEventIds : []), eventId]
       }));
       if (!events.includes(eventId)) { events.push(eventId); writeEvents(events); }
+      recordStripeAttempt(repaired, input.sessionId, "SUCCEEDED", eventId, true);
       return { duplicate: true, order: repaired };
     }
     if (!events.includes(eventId)) { events.push(eventId); writeEvents(events); }
     if (order.paymentStatus !== "PAID") throw fail("PAYMENT_EVENT_STATE_MISMATCH", "Payment event is recorded but the order is not paid");
+    recordStripeAttempt(order, input.sessionId, "SUCCEEDED", eventId, true);
     return { duplicate: true, order };
   }
   if (order.paymentStatus === "PAID") {
@@ -252,6 +256,7 @@ function applyVerifiedPaymentInternal(input) {
         ]
       }));
       events.push(eventId); writeEvents(events);
+      recordStripeAttempt(updated, input.sessionId, "DUPLICATE_SUCCESS_REVIEW", eventId, true, { reason: "SECOND_SUCCESSFUL_CHECKOUT_SESSION" });
       return { duplicate: true, duplicatePayment: true, order: updated, incident };
     }
     const updated = updateOrder(orderId, (o) => ({
@@ -259,6 +264,7 @@ function applyVerifiedPaymentInternal(input) {
       paymentEventIds: [...new Set([...(Array.isArray(o.paymentEventIds) ? o.paymentEventIds : []), eventId])]
     }));
     events.push(eventId); writeEvents(events);
+    recordStripeAttempt(updated, input.sessionId, "SUCCEEDED", eventId, true);
     return { duplicate: true, order: updated };
   }
   const updated = updateOrder(orderId, (o) => ({
@@ -274,6 +280,7 @@ function applyVerifiedPaymentInternal(input) {
   }));
   events.push(eventId);
   writeEvents(events);
+  recordStripeAttempt(updated, input.sessionId, "SUCCEEDED", eventId, true);
   enqueuePaymentNotification(updated.id);
   return { duplicate: false, order: updated };
 }
@@ -524,8 +531,34 @@ async function createCheckoutSession(orderId) {
   return { order: outcome.order, sessionId: payload.id, url: payload.url };
 }
 function attachCheckoutSession(orderId, sessionId, checkoutUrl = "https://checkout.stripe.test/session") {
-  if (!String(sessionId || "").startsWith("cs_test_")) throw fail("INVALID_CHECKOUT_SESSION", "Only a Stripe test Checkout Session is accepted");
-  return updateOrder(orderId, (o) => ({ ...o, checkoutSessionId: String(sessionId), checkoutSessionIds: [...new Set([...(Array.isArray(o.checkoutSessionIds) ? o.checkoutSessionIds : []), String(sessionId)])], checkoutUrl, paymentProvider: "stripe_test" }));
+  const sid = String(sessionId || "");
+  if (!sid.startsWith("cs_test_")) throw fail("INVALID_CHECKOUT_SESSION", "Only a Stripe test Checkout Session is accepted");
+  return withTransaction(() => {
+    const current = getOrder(orderId);
+    if (!current) throw fail("ORDER_NOT_FOUND", "Order not found");
+    const attemptKey = current.checkoutAttemptKey && (!current.checkoutSessionId || current.checkoutSessionId === sid)
+      ? current.checkoutAttemptKey
+      : "attached:" + current.id + ":" + sid;
+    const updated = updateOrder(orderId, (o) => ({
+      ...o,
+      checkoutSessionId: sid,
+      checkoutSessionIds: [...new Set([...(Array.isArray(o.checkoutSessionIds) ? o.checkoutSessionIds : []), sid])],
+      checkoutUrl,
+      paymentProvider: "stripe_test"
+    }));
+    upsertPaymentAttempt({
+      attemptKey,
+      orderId: updated.id,
+      provider: "stripe",
+      environment: "test",
+      expectedAmountMinor: updated.totalKzt * 100,
+      currency: updated.currency,
+      providerSessionId: sid,
+      status: updated.paymentStatus === "PAID" ? "REVIEW_REQUIRED" : "OPEN",
+      metadata: { source: "session_attached_for_test_or_reconciliation" }
+    });
+    return updated;
+  });
 }
 function submitPaymentReceipt(orderId, customerId, receipt) {
   const ownerId = String(customerId || "").trim();
