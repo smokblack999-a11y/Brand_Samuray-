@@ -187,6 +187,37 @@ async function notifyDuplicatePayment(orderInput) {
   return { orderId: order.id };
 }
 
+async function notifyPaymentReceiptAdmins(orderInput, receiptFileId) {
+  const order = commerce.getOrder(orderInput?.id);
+  if (!order || !Array.isArray(order.paymentReceipts)) return { skipped: true };
+  const admins = String(process.env.COMMERCE_ADMIN_IDS || "").split(",").map((x) => x.trim()).filter(Boolean);
+  if (!admins.length) return { skipped: true, reason: "NO_ADMINS_CONFIGURED" };
+  const receipts = receiptFileId
+    ? order.paymentReceipts.filter((r) => r.telegramFileId === receiptFileId)
+    : order.paymentReceipts;
+  for (const receipt of receipts) {
+    for (const adminId of admins) {
+      if (Array.isArray(receipt.adminSentIds) && receipt.adminSentIds.includes(adminId)) continue;
+      try {
+        const address = order.fulfillment === "delivery" ? "\nАдрес: " + order.address : "";
+        await tg("sendPhoto", {
+          chat_id: adminId,
+          photo: receipt.telegramFileId,
+          caption: "ЧЕК ПОЛУЧЕН — ОПЛАТА НЕ ПОДТВЕРЖДЕНА\n" +
+            orderSummary(order) + address +
+            "\nID клиента: " + order.customerId +
+            "\nОтправлено: " + receipt.submittedAt +
+            "\nПроверьте фактическое поступление по банковскому кабинету/API. Фото или чек сам по себе не является подтверждением оплаты."
+        });
+        commerce.markPaymentReceiptAdminNotified(order.id, receipt.telegramFileId, adminId);
+      } catch {
+        console.error(JSON.stringify({ event: "payment_receipt_admin_notify_failed", orderId: order.id, code: "TELEGRAM_SEND_FAILED" }));
+      }
+    }
+  }
+  return { orderId: order.id, receipts: receipts.length };
+}
+
 async function retryPendingPaymentNotifications() {
   // Payment state is durable before any Telegram send. Re-check all paid orders so a
   // process restart or a Telegram outage cannot permanently lose customer/courier alerts.
@@ -195,7 +226,12 @@ async function retryPendingPaymentNotifications() {
     try { await notifyPaidOrder(order); }
     catch { console.error(JSON.stringify({ event: "commerce_notification_retry_failed", orderId: order.id })); }
   }
-  return { scanned: orders.length };
+  const receiptOrders = commerce.listPaymentReviewOrders();
+  for (const order of receiptOrders) {
+    try { await notifyPaymentReceiptAdmins(order); }
+    catch { console.error(JSON.stringify({ event: "payment_receipt_retry_failed", orderId: order.id })); }
+  }
+  return { scannedPaidOrders: orders.length, scannedReceiptOrders: receiptOrders.length };
 }
 
 async function handleCallback(q, updateId) {
