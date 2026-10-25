@@ -16,6 +16,7 @@ const SESSIONS_FILE = path.join(DATA_DIR, "commerce-bot-sessions.json");
 const UPDATES_FILE = path.join(DATA_DIR, "commerce-bot-updates.json");
 const MIGRATION_NAME = "001_legacy_commerce_json_to_sqlite";
 const TELEGRAM_MIGRATION_NAME = "002_legacy_telegram_state_to_sqlite";
+const PAYMENT_ATTEMPT_MIGRATION_NAME = "003_backfill_legacy_payment_attempts";
 
 if (DB_PATH !== ":memory:") {
   fs.mkdirSync(path.dirname(path.resolve(DB_PATH)), { recursive: true, mode: 0o700 });
@@ -454,6 +455,79 @@ function markTelegramUpdate(updateId) {
   });
 }
 
+function migrateLegacyPaymentAttemptsOnce() {
+  if (db.prepare("SELECT name FROM commerce_schema_migrations WHERE name = ?").get(PAYMENT_ATTEMPT_MIGRATION_NAME)) return;
+
+  const orders = readOrders();
+  withTransaction(() => {
+    for (const order of orders) {
+      if (!order || !order.id) continue;
+      const sessions = [...new Set([
+        ...(Array.isArray(order.checkoutSessionIds) ? order.checkoutSessionIds : []),
+        ...(order.checkoutSessionId ? [order.checkoutSessionId] : [])
+      ].map((value) => String(value || "").trim()).filter((value) => value.startsWith("cs_test_")))];
+      for (const sessionId of sessions) {
+        if (getPaymentAttemptBySession("stripe", "test", sessionId)) continue;
+        const incident = (Array.isArray(order.duplicatePaymentIncidents) ? order.duplicatePaymentIncidents : [])
+          .find((item) => item && item.sessionId === sessionId && item.status === "REVIEW_REQUIRED") || null;
+        const paidSessionId = order.paymentSessionId || (order.paymentStatus === "PAID" ? order.checkoutSessionId : null);
+        const status = incident
+          ? (incident.reason === "PAYMENT_AFTER_ORDER_CLOSED" ? "REVIEW_REQUIRED" : "DUPLICATE_SUCCESS_REVIEW")
+          : order.paymentStatus === "PAID" && sessionId === paidSessionId
+            ? "SUCCEEDED"
+            : ["CANCELLED", "REFUNDED", "DELIVERED"].includes(order.status)
+              ? "REVIEW_REQUIRED"
+              : "OPEN";
+        const candidate = sessionId === order.checkoutSessionId && order.checkoutAttemptKey
+          ? getPaymentAttemptByKey(order.checkoutAttemptKey)
+          : null;
+        const attemptKey = candidate && (!candidate.providerSessionId || candidate.providerSessionId === sessionId)
+          ? candidate.attemptKey
+          : "legacy:" + order.id + ":" + sessionId;
+        const events = [];
+        if (incident?.eventId) events.push(incident.eventId);
+        else if (status === "SUCCEEDED" && order.paymentReference) events.push(String(order.paymentReference));
+        const amountMinor = Number(order.totalKzt) * 100;
+        if (!Number.isSafeInteger(amountMinor) || amountMinor <= 0 || !/^[A-Z]{3}$/.test(String(order.currency || "").toUpperCase())) continue;
+        upsertPaymentAttempt({
+          attemptKey,
+          orderId: order.id,
+          provider: "stripe",
+          environment: "test",
+          expectedAmountMinor: amountMinor,
+          currency: order.currency,
+          providerSessionId: sessionId,
+          status,
+          providerEventIds: events,
+          verifiedAt: status === "SUCCEEDED" ? (order.paidAt || null) : (incident?.detectedAt || null),
+          metadata: { source: "legacy_order_backfill" }
+        });
+      }
+
+      if (order.paymentProvider === "manual_bank_reconciliation" && order.paymentReference) {
+        const reference = String(order.paymentReference);
+        const amountMinor = Number(order.totalKzt) * 100;
+        if (Number.isSafeInteger(amountMinor) && amountMinor > 0 && /^[A-Z]{3}$/.test(String(order.currency || "").toUpperCase())) {
+          upsertPaymentAttempt({
+            attemptKey: "manual-bank:" + reference.toUpperCase(),
+            orderId: order.id,
+            provider: "manual_bank_reconciliation",
+            environment: "manual",
+            expectedAmountMinor: amountMinor,
+            currency: order.currency,
+            providerTransactionId: reference,
+            status: order.paymentStatus === "PAID" ? "SUCCEEDED" : "REVIEW_REQUIRED",
+            verifiedAt: order.paymentVerification?.verifiedAt || null,
+            metadata: { source: "legacy_order_backfill" }
+          });
+        }
+      }
+    }
+    db.prepare("INSERT INTO commerce_schema_migrations(name, applied_at) VALUES (?, ?)")
+      .run(PAYMENT_ATTEMPT_MIGRATION_NAME, new Date().toISOString());
+  });
+}
+
 function enqueuePaymentNotification(orderId) {
   const id = String(orderId || "").trim();
   if (!id) throw new Error("Order ID is required for a payment notification job");
@@ -558,6 +632,7 @@ function resetForTests() {
 
 migrateLegacyJsonOnce();
 migrateLegacyTelegramStateOnce();
+migrateLegacyPaymentAttemptsOnce();
 
 module.exports = {
   withTransaction,
