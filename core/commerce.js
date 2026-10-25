@@ -485,22 +485,28 @@ async function createCheckoutSession(orderId) {
     if (current.paymentStatus === "PAID" || closed) {
       // The provider may have created a valid session during a race. Record it for audit,
       // but never return a payable URL for an already-paid or closed order.
+      const associatedOrder = updateOrder(current.id, (o) => ({
+        ...o,
+        checkoutSessionId: o.checkoutSessionId || payload.id,
+        checkoutSessionIds: [...new Set([...(Array.isArray(o.checkoutSessionIds) ? o.checkoutSessionIds : []), payload.id])],
+        paymentProvider: o.paymentProvider || "stripe_test"
+      }));
       upsertPaymentAttempt({
         attemptKey: checkoutIdempotencyKey,
-        orderId: current.id,
+        orderId: associatedOrder.id,
         provider: "stripe",
         environment: "test",
-        expectedAmountMinor: current.totalKzt * 100,
-        currency: current.currency,
+        expectedAmountMinor: associatedOrder.totalKzt * 100,
+        currency: associatedOrder.currency,
         providerSessionId: payload.id,
         status: "REVIEW_REQUIRED",
         metadata: {
           checkoutUrl: checkoutUrl.toString(),
           expiresAt: new Date(payload.expires_at * 1000).toISOString(),
-          reason: current.paymentStatus === "PAID" ? "ORDER_PAID_DURING_CHECKOUT" : "ORDER_CLOSED_DURING_CHECKOUT"
+          reason: associatedOrder.paymentStatus === "PAID" ? "ORDER_PAID_DURING_CHECKOUT" : "ORDER_CLOSED_DURING_CHECKOUT"
         }
       });
-      return { order: current, rejectionCode: current.paymentStatus === "PAID" ? "ALREADY_PAID" : "ORDER_CLOSED" };
+      return { order: associatedOrder, rejectionCode: associatedOrder.paymentStatus === "PAID" ? "ALREADY_PAID" : "ORDER_CLOSED" };
     }
     const updated = updateOrder(order.id, (o) => ({
       ...o,
@@ -648,6 +654,18 @@ function reconcileManualBankPaymentInternal(orderId, adminId, bankReference) {
       ]
     };
   });
+  upsertPaymentAttempt({
+    attemptKey: "manual-bank:" + reference.toUpperCase(),
+    orderId: paidOrder.id,
+    provider: "manual_bank_reconciliation",
+    environment: "manual",
+    expectedAmountMinor: paidOrder.totalKzt * 100,
+    currency: paidOrder.currency,
+    providerTransactionId: reference,
+    status: "SUCCEEDED",
+    verifiedAt: paidOrder.paymentVerification.verifiedAt,
+    metadata: { verifiedByAdminId: reviewer, bankReference: reference }
+  });
   enqueuePaymentNotification(paidOrder.id);
   return paidOrder;
 }
@@ -734,5 +752,6 @@ module.exports = {
   listPaymentReviewOrders, reconcileManualBankPayment, markNotification,
   markDuplicatePaymentIncidentNotified, listPaidOrders, resetForTests, updateOrderForTests,
   claimPendingOutboxJobs, completeOutboxJob, retryOutboxJob, listOutboxJobsForTests,
+  getPaymentAttemptByKey, getPaymentAttemptBySession, upsertPaymentAttempt, listPaymentAttemptsForTests,
   readBotSessions, setBotSession, hasTelegramUpdate, markTelegramUpdate
 };
