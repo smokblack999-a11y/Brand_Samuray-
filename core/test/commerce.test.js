@@ -124,7 +124,7 @@ test("manual bank reconciliation requires review, stores audit data and blocks r
     telegramFileId: "bank-receipt-2",
     fileUniqueId: "bank-receipt-unique-2"
   });
-  assert.throws(() => commerce.reconcileManualBankPayment(second.id, "700", "BANK-REF-2026-001"), {
+  assert.throws(() => commerce.reconcileManualBankPayment(second.id, "700", "bank-ref-2026-001"), {
     code: "PAYMENT_REFERENCE_REPLAY"
   });
   assert.equal(commerce.getOrder(second.id).paymentStatus, "AWAITING_PAYMENT");
