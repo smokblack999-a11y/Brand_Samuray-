@@ -51,6 +51,39 @@ test("rejects invalid delivery zone and quantity", () => {
   }), { code: "INVALID_QUANTITY" });
 });
 
+test("customer receipts enter PAYMENT_REVIEW but never mark the order paid", () => {
+  commerce.resetForTests();
+  const order = newDeliveryOrder();
+  const submitted = commerce.submitPaymentReceipt(order.id, "12345", {
+    telegramFileId: "telegram-receipt-photo-1",
+    fileUniqueId: "telegram-receipt-unique-1"
+  });
+  assert.equal(submitted.status, "PAYMENT_REVIEW");
+  assert.equal(submitted.paymentStatus, "AWAITING_PAYMENT");
+  assert.equal(submitted.paymentReceipts.length, 1);
+  assert.equal(commerce.listPaymentReviewOrders().length, 1);
+  assert.throws(() => commerce.submitPaymentReceipt(order.id, "99999", {
+    telegramFileId: "receipt-other-user"
+  }), { code: "FORBIDDEN" });
+  const duplicate = commerce.submitPaymentReceipt(order.id, "12345", {
+    telegramFileId: "telegram-receipt-photo-1",
+    fileUniqueId: "telegram-receipt-unique-1"
+  });
+  assert.equal(duplicate.paymentReceipts.length, 1);
+  assert.throws(() => commerce.assignCourier(order.id, "777"), { code: "PAYMENT_NOT_CONFIRMED" });
+  commerce.markPaymentReceiptAdminNotified(order.id, "telegram-receipt-photo-1", "700");
+  assert.deepEqual(commerce.getOrder(order.id).paymentReceipts[0].adminSentIds, ["700"]);
+
+  commerce.attachCheckoutSession(order.id, "cs_test_receipt_paid");
+  const paid = commerce.applyVerifiedPayment({
+    verified: true, eventId: "evt_receipt_paid", orderId: order.id,
+    sessionId: "cs_test_receipt_paid", amountKzt: 5700, currency: "KZT", provider: "stripe_test"
+  });
+  assert.equal(paid.order.paymentStatus, "PAID");
+  assert.equal(paid.order.status, "PAID");
+  assert.equal(commerce.listPaymentReviewOrders().length, 0);
+});
+
 test("courier assignment is blocked until a verified, exact payment is received", () => {
   commerce.resetForTests();
   const order = newDeliveryOrder();
