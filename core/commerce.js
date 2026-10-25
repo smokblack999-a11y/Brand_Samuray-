@@ -148,7 +148,7 @@ function createOrderInternal(input) {
     orderId: order.id,
     eventType: "ORDER_CREATED",
     actorType: "customer",
-    actorId: customerId,
+    actorId: null,
     fromStatus: null,
     toStatus: order.status,
     fromPaymentStatus: null,
