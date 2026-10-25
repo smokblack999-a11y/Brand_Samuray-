@@ -140,6 +140,41 @@ function applyVerifiedPayment(input) {
   if (events.includes(eventId) && !alreadyAppliedToOrder) {
     throw fail("PAYMENT_EVENT_REPLAY_MISMATCH", "Provider event ID has already been used for a different order");
   }
+
+  // A valid provider settlement must never reopen an order that is already closed.
+  // Record the settlement for operator review instead of marking the order as paid.
+  const closedUnpaidOrder = ["CANCELLED", "REFUNDED", "DELIVERED"].includes(order.status) &&
+    order.paymentStatus !== "PAID";
+  if (closedUnpaidOrder) {
+    const incidents = Array.isArray(order.duplicatePaymentIncidents) ? order.duplicatePaymentIncidents : [];
+    const existingIncident = incidents.find((item) =>
+      item && (item.sessionId === String(input.sessionId) || item.eventId === eventId)
+    ) || null;
+    if (alreadyAppliedToOrder) {
+      if (!events.includes(eventId)) { events.push(eventId); writeJson(EVENTS_FILE, events); }
+      return { duplicate: true, duplicatePayment: true, order, incident: existingIncident };
+    }
+    const incident = existingIncident || {
+      eventId,
+      sessionId: String(input.sessionId),
+      amountKzt: input.amountKzt,
+      currency,
+      detectedAt: new Date().toISOString(),
+      status: "REVIEW_REQUIRED",
+      reason: "PAYMENT_AFTER_ORDER_CLOSED",
+      adminNotifiedIds: []
+    };
+    const updated = updateOrder(orderId, (o) => ({
+      ...o,
+      paymentEventIds: [...new Set([...(Array.isArray(o.paymentEventIds) ? o.paymentEventIds : []), eventId])],
+      duplicatePaymentIncidents: existingIncident
+        ? (Array.isArray(o.duplicatePaymentIncidents) ? o.duplicatePaymentIncidents : [])
+        : [...(Array.isArray(o.duplicatePaymentIncidents) ? o.duplicatePaymentIncidents : []), incident]
+    }));
+    if (!events.includes(eventId)) { events.push(eventId); writeJson(EVENTS_FILE, events); }
+    return { duplicate: true, duplicatePayment: true, order: updated, incident };
+  }
+
   if (alreadyAppliedToOrder) {
     // Repair both ledgers if a prior process stopped between writes; this also migrates
     // pre-versioned paid orders that only stored paymentReference.
@@ -260,6 +295,9 @@ function markDelivered(orderId, courierId) {
 async function createCheckoutSession(orderId) {
   const order = getOrder(orderId);
   if (!order) throw fail("ORDER_NOT_FOUND", "Order not found");
+  if (["CANCELLED", "DELIVERED", "REFUNDED"].includes(order.status)) {
+    throw fail("ORDER_CLOSED", "Closed orders cannot create a new Checkout session");
+  }
   if (order.currency !== "KZT") throw fail("UNSUPPORTED_PAYMENT_CURRENCY", "Stripe test checkout is configured only for KZT");
   if (order.totalKzt > 999999) throw fail("PAYMENT_AMOUNT_LIMIT", "Order total exceeds the current Stripe KZT amount limit");
   const secret = String(process.env.STRIPE_SECRET_KEY || "");
@@ -383,6 +421,11 @@ async function createCheckoutSession(orderId) {
     if (o.paymentStatus === "PAID") throw fail("ALREADY_PAID", "Order is already paid");
     return { ...o, checkoutSessionId: payload.id, checkoutSessionIds: [...new Set([...(Array.isArray(o.checkoutSessionIds) ? o.checkoutSessionIds : []), payload.id])], checkoutUrl: checkoutUrl.toString(), checkoutSessionExpiresAt: new Date(payload.expires_at * 1000).toISOString(), paymentProvider: "stripe_test" };
   });
+  // Cancellation may race with the external provider call. Persist the session for
+  // reconciliation, but never return a payable URL for a now-closed order.
+  if (["CANCELLED", "DELIVERED", "REFUNDED"].includes(updated.status)) {
+    throw fail("ORDER_CLOSED", "Order was closed while Checkout was being created; session retained for reconciliation");
+  }
   return { order: updated, sessionId: payload.id, url: payload.url };
 }
 function attachCheckoutSession(orderId, sessionId, checkoutUrl = "https://checkout.stripe.test/session") {
