@@ -115,7 +115,7 @@ test("manual bank reconciliation requires review, stores audit data and blocks r
   assert.equal(commerce.assignCourier(order.id, "777").status, "COURIER_ASSIGNED");
 
   const second = newDeliveryOrder();
-  commerce.submitPaymentReceipt(second.id, "54321", {
+  commerce.submitPaymentReceipt(second.id, "12345", {
     telegramFileId: "bank-receipt-2",
     fileUniqueId: "bank-receipt-unique-2"
   });
