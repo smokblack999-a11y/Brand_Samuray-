@@ -6,7 +6,7 @@ Review date: 2026-10-25. This is an engineering decision record, not legal or ba
 
 - The current commerce Checkout adapter supports KZT only and is deliberately Stripe TEST-only (`sk_test_...`; signed `whsec_...` webhook). It has no live payment mode.
 - Customer receipt photos now create a `PAYMENT_REVIEW` status and are sent to configured administrators; they do not set `paymentStatus=PAID`.
-- An explicitly-confirmed manual bank reconciliation command can mark a reviewed order paid only after an admin confirms that settled funds were independently checked in the bank/payment-provider ledger. It records admin Telegram ID, bank reference, amount, currency, receipt IDs and timestamp. The command is disabled by default and is hard-blocked when `NODE_ENV=production`; it is an operator attestation for isolated testing/staging, not automatic bank verification.
+- An explicitly-confirmed manual bank reconciliation command can mark a reviewed order paid only after an admin confirms that settled funds were independently checked in the bank/payment-provider ledger. It records admin Telegram ID, bank reference, amount, currency, receipt IDs and timestamp. The command is disabled by default and is hard-blocked when `NODE_ENV=production`; it is an operator attestation for isolated testing/staging, not automatic bank verification. The domain service itself also checks the administrator ID against `COMMERCE_ADMIN_IDS`, so a future route cannot bypass the bot's role check.
 - `USDT`, `BTC`, crypto addresses, chain monitoring, card processors other than the test adapter, currency conversion and multi-country pricing are not implemented.
 - Do not deploy the demo catalogue or use sample prices/credentials in a customer-facing store.
 
