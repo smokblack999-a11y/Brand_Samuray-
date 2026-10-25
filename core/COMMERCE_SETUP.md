@@ -53,9 +53,9 @@ Set Stripe's test webhook destination to `https://YOUR_HOST/api/commerce/stripe/
 
 ### Telegram commands
 
-- Customer: `/start`, `/catalog`, `/myorders`, `/pay ORDER_ID`.
+- Customer: `/start`, `/catalog`, `/myorders`, `/pay ORDER_ID`, `/receipt ORDER_ID` (send a receipt photo for manual review; the photo does not confirm payment).
 - Courier: `/start`, `/courier`, click `ВЗЯТЬ ЗАКАЗ`, `/mydelivery`, `/startdelivery ORDER_ID`, `/photo ORDER_ID` and send the photo, finally `/done ORDER_ID`.
-- Admin: `/start`, `/admin` for counts, `/orders` for recent orders, `/order ORDER_ID` for one order's delivery/payment status. Commands work only in private chat.
+- Admin: `/start`, `/admin` for counts, `/orders` for recent orders, `/order ORDER_ID` for one order's delivery/payment status, `/paymentreviews` for receipts awaiting review, `/review ORDER_ID` to reopen receipt images, and `/confirmbank ORDER_ID BANK_REFERENCE` to start a two-step manual bank reconciliation. Commands work only in private chat.
 - Admin: use the Core API endpoints with `X-API-Key`; check readiness with `GET /api/commerce/status` (the status response never returns configured secret values).
 
 ## Environment examples
@@ -75,10 +75,16 @@ COMMERCE_CANCEL_URL=https://example.com/payment/cancel
 
 Prices are stored as whole KZT. Stripe lists KZT as a two-decimal currency; API amounts use minor units, so this implementation sends and validates KZT totals multiplied by 100. Confirm the payment provider supports KZT for the eventual merchant account: [Stripe currency documentation](https://docs.stripe.com/currencies).
 
+- A customer receipt photo moves the order to `PAYMENT_REVIEW`; it does not mark the order paid. The bot sends the image to configured administrators and retries failed admin notifications. Use `/paymentreviews` and `/review ORDER_ID` to review receipts.
+- `/confirmbank ORDER_ID BANK_REFERENCE` is an audited operator attestation, not a bank API integration. It asks for a second explicit confirmation and must be used only after independently confirming the settled funds in the authorized bank/provider ledger (match recipient, amount, currency, reference and time). The transaction reference must be unique. Never confirm from a screenshot alone.
+- A second successful Stripe Checkout Session for an order already marked paid is recorded as a `REVIEW_REQUIRED` duplicate-payment incident and escalated to administrators; do not dispatch a second order. Reconcile the operations in Stripe and handle any required refund through the provider.
+- Stripe Webhook validation failures that are permanent return 4xx; unknown/internal processing or storage failures return retryable 5xx so the signed event can be delivered again. This does not replace a durable database/outbox for production.
+
 ## Safety limits / not yet implemented
 - This implementation intentionally refuses live Stripe keys. No real charge is enabled.
 - On checkout retry after an expired session, Core queries Stripe first: it recovers an already-paid session or stops if the previous session is not confirmed expired. It does not issue a second payable link while the prior session status is uncertain.
-- Test-mode Stripe does not prove that a merchant account in Kazakhstan is eligible for live Stripe processing. Confirm provider/country eligibility before selecting the production provider.
+- Test-mode Stripe does not prove that a merchant account in Kazakhstan is eligible for live Stripe processing. Kazakhstan is not listed on Stripe's current supported payments country list; do not choose it for production until the actual merchant entity/country is eligible. See `PAYMENT_PROVIDER_SELECTION.md`.
+- `PAYMENT_PROVIDER_SELECTION.md` documents the official Kaspi Pay candidate, the evidence needed to integrate it, and country/legal gates. This branch does not yet have a live bank/acquirer API adapter, multi-currency order model, USDT network adapter or BTC network adapter. Crypto payment buttons and mainnet transactions must remain disabled until the exact network and legal/merchant model are approved.
 - JSON file storage is suitable only for a single-instance prototype. Do not scale horizontally or run multiple Core instances against the same files. Move orders, payment events, notification outbox and sessions to a transactional shared database before production traffic.
 - Do not use DEMO catalog entries or example delivery prices for real customers.
 - Android gallery-photo upload with captured GPS metadata is included in the CI-built debug APK, but has not yet been tested on the user's physical device. The app stores timestamp/location in its private sidecar metadata and attempts both a visible image stamp and JPEG EXIF GPS/time fields; if high-resolution decoding fails, EXIF metadata can still be saved. Uploads are limited to 8 per minute per client IP and 10 MiB, validate image signatures, and use SHA-256 to make retries safe when Telegram delivery fails. The courier must be assigned to the order, be listed in COMMERCE_COURIER_IDS, and authenticate with a per-courier token. In Android, enter the courier ID/token and tap `ЗАГРУЗИТЬ МОИ АКТИВНЫЕ ЗАКАЗЫ` to select from the authenticated courier's own order list rather than typing the order ID by hand. GPS is optional and is not cryptographic proof of location.
@@ -103,9 +109,11 @@ node --check server.js
 node --check commerce.js
 node --check commerce-stripe.js
 node --check commerce-bot.js
+node --check stripe-webhook-policy.js
 node --check scripts/verify-commerce-config.js
 node --test test/commerce.test.js
 node --test test/commerce-bot.test.js
+node --test test/stripe-webhook-policy.test.js
 node --test test/verify-commerce-config.test.js
 npm test
 npm run verify-commerce
