@@ -463,9 +463,23 @@ app.post("/api/commerce/stripe/webhook", (req, res) => {
   try {
     const result = commerceStripe.processStripeEvent(req.body);
     if (result.order && !result.pending) {
-      void commerceBot.notifyPaidOrder(result.order).catch(() => console.error(JSON.stringify({ event: "commerce_payment_notify_failed", orderId: result.order.id, requestId: req.requestId })));
+      if (result.duplicatePayment) {
+        void commerceBot.notifyDuplicatePayment(result.order).catch(() =>
+          console.error(JSON.stringify({ event: "duplicate_payment_admin_notify_failed", orderId: result.order.id, requestId: req.requestId }))
+        );
+      } else {
+        void commerceBot.notifyPaidOrder(result.order).catch(() =>
+          console.error(JSON.stringify({ event: "commerce_payment_notify_failed", orderId: result.order.id, requestId: req.requestId }))
+        );
+      }
     }
-    return res.json({ received: true, processed: !result.ignored && !result.pending, duplicate: Boolean(result.duplicate), requestId: req.requestId });
+    return res.json({
+      received: true,
+      processed: !result.ignored && !result.pending,
+      duplicate: Boolean(result.duplicate),
+      duplicatePayment: Boolean(result.duplicatePayment),
+      requestId: req.requestId
+    });
   } catch (error) {
     const status = stripeWebhookFailureStatus(error);
     const code = error.code || (status === 500 ? "STRIPE_WEBHOOK_PROCESSING_FAILED" : "STRIPE_EVENT_REJECTED");
