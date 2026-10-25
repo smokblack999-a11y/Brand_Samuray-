@@ -3,6 +3,8 @@
 const crypto = require("node:crypto");
 const {
   withTransaction,
+  appendOrderAuditEvent,
+  listOrderAuditEvents,
   readOrders,
   writeOrders,
   readEvents,
@@ -142,6 +144,23 @@ function createOrderInternal(input) {
   const orders = readOrders();
   orders.push(order);
   writeOrders(orders);
+  appendOrderAuditEvent({
+    orderId: order.id,
+    eventType: "ORDER_CREATED",
+    actorType: "customer",
+    actorId: customerId,
+    fromStatus: null,
+    toStatus: order.status,
+    fromPaymentStatus: null,
+    toPaymentStatus: order.paymentStatus,
+    details: {
+      productId: order.productId,
+      quantity: order.quantity,
+      fulfillment: order.fulfillment,
+      currency: order.currency,
+      totalKzt: order.totalKzt
+    }
+  });
   return order;
 }
 function createOrder(input) {
@@ -152,10 +171,43 @@ function updateOrder(id, mutate) {
     const orders = readOrders();
     const i = orders.findIndex((o) => o.id === String(id));
     if (i < 0) throw fail("ORDER_NOT_FOUND", "Order not found");
-    const next = mutate({ ...orders[i] });
+    const previous = orders[i];
+    const next = mutate({ ...previous });
     next.updatedAt = new Date().toISOString();
     orders[i] = next;
     writeOrders(orders);
+
+    const trackedFields = [
+      "status", "paymentStatus", "paymentProvider", "paymentReference",
+      "paymentEventIds", "checkoutSessionId", "checkoutSessionIds",
+      "courierId", "proof", "paymentReceipts", "paymentVerification",
+      "duplicatePaymentIncidents", "refundReference", "refundedAt"
+    ];
+    const changedFields = trackedFields.filter((field) =>
+      JSON.stringify(previous[field] ?? null) !== JSON.stringify(next[field] ?? null)
+    );
+    if (changedFields.length) {
+      const statusChanged = previous.status !== next.status;
+      const paymentStatusChanged = previous.paymentStatus !== next.paymentStatus;
+      const eventType = statusChanged && paymentStatusChanged
+        ? "ORDER_AND_PAYMENT_STATUS_CHANGED"
+        : statusChanged
+          ? "ORDER_STATUS_CHANGED"
+          : paymentStatusChanged
+            ? "PAYMENT_STATUS_CHANGED"
+            : "ORDER_FACTS_CHANGED";
+      const actorType = changedFields.includes("courierId") || changedFields.includes("proof") ? "courier_or_service" : "service";
+      appendOrderAuditEvent({
+        orderId: next.id,
+        eventType,
+        actorType,
+        fromStatus: previous.status,
+        toStatus: next.status,
+        fromPaymentStatus: previous.paymentStatus,
+        toPaymentStatus: next.paymentStatus,
+        details: { changedFields }
+      });
+    }
     return next;
   });
 }
@@ -772,5 +824,6 @@ module.exports = {
   markDuplicatePaymentIncidentNotified, listPaidOrders, resetForTests, updateOrderForTests,
   claimPendingOutboxJobs, completeOutboxJob, retryOutboxJob, listOutboxJobsForTests,
   getPaymentAttemptByKey, getPaymentAttemptBySession, findPaymentAttemptByEventId, upsertPaymentAttempt, listPaymentAttemptsForTests,
+  listOrderAuditEvents,
   readBotSessions, setBotSession, hasTelegramUpdate, markTelegramUpdate
 };
