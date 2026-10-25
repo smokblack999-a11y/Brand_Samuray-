@@ -416,6 +416,54 @@ function submitPaymentReceipt(orderId, customerId, receipt) {
   });
 }
 
+function reconcileManualBankPayment(orderId, adminId, bankReference) {
+  const reviewer = String(adminId || "").trim();
+  const reference = String(bankReference || "").trim();
+  if (!/^\\d{1,20}$/.test(reviewer)) throw fail("ADMIN_ID_REQUIRED", "A valid administrator Telegram ID is required");
+  if (!/^[A-Za-z0-9][A-Za-z0-9._/-]{4,127}$/.test(reference)) {
+    throw fail("BANK_REFERENCE_INVALID", "A bank transaction reference of 5–128 safe characters is required");
+  }
+  const existingRef = readOrders().find((o) =>
+    o.id !== String(orderId) &&
+    o.paymentProvider === "manual_bank_reconciliation" &&
+    o.paymentReference === reference
+  );
+  if (existingRef) throw fail("PAYMENT_REFERENCE_REPLAY", "This bank reference has already been used for another order");
+
+  return updateOrder(orderId, (o) => {
+    if (o.paymentStatus === "PAID") throw fail("ALREADY_PAID", "Order is already paid");
+    if (["CANCELLED", "DELIVERED", "REFUNDED"].includes(o.status)) {
+      throw fail("ORDER_NOT_REVIEWABLE", "Closed orders cannot be reconciled as paid");
+    }
+    if (o.status !== "PAYMENT_REVIEW" || !Array.isArray(o.paymentReceipts) || o.paymentReceipts.length === 0) {
+      throw fail("PAYMENT_REVIEW_REQUIRED", "A customer receipt must be submitted before manual bank reconciliation");
+    }
+    const existingOrderReference = String(o.paymentReference || "");
+    if (existingOrderReference && existingOrderReference !== reference) {
+      throw fail("PAYMENT_REFERENCE_CONFLICT", "Order already has a different payment reference");
+    }
+    const now = new Date().toISOString();
+    return {
+      ...o,
+      paymentStatus: "PAID",
+      status: o.fulfillment === "delivery" ? "PAID" : "READY_FOR_PICKUP",
+      paymentProvider: "manual_bank_reconciliation",
+      paymentReference: reference,
+      paymentVerification: {
+        method: "manual_bank_reconciliation",
+        bankReference: reference,
+        verifiedByAdminId: reviewer,
+        verifiedAt: now,
+        attestation: "Administrator confirmed actual settled funds in the bank/payment-provider ledger; receipt image alone is not proof"
+      },
+      paymentAudit: [
+        ...(Array.isArray(o.paymentAudit) ? o.paymentAudit : []),
+        { event: "MANUAL_BANK_PAYMENT_CONFIRMED", adminId: reviewer, bankReference: reference, at: now }
+      ]
+    };
+  });
+}
+
 function markPaymentReceiptAdminNotified(orderId, telegramFileId, adminId) {
   const fileId = String(telegramFileId || "").trim();
   const recipientId = String(adminId || "").trim();
@@ -482,4 +530,4 @@ function listPaidOrders() {
 function resetForTests() {
   for (const file of [ORDERS_FILE, EVENTS_FILE]) try { fs.unlinkSync(file); } catch {}
 }
-module.exports = { getCatalog, getDeliveryZones, getOrder, listOrders, createOrder, createCheckoutSession, attachCheckoutSession, applyVerifiedPayment, assignCourier, markInDelivery, attachProof, markPhotoDelivered, markDelivered, submitPaymentReceipt, markPaymentReceiptAdminNotified, listPaymentReviewOrders, markNotification, markDuplicatePaymentIncidentNotified, listPaidOrders, resetForTests };
+module.exports = { getCatalog, getDeliveryZones, getOrder, listOrders, createOrder, createCheckoutSession, attachCheckoutSession, applyVerifiedPayment, assignCourier, markInDelivery, attachProof, markPhotoDelivered, markDelivered, submitPaymentReceipt, markPaymentReceiptAdminNotified, listPaymentReviewOrders, reconcileManualBankPayment, markNotification, markDuplicatePaymentIncidentNotified, listPaidOrders, resetForTests };
