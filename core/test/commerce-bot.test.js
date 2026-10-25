@@ -344,6 +344,45 @@ test("manual bank reconciliation requires explicit admin confirmation and record
   assert.ok(courierNotice);
 });
 
+test("duplicate-payment alert retries after Telegram outage and does not resend after persistence", async (t) => {
+  commerce.resetForTests();
+  const firstPaid = createPaidDeliveryOrder();
+  const current = commerce.getOrder(firstPaid.id);
+  commerce.attachCheckoutSession(current.id, "cs_test_second_paid_session");
+  const duplicate = commerce.applyVerifiedPayment({
+    verified: true,
+    eventId: "evt_duplicate_paid_session",
+    orderId: current.id,
+    sessionId: "cs_test_second_paid_session",
+    amountKzt: current.totalKzt,
+    currency: current.currency,
+    provider: "stripe_test"
+  });
+  assert.equal(duplicate.duplicatePayment, true);
+  assert.equal(duplicate.order.duplicatePaymentIncidents.length, 1);
+
+  let adminAttempts = 0;
+  const notifications = [];
+  t.mock.method(globalThis, "fetch", async (url, options) => {
+    const payload = JSON.parse(options.body);
+    notifications.push({ url, payload });
+    if (String(payload.chat_id) === "700") {
+      adminAttempts += 1;
+      if (adminAttempts === 1) return telegramResponse(false);
+    }
+    return telegramResponse(true);
+  });
+
+  await bot.notifyDuplicatePayment(duplicate.order);
+  assert.deepEqual(commerce.getOrder(current.id).duplicatePaymentIncidents[0].adminNotifiedIds, []);
+  await bot.notifyDuplicatePayment(duplicate.order);
+  assert.deepEqual(commerce.getOrder(current.id).duplicatePaymentIncidents[0].adminNotifiedIds, ["700"]);
+  await bot.notifyDuplicatePayment(duplicate.order);
+  assert.equal(adminAttempts, 2);
+  assert.equal(notifications.filter((n) => String(n.payload.chat_id) === "700").length, 2);
+  assert.ok(notifications.some((n) => String(n.payload.text || "").includes("повторный платёж")));
+});
+
 test("payment notifications are persisted per recipient and a completed retry sends nothing twice", async (t) => {
   commerce.resetForTests();
   const order = createPaidDeliveryOrder();
