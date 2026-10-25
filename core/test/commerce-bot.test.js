@@ -281,6 +281,69 @@ test("customer receipt photo is routed to administrators for review but never co
   assert.ok(customerAck);
 });
 
+test("manual bank reconciliation requires explicit admin confirmation and records the audit", async (t) => {
+  commerce.resetForTests();
+  const order = commerce.createOrder({
+    customerId: "500", productId: "sample-1", quantity: 1,
+    fulfillment: "delivery", address: "Алматы, ручная сверка, 1", deliveryZone: "Алматы-1"
+  });
+  commerce.submitPaymentReceipt(order.id, "500", {
+    telegramFileId: "manual-bank-receipt-file",
+    fileUniqueId: "manual-bank-receipt-unique"
+  });
+  const telegramCalls = [];
+  t.mock.method(globalThis, "fetch", async (url, options) => {
+    telegramCalls.push({ url, payload: JSON.parse(options.body) });
+    return telegramResponse(true);
+  });
+  const updateMessage = (id, userId, text) => ({
+    update_id: id,
+    message: {
+      message_id: id, chat: { id: userId, type: "private" },
+      from: { id: userId, is_bot: false }, text
+    }
+  });
+
+  await bot.handleCommerceUpdate(updateMessage(960, 500, "/confirmbank " + order.id + " BANK-REF-2026-001"));
+  assert.equal(commerce.getOrder(order.id).paymentStatus, "AWAITING_PAYMENT");
+  assert.equal(commerce.getOrder(order.id).status, "PAYMENT_REVIEW");
+
+  telegramCalls.length = 0;
+  await bot.handleCommerceUpdate(updateMessage(961, 700, "/confirmbank " + order.id + " BANK-REF-2026-001"));
+  assert.equal(commerce.getOrder(order.id).paymentStatus, "AWAITING_PAYMENT");
+  assert.ok(telegramCalls.some((call) => String(call.payload.text || "").includes("ПОДТВЕРЖДЕНИЕ БАНКОВСКОГО ПЕРЕВОДА")));
+  assert.ok(telegramCalls.some((call) => call.payload.reply_markup?.inline_keyboard?.[0]?.[0]?.callback_data === "bank:confirm:" + order.id));
+
+  const callback = {
+    update_id: 962,
+    callback_query: {
+      id: "bank-confirm-callback",
+      from: { id: 700 },
+      message: { chat: { id: 700, type: "private" } },
+      data: "bank:confirm:" + order.id
+    }
+  };
+  await bot.handleCommerceUpdate(callback);
+  const paid = commerce.getOrder(order.id);
+  assert.equal(paid.paymentStatus, "PAID");
+  assert.equal(paid.status, "COURIER_ASSIGNED");
+  assert.equal(paid.paymentProvider, "manual_bank_reconciliation");
+  assert.equal(paid.paymentVerification.verifiedByAdminId, "700");
+  assert.equal(paid.paymentVerification.bankReference, "BANK-REF-2026-001");
+  assert.equal(paid.paymentAudit.at(-1).event, "MANUAL_BANK_PAYMENT_CONFIRMED");
+
+  const customerNotice = telegramCalls.find((call) =>
+    call.url.endsWith("/sendMessage") && String(call.payload.chat_id) === "500" &&
+    String(call.payload.text || "").includes("Оплата подтверждена")
+  );
+  assert.ok(customerNotice);
+  const courierNotice = telegramCalls.find((call) =>
+    call.url.endsWith("/sendMessage") && ["801", "802"].includes(String(call.payload.chat_id)) &&
+    String(call.payload.text || "").includes("Новый оплаченный заказ")
+  );
+  assert.ok(courierNotice);
+});
+
 test("payment notifications are persisted per recipient and a completed retry sends nothing twice", async (t) => {
   commerce.resetForTests();
   const order = createPaidDeliveryOrder();
