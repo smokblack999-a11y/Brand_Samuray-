@@ -52,6 +52,31 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_commerce_payment_events_order
     ON commerce_payment_events(order_id);
 
+  CREATE TABLE IF NOT EXISTS commerce_payment_attempts (
+    attempt_key TEXT PRIMARY KEY,
+    order_id TEXT NOT NULL,
+    provider TEXT NOT NULL,
+    environment TEXT NOT NULL,
+    expected_amount_minor INTEGER NOT NULL CHECK(expected_amount_minor > 0),
+    currency TEXT NOT NULL CHECK(length(currency) = 3),
+    provider_session_id TEXT,
+    provider_transaction_id TEXT,
+    status TEXT NOT NULL,
+    provider_event_ids TEXT NOT NULL DEFAULT '[]',
+    metadata TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    verified_at TEXT
+  );
+  CREATE INDEX IF NOT EXISTS idx_commerce_payment_attempt_order
+    ON commerce_payment_attempts(order_id, created_at);
+  CREATE UNIQUE INDEX IF NOT EXISTS uq_commerce_payment_attempt_session
+    ON commerce_payment_attempts(provider, environment, provider_session_id)
+    WHERE provider_session_id IS NOT NULL;
+  CREATE UNIQUE INDEX IF NOT EXISTS uq_commerce_payment_attempt_transaction
+    ON commerce_payment_attempts(provider, environment, provider_transaction_id)
+    WHERE provider_transaction_id IS NOT NULL;
+
   CREATE TABLE IF NOT EXISTS commerce_outbox_jobs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     dedupe_key TEXT NOT NULL UNIQUE,
@@ -142,6 +167,126 @@ function upsertOrder(order) {
     updatedAt,
     JSON.stringify(payload)
   );
+}
+
+function mapPaymentAttempt(row) {
+  if (!row) return null;
+  let providerEventIds = [];
+  let metadata = {};
+  try { providerEventIds = JSON.parse(row.provider_event_ids || "[]"); } catch {}
+  try { metadata = JSON.parse(row.metadata || "{}"); } catch {}
+  return {
+    attemptKey: row.attempt_key,
+    orderId: row.order_id,
+    provider: row.provider,
+    environment: row.environment,
+    expectedAmountMinor: row.expected_amount_minor,
+    currency: row.currency,
+    providerSessionId: row.provider_session_id || null,
+    providerTransactionId: row.provider_transaction_id || null,
+    status: row.status,
+    providerEventIds,
+    metadata,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    verifiedAt: row.verified_at || null
+  };
+}
+
+function getPaymentAttemptByKey(attemptKey) {
+  return mapPaymentAttempt(db.prepare("SELECT * FROM commerce_payment_attempts WHERE attempt_key = ?").get(String(attemptKey || "")));
+}
+
+function getPaymentAttemptBySession(provider, environment, sessionId) {
+  const session = String(sessionId || "").trim();
+  if (!session) return null;
+  return mapPaymentAttempt(db.prepare(`
+    SELECT * FROM commerce_payment_attempts
+    WHERE provider = ? AND environment = ? AND provider_session_id = ?
+  `).get(String(provider), String(environment), session));
+}
+
+function upsertPaymentAttempt(input) {
+  if (!input || typeof input !== "object") throw new TypeError("Payment attempt input is required");
+  const attemptKey = String(input.attemptKey || "").trim();
+  const orderId = String(input.orderId || "").trim();
+  const provider = String(input.provider || "").trim();
+  const environment = String(input.environment || "").trim();
+  const amountMinor = Number(input.expectedAmountMinor);
+  const currency = String(input.currency || "").toUpperCase();
+  if (!attemptKey || !orderId || !provider || !environment) throw new Error("Payment attempt identity fields are required");
+  if (!Number.isSafeInteger(amountMinor) || amountMinor <= 0) throw new Error("Payment attempt amount must be a positive integer in minor units");
+  if (!/^[A-Z]{3}$/.test(currency)) throw new Error("Payment attempt currency must be a three-letter ISO code");
+
+  return withTransaction(() => {
+    const now = new Date().toISOString();
+    const current = getPaymentAttemptByKey(attemptKey);
+    const sessionId = input.providerSessionId == null ? null : String(input.providerSessionId).trim() || null;
+    const transactionId = input.providerTransactionId == null ? null : String(input.providerTransactionId).trim() || null;
+    if (current && (
+      current.orderId !== orderId ||
+      current.provider !== provider ||
+      current.environment !== environment ||
+      current.expectedAmountMinor !== amountMinor ||
+      current.currency !== currency
+    )) throw new Error("Payment attempt immutable fields cannot be changed");
+
+    const providerEventIds = [...new Set([
+      ...(current?.providerEventIds || []),
+      ...(Array.isArray(input.providerEventIds) ? input.providerEventIds : [])
+    ].map((value) => String(value || "").trim()).filter(Boolean))];
+    const metadata = { ...(current?.metadata || {}), ...(input.metadata && typeof input.metadata === "object" && !Array.isArray(input.metadata) ? input.metadata : {}) };
+    const record = {
+      attemptKey,
+      orderId,
+      provider,
+      environment,
+      expectedAmountMinor: amountMinor,
+      currency,
+      providerSessionId: sessionId || current?.providerSessionId || null,
+      providerTransactionId: transactionId || current?.providerTransactionId || null,
+      status: String(input.status || current?.status || "CREATING"),
+      providerEventIds,
+      metadata,
+      createdAt: current?.createdAt || now,
+      updatedAt: now,
+      verifiedAt: input.verifiedAt || current?.verifiedAt || null
+    };
+
+    if (current) {
+      db.prepare(`
+        UPDATE commerce_payment_attempts SET
+          provider_session_id = ?, provider_transaction_id = ?, status = ?,
+          provider_event_ids = ?, metadata = ?, updated_at = ?, verified_at = ?
+        WHERE attempt_key = ?
+      `).run(
+        record.providerSessionId, record.providerTransactionId, record.status,
+        JSON.stringify(record.providerEventIds), JSON.stringify(record.metadata),
+        record.updatedAt, record.verifiedAt, attemptKey
+      );
+    } else {
+      db.prepare(`
+        INSERT INTO commerce_payment_attempts (
+          attempt_key, order_id, provider, environment, expected_amount_minor, currency,
+          provider_session_id, provider_transaction_id, status, provider_event_ids, metadata,
+          created_at, updated_at, verified_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        record.attemptKey, record.orderId, record.provider, record.environment,
+        record.expectedAmountMinor, record.currency, record.providerSessionId,
+        record.providerTransactionId, record.status, JSON.stringify(record.providerEventIds),
+        JSON.stringify(record.metadata), record.createdAt, record.updatedAt, record.verifiedAt
+      );
+    }
+    return record;
+  });
+}
+
+function listPaymentAttemptsForTests(orderId) {
+  const rows = orderId == null
+    ? db.prepare("SELECT * FROM commerce_payment_attempts ORDER BY created_at, attempt_key").all()
+    : db.prepare("SELECT * FROM commerce_payment_attempts WHERE order_id = ? ORDER BY created_at, attempt_key").all(String(orderId));
+  return rows.map(mapPaymentAttempt);
 }
 
 function readOrders() {
@@ -404,6 +549,7 @@ function resetForTests() {
   return withTransaction(() => {
     db.exec("DELETE FROM commerce_orders;");
     db.exec("DELETE FROM commerce_payment_events;");
+    db.exec("DELETE FROM commerce_payment_attempts;");
     db.exec("DELETE FROM commerce_outbox_jobs;");
     db.exec("DELETE FROM commerce_bot_sessions;");
     db.exec("DELETE FROM commerce_telegram_updates;");
@@ -419,6 +565,10 @@ module.exports = {
   writeOrders,
   readEvents,
   writeEvents,
+  getPaymentAttemptByKey,
+  getPaymentAttemptBySession,
+  upsertPaymentAttempt,
+  listPaymentAttemptsForTests,
   readBotSessions,
   setBotSession,
   hasTelegramUpdate,
