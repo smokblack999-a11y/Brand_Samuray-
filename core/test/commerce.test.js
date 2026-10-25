@@ -191,6 +191,16 @@ test("photo proof must belong to the assigned courier and is required before del
   assert.equal(commerce.markDelivered(order.id, "777").status, "DELIVERED");
 });
 
+test("closed orders cannot create a new Stripe Checkout session", async () => {
+  commerce.resetForTests();
+  const order = newDeliveryOrder();
+  const file = path.join(dataDir, "commerce-orders.json");
+  const orders = JSON.parse(fs.readFileSync(file, "utf8"));
+  orders[0].status = "CANCELLED";
+  fs.writeFileSync(file, JSON.stringify(orders, null, 2) + "\n");
+  await assert.rejects(commerce.createCheckoutSession(order.id), { code: "ORDER_CLOSED" });
+});
+
 test("expired Stripe checkout session is replaced on payment retry", async (t) => {
   commerce.resetForTests();
   const order = newDeliveryOrder();
@@ -449,6 +459,33 @@ test("Stripe webhook rejects live mode, wrong Checkout mode and conflicting orde
   assert.throws(() => stripe.processStripeEvent({ ...event, id: "evt_guard_subscription", data: { object: { ...validSession, mode: "subscription" } } }), { code: "INVALID_CHECKOUT_MODE" });
   assert.throws(() => stripe.processStripeEvent({ ...event, id: "evt_guard_mismatch", data: { object: { ...validSession, client_reference_id: "SAM-OTHER" } } }), { code: "INVALID_CHECKOUT_SESSION" });
   assert.equal(commerce.getOrder(order.id).paymentStatus, "AWAITING_PAYMENT");
+});
+
+test("late successful payment for a cancelled order is held for review and never reopens the order", () => {
+  commerce.resetForTests();
+  const order = newDeliveryOrder();
+  commerce.attachCheckoutSession(order.id, "cs_test_late_closed");
+  const file = path.join(dataDir, "commerce-orders.json");
+  const orders = JSON.parse(fs.readFileSync(file, "utf8"));
+  orders[0].status = "CANCELLED";
+  fs.writeFileSync(file, JSON.stringify(orders, null, 2) + "\n");
+
+  const input = {
+    verified: true, eventId: "evt_late_closed", orderId: order.id,
+    sessionId: "cs_test_late_closed", amountKzt: 5700, currency: "KZT", provider: "stripe_test"
+  };
+  const result = commerce.applyVerifiedPayment(input);
+  assert.equal(result.order.status, "CANCELLED");
+  assert.equal(result.order.paymentStatus, "AWAITING_PAYMENT");
+  assert.equal(result.duplicatePayment, true);
+  assert.equal(result.incident.reason, "PAYMENT_AFTER_ORDER_CLOSED");
+  assert.equal(result.incident.status, "REVIEW_REQUIRED");
+  assert.deepEqual(result.incident.adminNotifiedIds, []);
+
+  const repeated = commerce.applyVerifiedPayment(input);
+  assert.equal(repeated.order.status, "CANCELLED");
+  assert.equal(repeated.duplicate, true);
+  assert.equal(repeated.order.duplicatePaymentIncidents.length, 1);
 });
 
 test("a second successful Checkout session is recorded as an admin reconciliation incident", () => {
