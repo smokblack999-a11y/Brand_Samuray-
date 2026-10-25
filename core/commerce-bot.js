@@ -182,11 +182,14 @@ async function notifyDuplicatePayment(orderInput) {
         try {
           await sendText(
             adminId,
-            "ВНИМАНИЕ: возможен повторный платёж. Заказ " + order.id +
-            "\nСумма второго события: " + incident.amountKzt + " " + incident.currency +
+            (incident.reason === "PAYMENT_AFTER_ORDER_CLOSED"
+              ? "ВНИМАНИЕ: платёжное событие получено для закрытого заказа. Заказ " + order.id
+              : "ВНИМАНИЕ: возможен повторный платёж. Заказ " + order.id) +
+            "\nПричина: " + (incident.reason || "SECOND_SUCCESSFUL_CHECKOUT_SESSION") +
+            "\nСумма события: " + incident.amountKzt + " " + incident.currency +
             "\nCheckout Session: " + incident.sessionId +
             "\nСобытие: " + incident.eventId +
-            "\nНе отправляйте второй заказ. Сверьте обе операции в кабинете Stripe и выполните ручную сверку/возврат при необходимости. Инцидент не считается закрытым автоматически."
+            "\nНе выдавайте заказ повторно. Сверьте фактическое списание в кабинете провайдера и при необходимости выполните возврат. Инцидент не закрывается автоматически."
           );
           commerce.markDuplicatePaymentIncidentNotified(order.id, incident.sessionId, adminId);
           order = commerce.getOrder(order.id) || order;
