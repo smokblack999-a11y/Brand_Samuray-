@@ -46,3 +46,7 @@ Thumbs.db
 
 # Generated reports
 **/build/reports/
+
+# SQLite runtime databases (do not commit customer/order/payment data)
+**/data/commerce.sqlite
+**/data/commerce.sqlite-*
