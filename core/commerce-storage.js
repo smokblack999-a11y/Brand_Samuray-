@@ -42,8 +42,9 @@ db.exec(`
     ON commerce_orders(customer_id, created_at);
   CREATE INDEX IF NOT EXISTS idx_commerce_orders_status
     ON commerce_orders(status, payment_status);
-  CREATE INDEX IF NOT EXISTS idx_commerce_orders_idempotency
-    ON commerce_orders(idempotency_key);
+  CREATE UNIQUE INDEX IF NOT EXISTS uq_commerce_orders_idempotency
+    ON commerce_orders(idempotency_key)
+    WHERE idempotency_key IS NOT NULL;
 
   CREATE TABLE IF NOT EXISTS commerce_payment_events (
     event_id TEXT PRIMARY KEY,
