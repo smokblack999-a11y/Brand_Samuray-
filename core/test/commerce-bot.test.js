@@ -281,7 +281,51 @@ test("customer receipt photo is routed to administrators for review but never co
   assert.ok(customerAck);
 });
 
+test("manual bank confirmation is disabled by default and always blocked in production", async (t) => {
+  commerce.resetForTests();
+  const order = commerce.createOrder({
+    customerId: "500", productId: "sample-1", quantity: 1,
+    fulfillment: "delivery", address: "Алматы, тестовый адрес, 1", deliveryZone: "Алматы-1"
+  });
+  commerce.submitPaymentReceipt(order.id, "500", {
+    telegramFileId: "receipt-bank-gate",
+    fileUniqueId: "receipt-bank-gate-unique"
+  });
+  const priorFlag = process.env.COMMERCE_MANUAL_BANK_CONFIRM_ENABLED;
+  const priorNodeEnv = process.env.NODE_ENV;
+  const calls = [];
+  t.mock.method(globalThis, "fetch", async (url, options) => {
+    calls.push({ url, payload: JSON.parse(options.body) });
+    return telegramResponse(true);
+  });
+  const updateMessage = (id, userId, text) => ({
+    update_id: id,
+    message: { message_id: id, chat: { id: userId, type: "private" }, from: { id: userId, is_bot: false }, text }
+  });
+  try {
+    delete process.env.COMMERCE_MANUAL_BANK_CONFIRM_ENABLED;
+    process.env.NODE_ENV = "test";
+    await bot.handleCommerceUpdate(updateMessage(958, 700, "/confirmbank " + order.id + " BANK-REF-2026-009"));
+    assert.equal(commerce.getOrder(order.id).paymentStatus, "AWAITING_PAYMENT");
+    assert.ok(calls.some((call) => String(call.payload.text || "").includes("Ручное подтверждение банка отключено")));
+
+    calls.length = 0;
+    process.env.COMMERCE_MANUAL_BANK_CONFIRM_ENABLED = "true";
+    process.env.NODE_ENV = "production";
+    await bot.handleCommerceUpdate(updateMessage(959, 700, "/confirmbank " + order.id + " BANK-REF-2026-009"));
+    assert.equal(commerce.getOrder(order.id).paymentStatus, "AWAITING_PAYMENT");
+    assert.ok(calls.some((call) => String(call.payload.text || "").includes("production")));
+    assert.equal(calls.some((call) => call.payload.reply_markup?.inline_keyboard?.[0]?.[0]?.callback_data === "bank:confirm:" + order.id), false);
+  } finally {
+    if (priorFlag === undefined) delete process.env.COMMERCE_MANUAL_BANK_CONFIRM_ENABLED;
+    else process.env.COMMERCE_MANUAL_BANK_CONFIRM_ENABLED = priorFlag;
+    if (priorNodeEnv === undefined) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = priorNodeEnv;
+  }
+});
+
 test("manual bank reconciliation requires explicit admin confirmation and records the audit", async (t) => {
+  process.env.COMMERCE_MANUAL_BANK_CONFIRM_ENABLED = "true";
   commerce.resetForTests();
   const order = commerce.createOrder({
     customerId: "500", productId: "sample-1", quantity: 1,
