@@ -518,11 +518,24 @@ async function handleMessage(message, updateId) {
         !Array.isArray(order.paymentReceipts) || order.paymentReceipts.length === 0) {
       return sendText(chatId, "Заказ не находится в очереди ручной сверки или не содержит чека.");
     }
+    // Resurface the exact receipt images during the confirmation step so the operator
+    // sees which customer evidence is attached to this order. These images remain untrusted evidence.
+    for (const receipt of order.paymentReceipts.slice(-5)) {
+      await tg("sendPhoto", {
+        chat_id: chatId,
+        photo: receipt.telegramFileId,
+        caption: "Чек для сверки — НЕ ПОДТВЕРЖДЕНИЕ ОПЛАТЫ\nЗаказ: " + order.id +
+          "\nПолучен: " + receipt.submittedAt +
+          "\nСверьте фактическое зачисление в банковском кабинете/выписке."
+      });
+      commerce.markPaymentReceiptAdminNotified(order.id, receipt.telegramFileId, userId);
+    }
     setSession(userId, { state: "confirm_bank_payment", orderId, bankReference });
     return sendText(chatId,
       "ПОДТВЕРЖДЕНИЕ БАНКОВСКОГО ПЕРЕВОДА\n" + orderSummary(order) +
+      (order.fulfillment === "delivery" ? "\nАдрес доставки: " + order.address : "") +
       "\nСсылка транзакции: " + bankReference +
-      "\n\nПродолжайте только если лично проверили фактически зачисленную сумму в банковском кабинете/выписке и сверили получателя, сумму, валюту и время. Чек/скриншот сам по себе не подтверждает оплату.",
+      "\n\nПродолжайте только если лично проверили ФАКТИЧЕСКИ ЗАЧИСЛЕННЫЕ средства в банковском кабинете/выписке и сверили получателя, сумму, валюту, время и уникальность ссылки. Чек/скриншот сам по себе не подтверждает оплату.",
       { inline_keyboard: [
         [{ text: "Я ПРОВЕРИЛ ФАКТИЧЕСКОЕ ЗАЧИСЛЕНИЕ", callback_data: "bank:confirm:" + order.id }],
         [{ text: "ОТМЕНИТЬ", callback_data: "bank:cancel:" + order.id }]
