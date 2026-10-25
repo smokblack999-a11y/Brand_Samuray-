@@ -70,6 +70,21 @@ test("rejects malformed catalog, duplicate product IDs and duplicate courier tok
   assert.ok(result.errors.some((error) => error.includes("different upload token")));
 });
 
+test("rejects manual bank confirmation when production environment is configured", () => {
+  const blocked = validateCommerceEnv(validEnv({
+    COMMERCE_MANUAL_BANK_CONFIRM_ENABLED: "true",
+    NODE_ENV: "production"
+  }));
+  assert.equal(blocked.ok, false);
+  assert.ok(blocked.errors.some((error) => error.includes("Manual bank confirmation is disabled in production")));
+
+  const malformed = validateCommerceEnv(validEnv({
+    COMMERCE_MANUAL_BANK_CONFIRM_ENABLED: "sometimes"
+  }));
+  assert.equal(malformed.ok, false);
+  assert.ok(malformed.errors.some((error) => error.includes("must be true or false")));
+});
+
 test("rejects malformed JSON without echoing configuration values", () => {
   const result = validateCommerceEnv(validEnv({ COMMERCE_PRODUCTS_JSON: "invalid-secret-looking-value" }));
   assert.equal(result.ok, false);
