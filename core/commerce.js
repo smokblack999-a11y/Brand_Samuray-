@@ -7,6 +7,10 @@ const {
   writeOrders,
   readEvents,
   writeEvents,
+  readBotSessions,
+  setBotSession,
+  hasTelegramUpdate,
+  markTelegramUpdate,
   enqueuePaymentNotification,
   claimPendingOutboxJobs,
   completeOutboxJob,
@@ -609,5 +613,6 @@ module.exports = {
   markPhotoDelivered, markDelivered, submitPaymentReceipt, markPaymentReceiptAdminNotified,
   listPaymentReviewOrders, reconcileManualBankPayment, markNotification,
   markDuplicatePaymentIncidentNotified, listPaidOrders, resetForTests, updateOrderForTests,
-  claimPendingOutboxJobs, completeOutboxJob, retryOutboxJob, listOutboxJobsForTests
+  claimPendingOutboxJobs, completeOutboxJob, retryOutboxJob, listOutboxJobsForTests,
+  readBotSessions, setBotSession, hasTelegramUpdate, markTelegramUpdate
 };
