@@ -4,7 +4,7 @@ This is a first implementation slice for the Telegram order workflow. It is not 
 
 ## Features in this branch
 - Server-side product prices and delivery-zone fees from environment configuration.
-- Transactional SQLite order/payment-event storage (`DATA_DIR/commerce.sqlite` by default), plus a durable notification outbox; old JSON order/event files are imported once and retained as backup.
+- Transactional SQLite order/payment-event storage (`DATA_DIR/commerce.sqlite` by default), normalized payment-attempt ledger, and durable notification outbox; old JSON order/event/session/update files are imported once and retained as backup.
 - Customer Telegram commands: `/start`, `/catalog`, `/myorders`, and `/pay ORDER_ID` to retry checkout for the customer's own unpaid order.
 - Courier workflow: `/courier`, `/photo ORDER_ID`, `/done ORDER_ID`.
 - Test-only Stripe Checkout creation; `PAID` is set only after a valid Stripe signature, a paid Checkout Session, exact amount/currency and matching session ID.
