@@ -149,9 +149,35 @@ function applyVerifiedPayment(input) {
     return { duplicate: true, order };
   }
   if (order.paymentStatus === "PAID") {
+    const alreadyPaidSessionId = order.paymentSessionId || order.checkoutSessionId || null;
+    if (alreadyPaidSessionId !== input.sessionId) {
+      // A different Checkout Session has also reported a completed payment for an already-paid order.
+      // Preserve the first payment and create a reconciliation incident; never silently treat this
+      // as an ordinary duplicate. Refund/reconciliation remains an explicit operator action.
+      const incident = {
+        eventId,
+        sessionId: String(input.sessionId),
+        amountKzt: input.amountKzt,
+        currency,
+        detectedAt: new Date().toISOString(),
+        status: "REVIEW_REQUIRED",
+        adminNotifiedIds: []
+      };
+      const updated = updateOrder(orderId, (o) => ({
+        ...o,
+        paymentEventIds: [...new Set([...(Array.isArray(o.paymentEventIds) ? o.paymentEventIds : []), eventId])],
+        duplicatePaymentIncidents: [
+          ...(Array.isArray(o.duplicatePaymentIncidents) ? o.duplicatePaymentIncidents : [])
+            .filter((x) => x && x.sessionId !== incident.sessionId),
+          incident
+        ]
+      }));
+      events.push(eventId); writeJson(EVENTS_FILE, events);
+      return { duplicate: true, duplicatePayment: true, order: updated, incident };
+    }
     const updated = updateOrder(orderId, (o) => ({
       ...o,
-      paymentEventIds: [...(Array.isArray(o.paymentEventIds) ? o.paymentEventIds : []), eventId]
+      paymentEventIds: [...new Set([...(Array.isArray(o.paymentEventIds) ? o.paymentEventIds : []), eventId])]
     }));
     events.push(eventId); writeJson(EVENTS_FILE, events);
     return { duplicate: true, order: updated };
@@ -162,7 +188,9 @@ function applyVerifiedPayment(input) {
     status: o.fulfillment === "delivery" ? "PAID" : "READY_FOR_PICKUP",
     paymentProvider: String(input.provider || "unknown"),
     paymentReference: eventId,
-    paymentEventIds: [...(Array.isArray(o.paymentEventIds) ? o.paymentEventIds : []), eventId],
+    paymentSessionId: String(input.sessionId),
+    duplicatePaymentIncidents: Array.isArray(o.duplicatePaymentIncidents) ? o.duplicatePaymentIncidents : [],
+    paymentEventIds: [...new Set([...(Array.isArray(o.paymentEventIds) ? o.paymentEventIds : []), eventId])],
     paidAt: new Date().toISOString()
   }));
   events.push(eventId);
@@ -355,6 +383,19 @@ function attachCheckoutSession(orderId, sessionId, checkoutUrl = "https://checko
   if (!String(sessionId || "").startsWith("cs_test_")) throw fail("INVALID_CHECKOUT_SESSION", "Only a Stripe test Checkout Session is accepted");
   return updateOrder(orderId, (o) => ({ ...o, checkoutSessionId: String(sessionId), checkoutSessionIds: [...new Set([...(Array.isArray(o.checkoutSessionIds) ? o.checkoutSessionIds : []), String(sessionId)])], checkoutUrl, paymentProvider: "stripe_test" }));
 }
+function markDuplicatePaymentIncidentNotified(orderId, sessionId, adminId) {
+  const sid = String(sessionId || "").trim();
+  const aid = String(adminId || "").trim();
+  if (!sid || !aid) throw fail("NOTIFICATION_RECIPIENT_REQUIRED", "Session and administrator IDs are required");
+  return updateOrder(orderId, (o) => ({
+    ...o,
+    duplicatePaymentIncidents: (Array.isArray(o.duplicatePaymentIncidents) ? o.duplicatePaymentIncidents : []).map((incident) =>
+      incident.sessionId === sid
+        ? { ...incident, adminNotifiedIds: [...new Set([...(Array.isArray(incident.adminNotifiedIds) ? incident.adminNotifiedIds : []), aid])] }
+        : incident
+    )
+  }));
+}
 function markNotification(orderId, kind, recipientId) {
   const allowed = new Set(["customer", "courier", "admin", "deliveryEscalated"]);
   if (!allowed.has(kind)) throw fail("INVALID_NOTIFICATION_KIND", "Invalid order notification kind");
@@ -388,4 +429,4 @@ function listPaidOrders() {
 function resetForTests() {
   for (const file of [ORDERS_FILE, EVENTS_FILE]) try { fs.unlinkSync(file); } catch {}
 }
-module.exports = { getCatalog, getDeliveryZones, getOrder, listOrders, createOrder, createCheckoutSession, attachCheckoutSession, applyVerifiedPayment, assignCourier, markInDelivery, attachProof, markPhotoDelivered, markDelivered, markNotification, listPaidOrders, resetForTests };
+module.exports = { getCatalog, getDeliveryZones, getOrder, listOrders, createOrder, createCheckoutSession, attachCheckoutSession, applyVerifiedPayment, assignCourier, markInDelivery, attachProof, markPhotoDelivered, markDelivered, markNotification, markDuplicatePaymentIncidentNotified, listPaidOrders, resetForTests };
