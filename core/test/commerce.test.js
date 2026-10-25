@@ -87,6 +87,7 @@ test("customer receipts enter PAYMENT_REVIEW but never mark the order paid", () 
 });
 
 test("manual bank reconciliation requires review, stores audit data and blocks reference reuse", () => {
+  process.env.COMMERCE_ADMIN_IDS = "700";
   commerce.resetForTests();
   const order = newDeliveryOrder();
   assert.throws(() => commerce.reconcileManualBankPayment(order.id, "700", "BANK-REF-001"), {
