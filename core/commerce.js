@@ -28,7 +28,37 @@ const {
 
 const CURRENCY = String(process.env.COMMERCE_CURRENCY || "KZT").toUpperCase();
 
+const ALLOWED_ORDER_TRANSITIONS = Object.freeze({
+  AWAITING_PAYMENT: new Set(["PAYMENT_REVIEW", "PAID", "READY_FOR_PICKUP", "CANCELLED"]),
+  PAYMENT_REVIEW: new Set(["PAID", "READY_FOR_PICKUP", "CANCELLED"]),
+  PAID: new Set(["COURIER_ASSIGNED", "REFUNDED"]),
+  READY_FOR_PICKUP: new Set(["CANCELLED", "REFUNDED"]),
+  COURIER_ASSIGNED: new Set(["IN_DELIVERY", "PHOTO_RECEIVED", "CANCELLED"]),
+  IN_DELIVERY: new Set(["PHOTO_RECEIVED"]),
+  PHOTO_RECEIVED: new Set(["DELIVERED", "IN_DELIVERY"]),
+  DELIVERED: new Set(),
+  CANCELLED: new Set(),
+  REFUNDED: new Set()
+});
+
+const ALLOWED_PAYMENT_TRANSITIONS = Object.freeze({
+  AWAITING_PAYMENT: new Set(["PAID"]),
+  PAID: new Set(["REFUNDED"]),
+  REFUNDED: new Set()
+});
+
 function fail(code, message) { const e = new Error(message); e.code = code; return e; }
+
+function validateOrderTransition(previous, next) {
+  if (previous.status !== next.status &&
+      !ALLOWED_ORDER_TRANSITIONS[previous.status]?.has(next.status)) {
+    throw fail("INVALID_ORDER_STATE_TRANSITION", "Order status transition is not allowed");
+  }
+  if (previous.paymentStatus !== next.paymentStatus &&
+      !ALLOWED_PAYMENT_TRANSITIONS[previous.paymentStatus]?.has(next.paymentStatus)) {
+    throw fail("INVALID_PAYMENT_STATE_TRANSITION", "Payment status transition is not allowed");
+  }
+}
 
 function recordStripeAttempt(order, sessionId, status, eventId, verified = true, metadata = {}) {
   const sid = String(sessionId || "").trim();
@@ -173,6 +203,7 @@ function updateOrder(id, mutate) {
     if (i < 0) throw fail("ORDER_NOT_FOUND", "Order not found");
     const previous = orders[i];
     const next = mutate({ ...previous });
+    validateOrderTransition(previous, next);
     next.updatedAt = new Date().toISOString();
     orders[i] = next;
     writeOrders(orders);
@@ -180,7 +211,7 @@ function updateOrder(id, mutate) {
     const trackedFields = [
       "status", "paymentStatus", "paymentProvider", "paymentReference",
       "paymentEventIds", "checkoutSessionId", "checkoutSessionIds",
-      "courierId", "proof", "paymentReceipts", "paymentVerification",
+      "courierId", "proof", "paymentVerification",
       "duplicatePaymentIncidents", "refundReference", "refundedAt"
     ];
     const changedFields = trackedFields.filter((field) =>
