@@ -473,6 +473,24 @@ test("late successful payment for a cancelled order is held for review and never
   assert.equal(repeated.order.duplicatePaymentIncidents.length, 1);
 });
 
+test("verified payment and notification outbox are committed together and deduplicated", () => {
+  commerce.resetForTests();
+  const order = newDeliveryOrder();
+  commerce.attachCheckoutSession(order.id, "cs_test_outbox_paid");
+  const payment = {
+    verified: true, eventId: "evt_outbox_paid", orderId: order.id,
+    sessionId: "cs_test_outbox_paid", amountKzt: 5700, currency: "KZT", provider: "stripe_test"
+  };
+  const paid = commerce.applyVerifiedPayment(payment);
+  assert.equal(paid.order.paymentStatus, "PAID");
+  assert.equal(commerce.listOutboxJobsForTests().length, 1);
+  assert.equal(commerce.listOutboxJobsForTests()[0].orderId, order.id);
+
+  const duplicate = commerce.applyVerifiedPayment(payment);
+  assert.equal(duplicate.duplicate, true);
+  assert.equal(commerce.listOutboxJobsForTests().length, 1);
+});
+
 test("a second successful Checkout session is recorded as an admin reconciliation incident", () => {
   commerce.resetForTests();
   const order = newDeliveryOrder();
