@@ -10,6 +10,7 @@ const SESSION_FILE = path.join(DATA_DIR, "commerce-bot-sessions.json");
 const UPDATES_FILE = path.join(DATA_DIR, "commerce-bot-updates.json");
 const timeoutMs = Math.max(1000, Number(process.env.TELEGRAM_TIMEOUT_MS || 10000));
 const inFlightPaymentNotifications = new Set();
+const inFlightDuplicatePaymentNotifications = new Set();
 const inFlightTelegramUpdates = new Set();
 
 function readSessions() {
@@ -162,29 +163,38 @@ async function notifyPaidOrder(orderInput) {
   }
 }
 async function notifyDuplicatePayment(orderInput) {
-  const order = commerce.getOrder(orderInput?.id);
-  if (!order || !Array.isArray(order.duplicatePaymentIncidents) || !order.duplicatePaymentIncidents.length) return { skipped: true };
-  const admins = String(process.env.COMMERCE_ADMIN_IDS || "").split(",").map((x) => x.trim()).filter(Boolean);
-  for (const incident of order.duplicatePaymentIncidents) {
-    if (incident.status !== "REVIEW_REQUIRED") continue;
-    for (const adminId of admins) {
-      if (Array.isArray(incident.adminNotifiedIds) && incident.adminNotifiedIds.includes(adminId)) continue;
-      try {
-        await sendText(
-          adminId,
-          "ВНИМАНИЕ: возможный повторный платёж. Заказ " + order.id +
-          "\nСумма второго события: " + incident.amountKzt + " " + incident.currency +
-          "\nCheckout Session: " + incident.sessionId +
-          "\nСобытие: " + incident.eventId +
-          "\nНе отправляйте второй заказ. Сверьте обе операции в кабинете Stripe и выполните ручную сверку/возврат при необходимости. Инцидент не считается закрытым автоматически."
-        );
-        commerce.markDuplicatePaymentIncidentNotified(order.id, incident.sessionId, adminId);
-      } catch {
-        console.error(JSON.stringify({ event: "duplicate_payment_admin_notify_failed", orderId: order.id, code: "TELEGRAM_SEND_FAILED" }));
+  const orderId = String(orderInput?.id || "");
+  if (!orderId) return { skipped: true };
+  if (inFlightDuplicatePaymentNotifications.has(orderId)) return { inFlight: true, orderId };
+  inFlightDuplicatePaymentNotifications.add(orderId);
+  try {
+    let order = commerce.getOrder(orderId);
+    if (!order || !Array.isArray(order.duplicatePaymentIncidents) || !order.duplicatePaymentIncidents.length) return { skipped: true };
+    const admins = String(process.env.COMMERCE_ADMIN_IDS || "").split(",").map((x) => x.trim()).filter(Boolean);
+    for (const incident of order.duplicatePaymentIncidents) {
+      if (incident.status !== "REVIEW_REQUIRED") continue;
+      for (const adminId of admins) {
+        if (Array.isArray(incident.adminNotifiedIds) && incident.adminNotifiedIds.includes(adminId)) continue;
+        try {
+          await sendText(
+            adminId,
+            "ВНИМАНИЕ: возможен повторный платёж. Заказ " + order.id +
+            "\nСумма второго события: " + incident.amountKzt + " " + incident.currency +
+            "\nCheckout Session: " + incident.sessionId +
+            "\nСобытие: " + incident.eventId +
+            "\nНе отправляйте второй заказ. Сверьте обе операции в кабинете Stripe и выполните ручную сверку/возврат при необходимости. Инцидент не считается закрытым автоматически."
+          );
+          commerce.markDuplicatePaymentIncidentNotified(order.id, incident.sessionId, adminId);
+          order = commerce.getOrder(order.id) || order;
+        } catch {
+          console.error(JSON.stringify({ event: "duplicate_payment_admin_notify_failed", orderId: order.id, code: "TELEGRAM_SEND_FAILED" }));
+        }
       }
     }
+    return { orderId: order.id };
+  } finally {
+    inFlightDuplicatePaymentNotifications.delete(orderId);
   }
-  return { orderId: order.id };
 }
 
 async function notifyPaymentReceiptAdmins(orderInput, receiptFileId) {
@@ -226,12 +236,25 @@ async function retryPendingPaymentNotifications() {
     try { await notifyPaidOrder(order); }
     catch { console.error(JSON.stringify({ event: "commerce_notification_retry_failed", orderId: order.id })); }
   }
+  let duplicatePaymentIncidentsScanned = 0;
+  for (const order of orders) {
+    if (Array.isArray(order.duplicatePaymentIncidents) &&
+        order.duplicatePaymentIncidents.some((incident) => incident.status === "REVIEW_REQUIRED")) {
+      duplicatePaymentIncidentsScanned += 1;
+      try { await notifyDuplicatePayment(order); }
+      catch { console.error(JSON.stringify({ event: "duplicate_payment_retry_failed", orderId: order.id })); }
+    }
+  }
   const receiptOrders = commerce.listPaymentReviewOrders();
   for (const order of receiptOrders) {
     try { await notifyPaymentReceiptAdmins(order); }
     catch { console.error(JSON.stringify({ event: "payment_receipt_retry_failed", orderId: order.id })); }
   }
-  return { scannedPaidOrders: orders.length, scannedReceiptOrders: receiptOrders.length };
+  return {
+    scannedPaidOrders: orders.length,
+    scannedReceiptOrders: receiptOrders.length,
+    duplicatePaymentIncidentsScanned
+  };
 }
 
 async function handleCallback(q, updateId) {
