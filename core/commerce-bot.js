@@ -328,6 +328,42 @@ async function handleCallback(q, updateId) {
     setSession(userId, { state: "delivery_address", productId, quantity, zone });
     return sendText(chatId, "Отправьте полный адрес одной строкой. Зона: " + zone + ". Количество: " + quantity + ". Не отправляйте платёжные данные.");
   }
+  if (data.startsWith("bank:confirm:")) {
+    if (!isAdmin(userId)) return sendText(chatId, "Нет доступа.");
+    const orderId = data.slice("bank:confirm:".length);
+    const pending = readSessions()[userId];
+    if (!pending || pending.state !== "confirm_bank_payment" || pending.orderId !== orderId) {
+      return sendText(chatId, "Подтверждение устарело. Откройте заказ повторно через /review НОМЕР.");
+    }
+    const order = commerce.getOrder(orderId);
+    if (!order || order.status !== "PAYMENT_REVIEW" || order.paymentStatus === "PAID") {
+      setSession(userId, null);
+      return sendText(chatId, "Заказ больше не находится в очереди ручной сверки.");
+    }
+    try {
+      const paid = commerce.reconcileManualBankPayment(orderId, userId, pending.bankReference);
+      setSession(userId, null);
+      await notifyPaidOrder(paid);
+      await sendText(chatId,
+        "Ручная сверка записана в аудит.\nЗаказ: " + paid.id +
+        "\nПровайдер: manual_bank_reconciliation" +
+        "\nБанковская ссылка: " + paid.paymentReference +
+        "\nПодтвердил Telegram ID: " + userId +
+        "\nПередача курьеру разрешена только после твоего подтверждения."
+      );
+    } catch (error) {
+      setSession(userId, null);
+      await sendText(chatId, "Не удалось подтвердить перевод: " + (error.code || "ERROR") + ". Проверьте заказ и уникальность ссылки на транзакцию.");
+    }
+    return;
+  }
+  if (data.startsWith("bank:cancel:")) {
+    if (!isAdmin(userId)) return sendText(chatId, "Нет доступа.");
+    const orderId = data.slice("bank:cancel:".length);
+    const pending = readSessions()[userId];
+    if (pending?.state === "confirm_bank_payment" && pending.orderId === orderId) setSession(userId, null);
+    return sendText(chatId, "Ручная сверка отменена. Оплата не подтверждена.");
+  }
   if (data.startsWith("courier:assign:")) {
     if (!isCourier(userId) && !isAdmin(userId)) return sendText(chatId, "Нет доступа к заказам курьера.");
     const orderId = data.slice("courier:assign:".length);
@@ -469,6 +505,30 @@ async function handleMessage(message, updateId) {
       "Команды администратора: /orders, /order НОМЕР"
     );
   }
+  if (text.startsWith("/confirmbank ")) {
+    if (!isAdmin(userId)) return sendText(chatId, "Нет доступа.");
+    const parts = text.slice("/confirmbank ".length).trim().split(/\s+/);
+    if (parts.length !== 2) return sendText(chatId, "Формат: /confirmbank НОМЕР_ЗАКАЗА БАНКОВСКАЯ_ССЫЛКА");
+    const [orderId, bankReference] = parts;
+    if (!/^[A-Za-z0-9][A-Za-z0-9._/-]{4,127}$/.test(bankReference)) {
+      return sendText(chatId, "Неверный формат банковской ссылки. Используйте 5–128 букв/цифр и символы . _ / -.");
+    }
+    const order = commerce.getOrder(orderId);
+    if (!order || order.status !== "PAYMENT_REVIEW" || order.paymentStatus === "PAID" ||
+        !Array.isArray(order.paymentReceipts) || order.paymentReceipts.length === 0) {
+      return sendText(chatId, "Заказ не находится в очереди ручной сверки или не содержит чека.");
+    }
+    setSession(userId, { state: "confirm_bank_payment", orderId, bankReference });
+    return sendText(chatId,
+      "ПОДТВЕРЖДЕНИЕ БАНКОВСКОГО ПЕРЕВОДА\n" + orderSummary(order) +
+      "\nСсылка транзакции: " + bankReference +
+      "\n\nПродолжайте только если лично проверили фактически зачисленную сумму в банковском кабинете/выписке и сверили получателя, сумму, валюту и время. Чек/скриншот сам по себе не подтверждает оплату.",
+      { inline_keyboard: [
+        [{ text: "Я ПРОВЕРИЛ ФАКТИЧЕСКОЕ ЗАЧИСЛЕНИЕ", callback_data: "bank:confirm:" + order.id }],
+        [{ text: "ОТМЕНИТЬ", callback_data: "bank:cancel:" + order.id }]
+      ] }
+    );
+  }
   if (text === "/paymentreviews") {
     if (!isAdmin(userId)) return sendText(chatId, "Нет доступа.");
     const orders = commerce.listPaymentReviewOrders().slice(0, 20);
@@ -569,7 +629,7 @@ async function handleMessage(message, updateId) {
       return sendText(chatId, "Заказ " + order.id + " завершён.");
     } catch (error) { return sendText(chatId, "Не удалось завершить: " + (error.code || "ERROR")); }
   }
-  if (text === "/help") return sendText(chatId, "/catalog — каталог\n/myorders — мои заказы\n/pay НОМЕР — повторить оплату своего заказа\n/courier — очередь доставок\n/mydelivery — мои активные доставки\n/startdelivery НОМЕР — начать доставку\n/photo НОМЕР — фотоотчёт\n/done НОМЕР — завершить доставку\n\nКлиент: /receipt НОМЕР — отправить чек на ручную сверку\nАдминистратор: /admin, /orders, /order НОМЕР, /paymentreviews, /review НОМЕР");
+  if (text === "/help") return sendText(chatId, "/catalog — каталог\n/myorders — мои заказы\n/pay НОМЕР — повторить оплату своего заказа\n/courier — очередь доставок\n/mydelivery — мои активные доставки\n/startdelivery НОМЕР — начать доставку\n/photo НОМЕР — фотоотчёт\n/done НОМЕР — завершить доставку\n\nКлиент: /receipt НОМЕР — отправить чек на ручную сверку\nАдминистратор: /admin, /orders, /order НОМЕР, /paymentreviews, /review НОМЕР, /confirmbank НОМЕР ССЫЛКА");
 }
 async function handleCommerceUpdate(update) {
   const rawUpdateId = update?.update_id;
