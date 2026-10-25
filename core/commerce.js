@@ -403,6 +403,18 @@ async function createCheckoutSession(orderId) {
     if (prior.status !== "expired") {
       throw fail("PAYMENT_STATUS_PENDING", "The previous Checkout session is not confirmed expired; no replacement link was created");
     }
+    const priorAttempt = getPaymentAttemptBySession("stripe", "test", oldSessionId);
+    upsertPaymentAttempt({
+      attemptKey: priorAttempt?.attemptKey || "legacy:" + order.id + ":" + oldSessionId,
+      orderId: order.id,
+      provider: "stripe",
+      environment: "test",
+      expectedAmountMinor: order.totalKzt * 100,
+      currency: order.currency,
+      providerSessionId: oldSessionId,
+      status: "EXPIRED",
+      metadata: { providerStatus: "expired", reconciledAt: new Date().toISOString() }
+    });
   }
 
   // The key is deterministic for the current checkout generation. Two simultaneous
