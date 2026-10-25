@@ -1,47 +1,22 @@
 "use strict";
 
-const fs = require("node:fs");
-const crypto = require("node:crypto");
-const path = require("node:path");
 const commerce = require("./commerce");
-
-const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, "data");
-const SESSION_FILE = path.join(DATA_DIR, "commerce-bot-sessions.json");
-const UPDATES_FILE = path.join(DATA_DIR, "commerce-bot-updates.json");
 const timeoutMs = Math.max(1000, Number(process.env.TELEGRAM_TIMEOUT_MS || 10000));
 const inFlightPaymentNotifications = new Set();
 const inFlightDuplicatePaymentNotifications = new Set();
 const inFlightTelegramUpdates = new Set();
 
 function readSessions() {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
-  if (!fs.existsSync(SESSION_FILE)) fs.writeFileSync(SESSION_FILE, "{}\n", { flag: "wx", mode: 0o600 });
-  return JSON.parse(fs.readFileSync(SESSION_FILE, "utf8"));
+  return commerce.readBotSessions();
 }
 function setSession(userId, value) {
-  const all = readSessions();
-  if (value) all[String(userId)] = value; else delete all[String(userId)];
-  const tmp = SESSION_FILE + "." + crypto.randomUUID() + ".tmp";
-  fs.writeFileSync(tmp, JSON.stringify(all, null, 2) + "\n", { mode: 0o600 });
-  fs.renameSync(tmp, SESSION_FILE);
-}
-function readUpdateIds() {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
-  if (!fs.existsSync(UPDATES_FILE)) fs.writeFileSync(UPDATES_FILE, "[]\n", { flag: "wx", mode: 0o600 });
-  return JSON.parse(fs.readFileSync(UPDATES_FILE, "utf8"));
+  return commerce.setBotSession(userId, value);
 }
 function hasUpdate(updateId) {
-  return Number.isSafeInteger(updateId) && readUpdateIds().includes(updateId);
+  return commerce.hasTelegramUpdate(updateId);
 }
 function markUpdate(updateId) {
-  if (!Number.isSafeInteger(updateId)) return;
-  const ids = readUpdateIds();
-  if (!ids.includes(updateId)) writeAtomic(UPDATES_FILE, ids.concat(updateId).slice(-10000));
-}
-function writeAtomic(file, value) {
-  const tmp = file + "." + crypto.randomUUID() + ".tmp";
-  fs.writeFileSync(tmp, JSON.stringify(value, null, 2) + "\n", { mode: 0o600 });
-  fs.renameSync(tmp, file);
+  return commerce.markTelegramUpdate(updateId);
 }
 function isCourier(userId) {
   return String(process.env.COMMERCE_COURIER_IDS || "").split(",").map((x) => x.trim()).filter(Boolean).includes(String(userId));
