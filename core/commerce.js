@@ -30,7 +30,13 @@ function fail(code, message) { const e = new Error(message); e.code = code; retu
 function recordStripeAttempt(order, sessionId, status, eventId, verified = true, metadata = {}) {
   const sid = String(sessionId || "").trim();
   if (!sid) throw fail("PAYMENT_SESSION_MISMATCH", "Payment session ID is required for attempt recording");
-  const existing = getPaymentAttemptBySession("stripe", "test", sid);
+  const existingBySession = getPaymentAttemptBySession("stripe", "test", sid);
+  const candidateByKey = order.checkoutAttemptKey ? getPaymentAttemptByKey(order.checkoutAttemptKey) : null;
+  const existing = existingBySession || (
+    candidateByKey && (!candidateByKey.providerSessionId || candidateByKey.providerSessionId === sid)
+      ? candidateByKey
+      : null
+  );
   const attemptKey = existing?.attemptKey ||
     (order.checkoutSessionId === sid && order.checkoutAttemptKey
       ? order.checkoutAttemptKey
@@ -398,17 +404,29 @@ async function createCheckoutSession(orderId) {
   const existingSessionIds = Array.isArray(order.checkoutSessionIds) ? order.checkoutSessionIds : [];
   const knownSessionIds = [...new Set([...existingSessionIds, ...(order.checkoutSessionId ? [order.checkoutSessionId] : [])])];
   const checkoutIdempotencyKey = "samurai-" + order.id + "-checkout-" + knownSessionIds.length;
-  updateOrder(order.id, (o) => ({
-    ...o,
-    checkoutAttemptKey: checkoutIdempotencyKey,
-    checkoutAttemptStartedAt: o.checkoutAttemptKey === checkoutIdempotencyKey ? o.checkoutAttemptStartedAt : new Date().toISOString(),
-    ...(previousExpired ? {
-      checkoutSessionId: null,
-      checkoutUrl: null,
-      checkoutSessionExpiresAt: null,
-      checkoutSessionIds: [...new Set([...(Array.isArray(o.checkoutSessionIds) ? o.checkoutSessionIds : []), ...(o.checkoutSessionId ? [o.checkoutSessionId] : [])])]
-    } : {})
-  }));
+  withTransaction(() => {
+    updateOrder(order.id, (o) => ({
+      ...o,
+      checkoutAttemptKey: checkoutIdempotencyKey,
+      checkoutAttemptStartedAt: o.checkoutAttemptKey === checkoutIdempotencyKey ? o.checkoutAttemptStartedAt : new Date().toISOString(),
+      ...(previousExpired ? {
+        checkoutSessionId: null,
+        checkoutUrl: null,
+        checkoutSessionExpiresAt: null,
+        checkoutSessionIds: [...new Set([...(Array.isArray(o.checkoutSessionIds) ? o.checkoutSessionIds : []), ...(o.checkoutSessionId ? [o.checkoutSessionId] : [])])]
+      } : {})
+    }));
+    upsertPaymentAttempt({
+      attemptKey: checkoutIdempotencyKey,
+      orderId: order.id,
+      provider: "stripe",
+      environment: "test",
+      expectedAmountMinor: order.totalKzt * 100,
+      currency: order.currency,
+      status: "CREATING",
+      metadata: { checkoutGeneration: knownSessionIds.length, checkoutIdempotencyKey }
+    });
+  });
   const form = new URLSearchParams();
   form.set("mode", "payment");
   form.set("success_url", successUrl);
@@ -453,16 +471,57 @@ async function createCheckoutSession(orderId) {
       payload.expires_at * 1000 <= Date.now()) {
     throw fail("PAYMENT_SESSION_INVALID", "Stripe Checkout response does not match the expected test order");
   }
-  const updated = updateOrder(order.id, (o) => {
-    if (o.paymentStatus === "PAID") throw fail("ALREADY_PAID", "Order is already paid");
-    return { ...o, checkoutSessionId: payload.id, checkoutSessionIds: [...new Set([...(Array.isArray(o.checkoutSessionIds) ? o.checkoutSessionIds : []), payload.id])], checkoutUrl: checkoutUrl.toString(), checkoutSessionExpiresAt: new Date(payload.expires_at * 1000).toISOString(), paymentProvider: "stripe_test" };
+  const outcome = withTransaction(() => {
+    const current = getOrder(order.id);
+    if (!current) throw fail("ORDER_NOT_FOUND", "Order not found");
+    const closed = ["CANCELLED", "DELIVERED", "REFUNDED"].includes(current.status);
+    if (current.paymentStatus === "PAID" || closed) {
+      // The provider may have created a valid session during a race. Record it for audit,
+      // but never return a payable URL for an already-paid or closed order.
+      upsertPaymentAttempt({
+        attemptKey: checkoutIdempotencyKey,
+        orderId: current.id,
+        provider: "stripe",
+        environment: "test",
+        expectedAmountMinor: current.totalKzt * 100,
+        currency: current.currency,
+        providerSessionId: payload.id,
+        status: "REVIEW_REQUIRED",
+        metadata: {
+          checkoutUrl: checkoutUrl.toString(),
+          expiresAt: new Date(payload.expires_at * 1000).toISOString(),
+          reason: current.paymentStatus === "PAID" ? "ORDER_PAID_DURING_CHECKOUT" : "ORDER_CLOSED_DURING_CHECKOUT"
+        }
+      });
+      return { order: current, rejectionCode: current.paymentStatus === "PAID" ? "ALREADY_PAID" : "ORDER_CLOSED" };
+    }
+    const updated = updateOrder(order.id, (o) => ({
+      ...o,
+      checkoutSessionId: payload.id,
+      checkoutSessionIds: [...new Set([...(Array.isArray(o.checkoutSessionIds) ? o.checkoutSessionIds : []), payload.id])],
+      checkoutUrl: checkoutUrl.toString(),
+      checkoutSessionExpiresAt: new Date(payload.expires_at * 1000).toISOString(),
+      paymentProvider: "stripe_test"
+    }));
+    upsertPaymentAttempt({
+      attemptKey: checkoutIdempotencyKey,
+      orderId: updated.id,
+      provider: "stripe",
+      environment: "test",
+      expectedAmountMinor: updated.totalKzt * 100,
+      currency: updated.currency,
+      providerSessionId: payload.id,
+      status: "OPEN",
+      metadata: { checkoutUrl: checkoutUrl.toString(), expiresAt: new Date(payload.expires_at * 1000).toISOString() }
+    });
+    return { order: updated, rejectionCode: null };
   });
-  // Cancellation may race with the external provider call. Persist the session for
-  // reconciliation, but never return a payable URL for a now-closed order.
-  if (["CANCELLED", "DELIVERED", "REFUNDED"].includes(updated.status)) {
-    throw fail("ORDER_CLOSED", "Order was closed while Checkout was being created; session retained for reconciliation");
+  if (outcome.rejectionCode) {
+    throw fail(outcome.rejectionCode, outcome.rejectionCode === "ALREADY_PAID"
+      ? "Order was paid while Checkout was being created; the session was retained for reconciliation"
+      : "Order was closed while Checkout was being created; session retained for reconciliation");
   }
-  return { order: updated, sessionId: payload.id, url: payload.url };
+  return { order: outcome.order, sessionId: payload.id, url: payload.url };
 }
 function attachCheckoutSession(orderId, sessionId, checkoutUrl = "https://checkout.stripe.test/session") {
   if (!String(sessionId || "").startsWith("cs_test_")) throw fail("INVALID_CHECKOUT_SESSION", "Only a Stripe test Checkout Session is accepted");
