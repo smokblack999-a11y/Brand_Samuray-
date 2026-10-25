@@ -7,6 +7,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { DatabaseSync } = require("node:sqlite");
+const { createMoneySnapshot, amountMinorForOrder } = require("./money");
 
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, "data");
 const DB_PATH = process.env.COMMERCE_DB_PATH || path.join(DATA_DIR, "commerce.sqlite");
@@ -175,6 +176,25 @@ function upsertOrder(order) {
   const createdAt = String(order.createdAt || now);
   const updatedAt = String(order.updatedAt || createdAt);
   const payload = { ...order, createdAt, updatedAt };
+  // Backfill legacy KZT order payloads as they are touched, without changing historical
+  // major-unit fields or accepting a snapshot whose total disagrees with the saved total.
+  if (!payload.money && String(payload.currency || "").toUpperCase() === "KZT" &&
+      Number.isSafeInteger(payload.unitPriceKzt) && Number.isSafeInteger(payload.quantity) &&
+      Number.isSafeInteger(payload.deliveryFeeKzt) && Number.isSafeInteger(payload.totalKzt)) {
+    try {
+      const snapshot = createMoneySnapshot({
+        currency: "KZT",
+        unitAmount: String(payload.unitPriceKzt),
+        quantity: payload.quantity,
+        deliveryFee: String(payload.deliveryFeeKzt)
+      });
+      if (snapshot.totalMinor === amountMinorForOrder({ currency: "KZT", totalKzt: payload.totalKzt })) {
+        payload.money = snapshot;
+      }
+    } catch {
+      // Keep the old record readable; the order/amount needs explicit reconciliation.
+    }
+  }
   upsertOrderStatement.run(
     String(order.id),
     String(order.customerId || ""),
@@ -565,7 +585,8 @@ function migrateLegacyPaymentAttemptsOnce() {
         const events = [];
         if (incident?.eventId) events.push(incident.eventId);
         else if (status === "SUCCEEDED" && order.paymentReference) events.push(String(order.paymentReference));
-        const amountMinor = Number(order.totalKzt) * 100;
+        let amountMinor;
+        try { amountMinor = amountMinorForOrder(order); } catch { continue; }
         if (!Number.isSafeInteger(amountMinor) || amountMinor <= 0 || !/^[A-Z]{3}$/.test(String(order.currency || "").toUpperCase())) continue;
         upsertPaymentAttempt({
           attemptKey,
@@ -584,7 +605,8 @@ function migrateLegacyPaymentAttemptsOnce() {
 
       if (order.paymentProvider === "manual_bank_reconciliation" && order.paymentReference) {
         const reference = String(order.paymentReference);
-        const amountMinor = Number(order.totalKzt) * 100;
+        let amountMinor;
+        try { amountMinor = amountMinorForOrder(order); } catch { continue; }
         if (Number.isSafeInteger(amountMinor) && amountMinor > 0 && /^[A-Z]{3}$/.test(String(order.currency || "").toUpperCase())) {
           upsertPaymentAttempt({
             attemptKey: "manual-bank:" + reference.toUpperCase(),
