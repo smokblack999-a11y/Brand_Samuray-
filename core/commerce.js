@@ -9,6 +9,7 @@ const {
   writeEvents,
   getPaymentAttemptByKey,
   getPaymentAttemptBySession,
+  findPaymentAttemptByEventId,
   upsertPaymentAttempt,
   listPaymentAttemptsForTests,
   readBotSessions,
@@ -170,6 +171,12 @@ function applyVerifiedPaymentInternal(input) {
   const acceptedSessions = Array.isArray(order.checkoutSessionIds) ? order.checkoutSessionIds : (order.checkoutSessionId ? [order.checkoutSessionId] : []);
   if (!input.sessionId || !acceptedSessions.includes(input.sessionId)) throw fail("PAYMENT_SESSION_MISMATCH", "Payment session does not match the order");
   if (order.totalKzt !== input.amountKzt || order.currency !== currency) throw fail("PAYMENT_MISMATCH", "Payment amount or currency does not match the order");
+
+  const priorAttemptForEvent = findPaymentAttemptByEventId(eventId, "stripe", "test");
+  if (priorAttemptForEvent &&
+      (priorAttemptForEvent.orderId !== orderId || priorAttemptForEvent.providerSessionId !== String(input.sessionId))) {
+    throw fail("PAYMENT_EVENT_REPLAY_MISMATCH", "Provider event ID is already bound to a different order or Checkout session");
+  }
 
   const events = readEvents();
   const orderEventIds = Array.isArray(order.paymentEventIds) ? order.paymentEventIds : [];
@@ -764,6 +771,6 @@ module.exports = {
   listPaymentReviewOrders, reconcileManualBankPayment, markNotification,
   markDuplicatePaymentIncidentNotified, listPaidOrders, resetForTests, updateOrderForTests,
   claimPendingOutboxJobs, completeOutboxJob, retryOutboxJob, listOutboxJobsForTests,
-  getPaymentAttemptByKey, getPaymentAttemptBySession, upsertPaymentAttempt, listPaymentAttemptsForTests,
+  getPaymentAttemptByKey, getPaymentAttemptBySession, findPaymentAttemptByEventId, upsertPaymentAttempt, listPaymentAttemptsForTests,
   readBotSessions, setBotSession, hasTelegramUpdate, markTelegramUpdate
 };
