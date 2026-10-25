@@ -237,6 +237,50 @@ test("concurrent delivery of the same Telegram update is handled only once", asy
   assert.equal(commerce.listOrders().length, 0);
 });
 
+test("customer receipt photo is routed to administrators for review but never confirms payment", async (t) => {
+  commerce.resetForTests();
+  const order = commerce.createOrder({
+    customerId: "500", productId: "sample-1", quantity: 1,
+    fulfillment: "delivery", address: "Алматы, тестовый адрес, 1", deliveryZone: "Алматы-1"
+  });
+  const telegramCalls = [];
+  t.mock.method(globalThis, "fetch", async (url, options) => {
+    telegramCalls.push({ url, payload: JSON.parse(options.body) });
+    return telegramResponse(true);
+  });
+  const update = (updateId, message) => ({ update_id: updateId, message });
+  await bot.handleCommerceUpdate(update(950, {
+    message_id: 950, chat: { id: 500, type: "private" }, from: { id: 500, is_bot: false },
+    text: "/receipt " + order.id
+  }));
+  assert.ok(telegramCalls.some((call) => String(call.payload.text || "").includes("Пришлите фото чека")));
+
+  telegramCalls.length = 0;
+  await bot.handleCommerceUpdate(update(951, {
+    message_id: 951, chat: { id: 500, type: "private" }, from: { id: 500, is_bot: false },
+    photo: [{ file_id: "receipt-small" }, { file_id: "receipt-large", file_unique_id: "receipt-unique" }]
+  }));
+  const saved = commerce.getOrder(order.id);
+  assert.equal(saved.status, "PAYMENT_REVIEW");
+  assert.equal(saved.paymentStatus, "AWAITING_PAYMENT");
+  assert.equal(saved.paymentReceipts.length, 1);
+  assert.equal(saved.paymentReceipts[0].telegramFileId, "receipt-large");
+  assert.deepEqual(saved.paymentReceipts[0].adminSentIds, ["700"]);
+  assert.equal(commerce.listPaymentReviewOrders().length, 1);
+  assert.equal(commerce.listOrders({ status: "PAID" }).length, 0);
+
+  const adminPhoto = telegramCalls.find((call) =>
+    call.url.endsWith("/sendPhoto") && String(call.payload.chat_id) === "700"
+  );
+  assert.ok(adminPhoto);
+  assert.equal(adminPhoto.payload.photo, "receipt-large");
+  assert.match(adminPhoto.payload.caption, /ОПЛАТА НЕ ПОДТВЕРЖДЕНА/);
+  const customerAck = telegramCalls.find((call) =>
+    String(call.payload.chat_id) === "500" && String(call.payload.text || "").includes("Это НЕ подтверждение")
+  );
+  assert.ok(customerAck);
+});
+
 test("payment notifications are persisted per recipient and a completed retry sends nothing twice", async (t) => {
   commerce.resetForTests();
   const order = createPaidDeliveryOrder();
