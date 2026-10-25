@@ -107,7 +107,11 @@ function hasPendingPaymentNotifications(order) {
   const adminSent = Array.isArray(n.adminSentIds) ? n.adminSentIds : [];
   const courierSent = Array.isArray(n.courierSentIds) ? n.courierSentIds : [];
   if (order.fulfillment === "pickup") return admins.some((id) => !adminSent.includes(id));
-  if (couriers.length && couriers.some((id) => courierSent.includes(id))) return false;
+  if (order.fulfillment === "delivery" && couriers.length) {
+    // Retry every configured courier recipient independently; one successful delivery
+    // must not hide a failed Telegram send to another assigned-recipient candidate.
+    return couriers.some((id) => !courierSent.includes(id));
+  }
   return admins.some((id) => !adminSent.includes(id));
 }
 
