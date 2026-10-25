@@ -14,6 +14,10 @@ fs.writeFileSync(path.join(dataDir, "commerce-orders.json"), JSON.stringify([{
   status: "AWAITING_PAYMENT",
   paymentStatus: "AWAITING_PAYMENT",
   currency: "KZT",
+  unitPriceKzt: 5000,
+  quantity: 1,
+  itemsTotalKzt: 5000,
+  deliveryFeeKzt: 0,
   totalKzt: 5000,
   paymentEventIds: ["evt-legacy-001"],
   createdAt: "2026-01-01T00:00:00.000Z",
@@ -32,6 +36,10 @@ const storage = require("../commerce-storage");
 test("one-time migration imports legacy orders/events and preserves source files", () => {
   assert.equal(storage.readOrders().length, 1);
   assert.equal(storage.readOrders()[0].id, "SAM-LEGACY-001");
+  assert.deepEqual(storage.readOrders()[0].money, {
+    currency: "KZT", fractionDigits: 2, unitAmountMinor: 500000,
+    itemsAmountMinor: 500000, deliveryFeeMinor: 0, totalMinor: 500000
+  });
   assert.deepEqual(storage.readEvents(), ["evt-legacy-001"]);
   assert.equal(fs.existsSync(path.join(dataDir, "commerce-orders.json")), true);
   assert.equal(fs.existsSync(path.join(dataDir, "commerce-payment-events.json")), true);
