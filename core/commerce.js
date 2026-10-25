@@ -383,6 +383,53 @@ function attachCheckoutSession(orderId, sessionId, checkoutUrl = "https://checko
   if (!String(sessionId || "").startsWith("cs_test_")) throw fail("INVALID_CHECKOUT_SESSION", "Only a Stripe test Checkout Session is accepted");
   return updateOrder(orderId, (o) => ({ ...o, checkoutSessionId: String(sessionId), checkoutSessionIds: [...new Set([...(Array.isArray(o.checkoutSessionIds) ? o.checkoutSessionIds : []), String(sessionId)])], checkoutUrl, paymentProvider: "stripe_test" }));
 }
+function submitPaymentReceipt(orderId, customerId, receipt) {
+  const ownerId = String(customerId || "").trim();
+  const fileId = String(receipt?.telegramFileId || "").trim();
+  if (!ownerId) throw fail("CUSTOMER_REQUIRED", "Customer Telegram ID is required");
+  if (!fileId) throw fail("PAYMENT_RECEIPT_REQUIRED", "A Telegram receipt photo is required");
+  return updateOrder(orderId, (o) => {
+    if (o.customerId !== ownerId) throw fail("FORBIDDEN", "Only the order owner can submit a receipt");
+    if (o.paymentStatus === "PAID" || ["DELIVERED", "CANCELLED"].includes(o.status)) {
+      throw fail("ORDER_NOT_REVIEWABLE", "This order cannot accept a payment receipt");
+    }
+    const receipts = Array.isArray(o.paymentReceipts) ? o.paymentReceipts : [];
+    if (receipts.some((x) => x && x.telegramFileId === fileId)) return o;
+    const paymentReceipt = {
+      telegramFileId: fileId,
+      fileUniqueId: String(receipt.fileUniqueId || "").slice(0, 256) || null,
+      submittedBy: ownerId,
+      submittedAt: new Date().toISOString(),
+      adminSentIds: []
+    };
+    return {
+      ...o,
+      paymentReceipts: [...receipts, paymentReceipt].slice(-10),
+      status: "PAYMENT_REVIEW"
+    };
+  });
+}
+
+function markPaymentReceiptAdminNotified(orderId, telegramFileId, adminId) {
+  const fileId = String(telegramFileId || "").trim();
+  const recipientId = String(adminId || "").trim();
+  if (!fileId || !recipientId) throw fail("NOTIFICATION_RECIPIENT_REQUIRED", "Receipt and administrator IDs are required");
+  return updateOrder(orderId, (o) => ({
+    ...o,
+    paymentReceipts: (Array.isArray(o.paymentReceipts) ? o.paymentReceipts : []).map((receipt) =>
+      receipt.telegramFileId === fileId
+        ? { ...receipt, adminSentIds: [...new Set([...(Array.isArray(receipt.adminSentIds) ? receipt.adminSentIds : []), recipientId])] }
+        : receipt
+    )
+  }));
+}
+
+function listPaymentReviewOrders() {
+  return readOrders()
+    .filter((o) => o.status === "PAYMENT_REVIEW" && o.paymentStatus !== "PAID")
+    .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+}
+
 function markDuplicatePaymentIncidentNotified(orderId, sessionId, adminId) {
   const sid = String(sessionId || "").trim();
   const aid = String(adminId || "").trim();
@@ -429,4 +476,4 @@ function listPaidOrders() {
 function resetForTests() {
   for (const file of [ORDERS_FILE, EVENTS_FILE]) try { fs.unlinkSync(file); } catch {}
 }
-module.exports = { getCatalog, getDeliveryZones, getOrder, listOrders, createOrder, createCheckoutSession, attachCheckoutSession, applyVerifiedPayment, assignCourier, markInDelivery, attachProof, markPhotoDelivered, markDelivered, markNotification, markDuplicatePaymentIncidentNotified, listPaidOrders, resetForTests };
+module.exports = { getCatalog, getDeliveryZones, getOrder, listOrders, createOrder, createCheckoutSession, attachCheckoutSession, applyVerifiedPayment, assignCourier, markInDelivery, attachProof, markPhotoDelivered, markDelivered, submitPaymentReceipt, markPaymentReceiptAdminNotified, listPaymentReviewOrders, markNotification, markDuplicatePaymentIncidentNotified, listPaidOrders, resetForTests };
