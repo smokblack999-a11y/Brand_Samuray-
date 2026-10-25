@@ -1,6 +1,7 @@
 "use strict";
 
 const crypto = require("node:crypto");
+const { createMoneySnapshot, amountMinorForOrder } = require("./money");
 const {
   withTransaction,
   appendOrderAuditEvent,
@@ -80,7 +81,7 @@ function recordStripeAttempt(order, sessionId, status, eventId, verified = true,
     orderId: order.id,
     provider: "stripe",
     environment: "test",
-    expectedAmountMinor: order.totalKzt * 100,
+    expectedAmountMinor: amountMinorForOrder(order),
     currency: order.currency,
     providerSessionId: sid,
     status,
@@ -124,6 +125,7 @@ function listOrders(filter = {}) {
   ).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 function createOrderInternal(input) {
+  if (CURRENCY !== "KZT") throw fail("UNSUPPORTED_COMMERCE_CURRENCY", "Product pricing is currently configured in KZT only");
   const customerId = String(input.customerId || "").trim();
   const idempotencyKey = String(input.idempotencyKey || "").trim();
   const productId = String(input.productId || "").trim();
@@ -148,6 +150,15 @@ function createOrderInternal(input) {
   const itemsTotalKzt = product.priceKzt * quantity;
   const totalKzt = itemsTotalKzt + deliveryFeeKzt;
   if (!Number.isSafeInteger(totalKzt)) throw fail("AMOUNT_OVERFLOW", "Order total is outside the supported range");
+  const moneySnapshot = createMoneySnapshot({
+    currency: CURRENCY,
+    unitAmount: String(product.priceKzt),
+    quantity,
+    deliveryFee: String(deliveryFeeKzt)
+  });
+  if (moneySnapshot.totalMinor !== amountMinorForOrder({ currency: CURRENCY, totalKzt })) {
+    throw fail("MONEY_SNAPSHOT_MISMATCH", "Canonical order money does not match the configured KZT price");
+  }
   if (idempotencyKey) {
     const existing = readOrders().find((o) => o.idempotencyKey === idempotencyKey);
     if (existing) {
@@ -166,6 +177,7 @@ function createOrderInternal(input) {
     id: "SAM-" + crypto.randomUUID().replace(/-/g, "").slice(0, 12).toUpperCase(),
     customerId, productId: product.id, productName: product.name, quantity, idempotencyKey: idempotencyKey || null,
     fulfillment, address, deliveryZone, currency: CURRENCY,
+    money: moneySnapshot,
     unitPriceKzt: product.priceKzt, itemsTotalKzt, deliveryFeeKzt, totalKzt,
     paymentStatus: "AWAITING_PAYMENT", status: "AWAITING_PAYMENT",
     courierId: null, paymentProvider: null, paymentReference: null, paymentEventIds: [], checkoutSessionIds: [],
@@ -438,7 +450,8 @@ async function createCheckoutSession(orderId) {
     throw fail("ORDER_CLOSED", "Closed orders cannot create a new Checkout session");
   }
   if (order.currency !== "KZT") throw fail("UNSUPPORTED_PAYMENT_CURRENCY", "Stripe test checkout is configured only for KZT");
-  if (order.totalKzt > 999999) throw fail("PAYMENT_AMOUNT_LIMIT", "Order total exceeds the current Stripe KZT amount limit");
+  const expectedMinorAmount = amountMinorForOrder(order);
+  if (expectedMinorAmount > 99999900) throw fail("PAYMENT_AMOUNT_LIMIT", "Order total exceeds the current Stripe KZT amount limit");
   const secret = String(process.env.STRIPE_SECRET_KEY || "");
   if (!secret.startsWith("sk_test_")) throw fail("TEST_STRIPE_KEY_REQUIRED", "Configure a Stripe test secret key (sk_test_...) before creating checkout");
   const successUrl = String(process.env.COMMERCE_SUCCESS_URL || "");
@@ -476,7 +489,7 @@ async function createCheckoutSession(orderId) {
     if (prior.status === "complete" && prior.payment_status === "paid") {
       const amountMinor = Number(prior.amount_total);
       if (!Number.isSafeInteger(amountMinor) || amountMinor <= 0 || amountMinor % 100 !== 0 ||
-          amountMinor !== order.totalKzt * 100 || String(prior.currency || "").toUpperCase() !== order.currency) {
+          amountMinor !== expectedMinorAmount || String(prior.currency || "").toUpperCase() !== order.currency) {
         throw fail("PAYMENT_MISMATCH", "The completed Checkout session does not match the order total");
       }
       const recovered = applyVerifiedPayment({
@@ -499,7 +512,7 @@ async function createCheckoutSession(orderId) {
       orderId: order.id,
       provider: "stripe",
       environment: "test",
-      expectedAmountMinor: order.totalKzt * 100,
+      expectedAmountMinor: amountMinorForOrder(order),
       currency: order.currency,
       providerSessionId: oldSessionId,
       status: "EXPIRED",
@@ -530,7 +543,7 @@ async function createCheckoutSession(orderId) {
       orderId: order.id,
       provider: "stripe",
       environment: "test",
-      expectedAmountMinor: order.totalKzt * 100,
+      expectedAmountMinor: amountMinorForOrder(order),
       currency: order.currency,
       status: "CREATING",
       metadata: { checkoutGeneration: knownSessionIds.length, checkoutIdempotencyKey }
@@ -544,7 +557,7 @@ async function createCheckoutSession(orderId) {
   form.set("metadata[order_id]", order.id);
   form.set("line_items[0][quantity]", "1");
   form.set("line_items[0][price_data][currency]", order.currency.toLowerCase());
-  form.set("line_items[0][price_data][unit_amount]", String(order.totalKzt * 100));
+  form.set("line_items[0][price_data][unit_amount]", String(expectedMinorAmount));
   form.set("line_items[0][price_data][product_data][name]", order.productName.slice(0, 200));
   form.set("line_items[0][price_data][product_data][description]", (order.fulfillment === "delivery" ? "Доставка: " + order.deliveryZone + ". " : "Самовывоз. ") + "Заказ " + order.id);
   const response = await fetch("https://api.stripe.com/v1/checkout/sessions", {
@@ -565,7 +578,6 @@ async function createCheckoutSession(orderId) {
   } catch {
     throw fail("PAYMENT_SESSION_INVALID", "Stripe returned an invalid Checkout URL");
   }
-  const expectedMinorAmount = order.totalKzt * 100;
   if (!String(payload.id).startsWith("cs_test_") ||
       payload.livemode !== false ||
       payload.mode !== "payment" ||
@@ -598,7 +610,7 @@ async function createCheckoutSession(orderId) {
         orderId: associatedOrder.id,
         provider: "stripe",
         environment: "test",
-        expectedAmountMinor: associatedOrder.totalKzt * 100,
+        expectedAmountMinor: amountMinorForOrder(associatedOrder),
         currency: associatedOrder.currency,
         providerSessionId: payload.id,
         status: "REVIEW_REQUIRED",
@@ -623,7 +635,7 @@ async function createCheckoutSession(orderId) {
       orderId: updated.id,
       provider: "stripe",
       environment: "test",
-      expectedAmountMinor: updated.totalKzt * 100,
+      expectedAmountMinor: amountMinorForOrder(updated),
       currency: updated.currency,
       providerSessionId: payload.id,
       status: "OPEN",
@@ -659,7 +671,7 @@ function attachCheckoutSession(orderId, sessionId, checkoutUrl = "https://checko
       orderId: updated.id,
       provider: "stripe",
       environment: "test",
-      expectedAmountMinor: updated.totalKzt * 100,
+      expectedAmountMinor: amountMinorForOrder(updated),
       currency: updated.currency,
       providerSessionId: sid,
       status: updated.paymentStatus === "PAID" ? "REVIEW_REQUIRED" : "OPEN",
@@ -761,7 +773,7 @@ function reconcileManualBankPaymentInternal(orderId, adminId, bankReference) {
     orderId: paidOrder.id,
     provider: "manual_bank_reconciliation",
     environment: "manual",
-    expectedAmountMinor: paidOrder.totalKzt * 100,
+    expectedAmountMinor: amountMinorForOrder(paidOrder),
     currency: paidOrder.currency,
     providerTransactionId: reference,
     status: "SUCCEEDED",
