@@ -85,6 +85,46 @@ test("customer receipts enter PAYMENT_REVIEW but never mark the order paid", () 
   assert.equal(commerce.listPaymentReviewOrders().length, 0);
 });
 
+test("manual bank reconciliation requires review, stores audit data and blocks reference reuse", () => {
+  commerce.resetForTests();
+  const order = newDeliveryOrder();
+  assert.throws(() => commerce.reconcileManualBankPayment(order.id, "700", "BANK-REF-001"), {
+    code: "PAYMENT_REVIEW_REQUIRED"
+  });
+
+  commerce.submitPaymentReceipt(order.id, "12345", {
+    telegramFileId: "bank-receipt-1",
+    fileUniqueId: "bank-receipt-unique-1"
+  });
+  assert.throws(() => commerce.reconcileManualBankPayment(order.id, "admin", "BANK-REF-001"), {
+    code: "ADMIN_ID_REQUIRED"
+  });
+  assert.throws(() => commerce.reconcileManualBankPayment(order.id, "700", "bad"), {
+    code: "BANK_REFERENCE_INVALID"
+  });
+
+  const confirmed = commerce.reconcileManualBankPayment(order.id, "700", "BANK-REF-2026-001");
+  assert.equal(confirmed.paymentStatus, "PAID");
+  assert.equal(confirmed.status, "PAID");
+  assert.equal(confirmed.paymentProvider, "manual_bank_reconciliation");
+  assert.equal(confirmed.paymentReference, "BANK-REF-2026-001");
+  assert.equal(confirmed.paymentVerification.method, "manual_bank_reconciliation");
+  assert.equal(confirmed.paymentVerification.verifiedByAdminId, "700");
+  assert.ok(confirmed.paymentVerification.verifiedAt);
+  assert.equal(confirmed.paymentAudit.at(-1).event, "MANUAL_BANK_PAYMENT_CONFIRMED");
+  assert.equal(commerce.assignCourier(order.id, "777").status, "COURIER_ASSIGNED");
+
+  const second = newDeliveryOrder();
+  commerce.submitPaymentReceipt(second.id, "54321", {
+    telegramFileId: "bank-receipt-2",
+    fileUniqueId: "bank-receipt-unique-2"
+  });
+  assert.throws(() => commerce.reconcileManualBankPayment(second.id, "700", "BANK-REF-2026-001"), {
+    code: "PAYMENT_REFERENCE_REPLAY"
+  });
+  assert.equal(commerce.getOrder(second.id).paymentStatus, "AWAITING_PAYMENT");
+});
+
 test("courier assignment is blocked until a verified, exact payment is received", () => {
   commerce.resetForTests();
   const order = newDeliveryOrder();
