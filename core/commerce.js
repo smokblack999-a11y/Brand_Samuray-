@@ -423,10 +423,13 @@ function reconcileManualBankPayment(orderId, adminId, bankReference) {
   if (!/^[A-Za-z0-9][A-Za-z0-9._/-]{4,127}$/.test(reference)) {
     throw fail("BANK_REFERENCE_INVALID", "A bank transaction reference of 5–128 safe characters is required");
   }
+  // Compare references case-insensitively to prevent duplicate reconciliation when
+  // a bank statement and operator type the same identifier with different casing.
+  const referenceKey = reference.toUpperCase();
   const existingRef = readOrders().find((o) =>
     o.id !== String(orderId) &&
     o.paymentProvider === "manual_bank_reconciliation" &&
-    o.paymentReference === reference
+    String(o.paymentReference || "").trim().toUpperCase() === referenceKey
   );
   if (existingRef) throw fail("PAYMENT_REFERENCE_REPLAY", "This bank reference has already been used for another order");
 
