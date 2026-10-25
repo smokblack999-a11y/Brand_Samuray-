@@ -28,10 +28,10 @@ Review date: 2026-10-26. Scope: Telegram customer orders, payments, courier work
 
 ### P0 — before any public pilot with real customer data
 
-1. **Storage and atomicity.** Orders, event IDs, Telegram update IDs, sessions and notification state are file-backed JSON. Atomic rename reduces partial-file risk but does not provide transactions, row-level locking, uniqueness constraints across processes, or a durable outbox. Concurrent replicas can lose updates or double-handle work. Before public operation, move order/payment/audit/notification state to PostgreSQL (or another transactional DB) and use database uniqueness plus transactions.
-2. **Single state-transition service.** Centralize all order/payment transitions and enforce allowed source→destination states, actor authorization, expected version, and audit event in one transaction. Reject payment for cancelled/refunded/expired orders unless a deliberate reconciliation path handles it. Provider callbacks and retries must be idempotent by both provider event ID and provider transaction/payment ID.
-3. **Payment-attempt ledger.** A single order-level Checkout session is not a scalable multi-provider contract. Add one payment-attempt record per attempt, with immutable order ID, expected amount, currency, merchant/provider account, environment, provider reference, event IDs, verified timestamp and normalized status. A second successful attempt must create a reconciliation incident, not overwrite the first.
-4. **Durable notification outbox.** The current retry logic is single-instance and file-backed. Persist notification jobs transactionally with the state change; deliver asynchronously with bounded exponential backoff, per-recipient delivery state, idempotency keys, and a dead-letter/manual-retry view.
+1. **Storage and atomicity — implementation added; verification pending.** This branch now contains SQLite transactions for order/payment writes, a unique primary key for provider event IDs, SQLite persistence for Telegram sessions/processed update IDs, and a one-time migration that preserves legacy JSON sources. Payment + order + notification-outbox updates are grouped in a transaction. SQLite is for one Core instance on persistent local storage; do not run multi-replica or network-filesystem deployments. Use PostgreSQL before horizontal scaling. Test migration and backup/restore before handling public customer data.
+2. **Single state-transition service — partial.** Closed unpaid orders now reject new Checkout sessions. A late verified settlement for a cancelled/refunded/delivered order is recorded as `REVIEW_REQUIRED` and does not reopen the order. A full domain transition table, order versioning and unified audit trail are still required before higher-risk production use.
+3. **Payment-attempt ledger — still open.** Checkout session data and incidents are currently stored within each order payload, not yet in a normalized per-attempt ledger. Before adding payment providers, create one record per attempt with immutable order ID, amount, currency, provider account/environment, provider reference, event IDs, verified time and normalized status. A second successful attempt must be held for reconciliation, not overwrite the first.
+4. **Durable notification outbox — implementation added; verification pending.** Successful payment and manual reconciliation now enqueue notification jobs inside the same SQLite transaction as the state change. The worker leases jobs, stores attempts and bounded exponential backoff, and uses per-recipient delivery state to avoid intentional duplicate sends. Legacy-order and incident scans remain recovery paths.
 5. **HTTPS deployment and secrets.** No public HTTPS deployment or real Telegram/Stripe webhook end-to-end test is evidenced. Configure TLS at the reverse proxy/host, exact Telegram webhook secret, Stripe TEST endpoint/signing secret, persistent volume/database, backups, health/readiness, log redaction and rotation. Never put credentials in Git, APK resources, URLs, chat messages or logs.
 6. **Physical-device acceptance.** The APK's documented default URL is emulator-only (`10.0.2.2:8787`). A real phone needs a new build with the deployed HTTPS Core URL. Test camera denial, location denial, GPS unavailable, upload interruption, duplicate upload, customer blocked bot, and correct customer/photo pairing on the actual target phone.
 
@@ -88,10 +88,10 @@ Official sources:
 ## 6. Implementation order — do not skip gates
 
 ### Slice A: transactional foundation
-1. Define the domain state machine and a versioned migration from JSON to PostgreSQL.
-2. Create tables for orders, order items/snapshots, payment attempts, provider events, payment receipts, courier proof, audit events, and outbox jobs.
-3. Add uniqueness constraints for provider+event ID, provider+transaction ID, idempotency key, and one active courier assignment per order.
-4. Implement transactional outbox and restart/replay tests.
+1. Verify one-time JSON → SQLite migration using a copy of legacy data and complete a tested backup/restore cycle before public use.
+2. Complete the order state-transition table and a normalized payment-attempt ledger; each attempt must retain immutable amount/currency and provider references.
+3. Add database uniqueness for idempotency keys and provider+transaction IDs, plus explicit duplicate/late-settlement reconciliation.
+4. Verify outbox restart, lease-expiry, partial Telegram failure and notification replay in CI.
 
 ### Slice B: multi-currency without enabling new providers
 5. Add `Money` and `CountryPaymentConfig` types; define currency minor-unit scale explicitly and validate against a vetted currency table.
@@ -113,4 +113,4 @@ Official sources:
 
 ## 7. Release decision
 
-Current decision: **continue in test/staging only**. The branch contains a meaningful Telegram order/courier prototype and passing CI, but it is not a production-ready multi-country commerce system. Do not merge the draft PR to the base branch or enable live payments based only on CI. The next high-value engineering slice is the transactional database + payment-attempt/outbox foundation, followed by the currency abstraction; not adding more AI agents.
+Current decision: **continue in test/staging only**. The branch contains the Telegram order/courier workflow and new SQLite transaction/outbox integration, but the latest integration CI must pass and no public deployment, real Telegram/Stripe TEST webhook end-to-end run or physical-phone acceptance has been demonstrated. Do not merge the draft PR or enable live payments based only on CI. After verifying this slice, prioritize the normalized payment-attempt ledger/state machine and currency abstraction, then staging HTTPS + physical-device acceptance—not more AI agents.
