@@ -55,12 +55,23 @@ test("a failed transaction rolls back order, payment event, and outbox writes to
       updatedAt: "2026-02-01T00:00:00.000Z"
     }]);
     storage.writeEvents(["evt-rollback-001"]);
+    storage.upsertPaymentAttempt({
+      attemptKey: "attempt-rollback-001",
+      orderId: "SAM-ROLLBACK-001",
+      provider: "stripe",
+      environment: "test",
+      expectedAmountMinor: 10000,
+      currency: "KZT",
+      providerSessionId: "cs_test_rollback_001",
+      status: "OPEN"
+    });
     storage.enqueuePaymentNotification("SAM-ROLLBACK-001");
     throw new Error("simulate transaction failure");
   }), /simulate transaction failure/);
   assert.equal(storage.readOrders().length, originalOrderCount);
   assert.deepEqual(storage.readEvents(), originalEventIds);
   assert.equal(storage.listOutboxJobsForTests().length, 0);
+  assert.equal(storage.listPaymentAttemptsForTests().length, 0);
 });
 
 test("Telegram sessions and update IDs are persisted transactionally", () => {
