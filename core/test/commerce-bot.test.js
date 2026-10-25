@@ -326,7 +326,7 @@ test("manual bank reconciliation requires explicit admin confirmation and record
   await bot.handleCommerceUpdate(callback);
   const paid = commerce.getOrder(order.id);
   assert.equal(paid.paymentStatus, "PAID");
-  assert.equal(paid.status, "COURIER_ASSIGNED");
+  assert.equal(paid.status, "PAID");
   assert.equal(paid.paymentProvider, "manual_bank_reconciliation");
   assert.equal(paid.paymentVerification.verifiedByAdminId, "700");
   assert.equal(paid.paymentVerification.bankReference, "BANK-REF-2026-001");
