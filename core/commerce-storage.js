@@ -96,6 +96,22 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_commerce_outbox_due
     ON commerce_outbox_jobs(status, available_at, lease_until);
 
+  CREATE TABLE IF NOT EXISTS commerce_order_audit_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    order_id TEXT NOT NULL REFERENCES commerce_orders(id),
+    event_type TEXT NOT NULL,
+    actor_type TEXT NOT NULL DEFAULT 'system',
+    actor_id TEXT,
+    from_status TEXT,
+    to_status TEXT,
+    from_payment_status TEXT,
+    to_payment_status TEXT,
+    details TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_commerce_order_audit_order_time
+    ON commerce_order_audit_events(order_id, created_at, id);
+
   CREATE TABLE IF NOT EXISTS commerce_bot_sessions (
     user_id TEXT PRIMARY KEY,
     payload TEXT NOT NULL,
@@ -300,6 +316,55 @@ function listPaymentAttemptsForTests(orderId) {
     ? db.prepare("SELECT * FROM commerce_payment_attempts ORDER BY created_at, attempt_key").all()
     : db.prepare("SELECT * FROM commerce_payment_attempts WHERE order_id = ? ORDER BY created_at, attempt_key").all(String(orderId));
   return rows.map(mapPaymentAttempt);
+}
+
+function appendOrderAuditEvent(input) {
+  if (!input || typeof input !== "object") throw new TypeError("Order audit input is required");
+  const orderId = String(input.orderId || "").trim();
+  const eventType = String(input.eventType || "").trim().toUpperCase();
+  if (!orderId || !/^[A-Z][A-Z0-9_]{2,79}$/.test(eventType)) throw new Error("Valid order audit identity is required");
+  const details = input.details && typeof input.details === "object" && !Array.isArray(input.details)
+    ? input.details : {};
+  const createdAt = String(input.createdAt || new Date().toISOString());
+  const result = db.prepare(`
+    INSERT INTO commerce_order_audit_events (
+      order_id, event_type, actor_type, actor_id, from_status, to_status,
+      from_payment_status, to_payment_status, details, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    orderId,
+    eventType,
+    String(input.actorType || "system"),
+    input.actorId == null ? null : String(input.actorId),
+    input.fromStatus || null,
+    input.toStatus || null,
+    input.fromPaymentStatus || null,
+    input.toPaymentStatus || null,
+    JSON.stringify(details),
+    createdAt
+  );
+  return Number(result.lastInsertRowid);
+}
+
+function listOrderAuditEvents(orderId) {
+  const rows = db.prepare(`
+    SELECT id, order_id, event_type, actor_type, actor_id, from_status, to_status,
+           from_payment_status, to_payment_status, details, created_at
+    FROM commerce_order_audit_events
+    WHERE order_id = ?
+    ORDER BY id
+  `).all(String(orderId || ""));
+  return rows.map((row) => {
+    let details = {};
+    try { details = JSON.parse(row.details || "{}"); } catch {}
+    return {
+      id: row.id, orderId: row.order_id, eventType: row.event_type,
+      actorType: row.actor_type, actorId: row.actor_id,
+      fromStatus: row.from_status, toStatus: row.to_status,
+      fromPaymentStatus: row.from_payment_status, toPaymentStatus: row.to_payment_status,
+      details, createdAt: row.created_at
+    };
+  });
 }
 
 function readOrders() {
@@ -633,6 +698,7 @@ function listOutboxJobsForTests() {
 
 function resetForTests() {
   return withTransaction(() => {
+    db.exec("DELETE FROM commerce_order_audit_events;");
     db.exec("DELETE FROM commerce_orders;");
     db.exec("DELETE FROM commerce_payment_events;");
     db.exec("DELETE FROM commerce_payment_attempts;");
@@ -648,6 +714,8 @@ migrateLegacyPaymentAttemptsOnce();
 
 module.exports = {
   withTransaction,
+  appendOrderAuditEvent,
+  listOrderAuditEvents,
   readOrders,
   writeOrders,
   readEvents,
