@@ -161,6 +161,32 @@ async function notifyPaidOrder(orderInput) {
     inFlightPaymentNotifications.delete(orderId);
   }
 }
+async function notifyDuplicatePayment(orderInput) {
+  const order = commerce.getOrder(orderInput?.id);
+  if (!order || !Array.isArray(order.duplicatePaymentIncidents) || !order.duplicatePaymentIncidents.length) return { skipped: true };
+  const admins = String(process.env.COMMERCE_ADMIN_IDS || "").split(",").map((x) => x.trim()).filter(Boolean);
+  for (const incident of order.duplicatePaymentIncidents) {
+    if (incident.status !== "REVIEW_REQUIRED") continue;
+    for (const adminId of admins) {
+      if (Array.isArray(incident.adminNotifiedIds) && incident.adminNotifiedIds.includes(adminId)) continue;
+      try {
+        await sendText(
+          adminId,
+          "ВНИМАНИЕ: возможный повторный платёж. Заказ " + order.id +
+          "\nСумма второго события: " + incident.amountKzt + " " + incident.currency +
+          "\nCheckout Session: " + incident.sessionId +
+          "\nСобытие: " + incident.eventId +
+          "\nНе отправляйте второй заказ. Сверьте обе операции в кабинете Stripe и выполните ручную сверку/возврат при необходимости. Инцидент не считается закрытым автоматически."
+        );
+        commerce.markDuplicatePaymentIncidentNotified(order.id, incident.sessionId, adminId);
+      } catch {
+        console.error(JSON.stringify({ event: "duplicate_payment_admin_notify_failed", orderId: order.id, code: "TELEGRAM_SEND_FAILED" }));
+      }
+    }
+  }
+  return { orderId: order.id };
+}
+
 async function retryPendingPaymentNotifications() {
   // Payment state is durable before any Telegram send. Re-check all paid orders so a
   // process restart or a Telegram outage cannot permanently lose customer/courier alerts.
@@ -453,4 +479,4 @@ async function handleCommerceUpdate(update) {
     if (updateKey) inFlightTelegramUpdates.delete(updateKey);
   }
 }
-module.exports = { handleCommerceUpdate, notifyPaidOrder, retryPendingPaymentNotifications, isCourier, isAdmin };
+module.exports = { handleCommerceUpdate, notifyPaidOrder, notifyDuplicatePayment, retryPendingPaymentNotifications, isCourier, isAdmin };
