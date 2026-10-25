@@ -12,7 +12,10 @@ const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, "data");
 const DB_PATH = process.env.COMMERCE_DB_PATH || path.join(DATA_DIR, "commerce.sqlite");
 const ORDERS_FILE = path.join(DATA_DIR, "commerce-orders.json");
 const EVENTS_FILE = path.join(DATA_DIR, "commerce-payment-events.json");
+const SESSIONS_FILE = path.join(DATA_DIR, "commerce-bot-sessions.json");
+const UPDATES_FILE = path.join(DATA_DIR, "commerce-bot-updates.json");
 const MIGRATION_NAME = "001_legacy_commerce_json_to_sqlite";
+const TELEGRAM_MIGRATION_NAME = "002_legacy_telegram_state_to_sqlite";
 
 if (DB_PATH !== ":memory:") {
   fs.mkdirSync(path.dirname(path.resolve(DB_PATH)), { recursive: true, mode: 0o700 });
@@ -66,6 +69,17 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS idx_commerce_outbox_due
     ON commerce_outbox_jobs(status, available_at, lease_until);
+
+  CREATE TABLE IF NOT EXISTS commerce_bot_sessions (
+    user_id TEXT PRIMARY KEY,
+    payload TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS commerce_telegram_updates (
+    update_id INTEGER PRIMARY KEY,
+    created_at TEXT NOT NULL
+  );
 
   CREATE TABLE IF NOT EXISTS commerce_schema_migrations (
     name TEXT PRIMARY KEY,
@@ -178,6 +192,19 @@ function readLegacyJson(file, fallback) {
   return parsed;
 }
 
+function readLegacyObject(file, fallback) {
+  if (!fs.existsSync(file)) return fallback;
+  let parsed;
+  try { parsed = JSON.parse(fs.readFileSync(file, "utf8")); }
+  catch (error) {
+    throw new Error("Legacy state file is invalid JSON and was not imported: " + path.basename(file), { cause: error });
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("Legacy state file must contain a JSON object: " + path.basename(file));
+  }
+  return parsed;
+}
+
 function migrateLegacyJsonOnce() {
   if (db.prepare("SELECT name FROM commerce_schema_migrations WHERE name = ?").get(MIGRATION_NAME)) return;
 
@@ -200,6 +227,85 @@ function migrateLegacyJsonOnce() {
     }
     db.prepare("INSERT INTO commerce_schema_migrations(name, applied_at) VALUES (?, ?)")
       .run(MIGRATION_NAME, now);
+  });
+}
+
+function migrateLegacyTelegramStateOnce() {
+  if (db.prepare("SELECT name FROM commerce_schema_migrations WHERE name = ?").get(TELEGRAM_MIGRATION_NAME)) return;
+
+  const legacySessions = readLegacyObject(SESSIONS_FILE, {});
+  const legacyUpdateIds = readLegacyJson(UPDATES_FILE, []);
+  withTransaction(() => {
+    const sessionStatement = db.prepare(`
+      INSERT INTO commerce_bot_sessions(user_id, payload, updated_at)
+      VALUES (?, ?, ?)
+      ON CONFLICT(user_id) DO NOTHING
+    `);
+    const now = new Date().toISOString();
+    for (const [userId, payload] of Object.entries(legacySessions)) {
+      if (!String(userId).trim() || payload == null) continue;
+      sessionStatement.run(String(userId), JSON.stringify(payload), now);
+    }
+    const updateStatement = db.prepare(`
+      INSERT INTO commerce_telegram_updates(update_id, created_at)
+      VALUES (?, ?)
+      ON CONFLICT(update_id) DO NOTHING
+    `);
+    for (const updateId of new Set(legacyUpdateIds.filter(Number.isSafeInteger))) {
+      updateStatement.run(updateId, now);
+    }
+    db.exec(`
+      DELETE FROM commerce_telegram_updates
+      WHERE update_id NOT IN (
+        SELECT update_id FROM commerce_telegram_updates ORDER BY update_id DESC LIMIT 10000
+      )
+    `);
+    db.prepare("INSERT INTO commerce_schema_migrations(name, applied_at) VALUES (?, ?)")
+      .run(TELEGRAM_MIGRATION_NAME, now);
+  });
+}
+
+function readBotSessions() {
+  const sessions = {};
+  for (const row of db.prepare("SELECT user_id, payload FROM commerce_bot_sessions").all()) {
+    try { sessions[row.user_id] = JSON.parse(row.payload); } catch {}
+  }
+  return sessions;
+}
+
+function setBotSession(userId, value) {
+  const id = String(userId || "").trim();
+  if (!id) throw new Error("Telegram user ID is required for a session");
+  return withTransaction(() => {
+    if (value == null) {
+      db.prepare("DELETE FROM commerce_bot_sessions WHERE user_id = ?").run(id);
+      return;
+    }
+    db.prepare(`
+      INSERT INTO commerce_bot_sessions(user_id, payload, updated_at)
+      VALUES (?, ?, ?)
+      ON CONFLICT(user_id) DO UPDATE SET payload = excluded.payload, updated_at = excluded.updated_at
+    `).run(id, JSON.stringify(value), new Date().toISOString());
+  });
+}
+
+function hasTelegramUpdate(updateId) {
+  if (!Number.isSafeInteger(updateId)) return false;
+  return Boolean(db.prepare("SELECT update_id FROM commerce_telegram_updates WHERE update_id = ?").get(updateId));
+}
+
+function markTelegramUpdate(updateId) {
+  if (!Number.isSafeInteger(updateId)) return false;
+  return withTransaction(() => {
+    db.prepare("INSERT INTO commerce_telegram_updates(update_id, created_at) VALUES (?, ?) ON CONFLICT(update_id) DO NOTHING")
+      .run(updateId, new Date().toISOString());
+    db.exec(`
+      DELETE FROM commerce_telegram_updates
+      WHERE update_id NOT IN (
+        SELECT update_id FROM commerce_telegram_updates ORDER BY update_id DESC LIMIT 10000
+      )
+    `);
+    return true;
   });
 }
 
@@ -292,10 +398,13 @@ function resetForTests() {
     db.exec("DELETE FROM commerce_orders;");
     db.exec("DELETE FROM commerce_payment_events;");
     db.exec("DELETE FROM commerce_outbox_jobs;");
+    db.exec("DELETE FROM commerce_bot_sessions;");
+    db.exec("DELETE FROM commerce_telegram_updates;");
   });
 }
 
 migrateLegacyJsonOnce();
+migrateLegacyTelegramStateOnce();
 
 module.exports = {
   withTransaction,
@@ -303,6 +412,10 @@ module.exports = {
   writeOrders,
   readEvents,
   writeEvents,
+  readBotSessions,
+  setBotSession,
+  hasTelegramUpdate,
+  markTelegramUpdate,
   enqueuePaymentNotification,
   claimPendingOutboxJobs,
   completeOutboxJob,
