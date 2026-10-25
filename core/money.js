@@ -4,12 +4,27 @@
 // ISO-fiat fraction rules; they need separate network-specific settlement adapters.
 const CURRENCY_RE = /^[A-Z]{3}$/;
 const fractionDigitsCache = new Map();
+const supportedCurrencies = typeof Intl.supportedValuesOf === "function"
+  ? new Set(Intl.supportedValuesOf("currency"))
+  : null;
 
 function currencyCode(value) {
   const code = String(value || "").trim().toUpperCase();
   if (!CURRENCY_RE.test(code)) {
     const error = new TypeError("Currency must be a three-letter ISO code");
     error.code = "INVALID_CURRENCY";
+    throw error;
+  }
+  // Three-letter crypto tickers are not fiat ISO-4217 currencies and require
+  // separate network/precision/settlement rules. Never treat them as cents.
+  if (code === "BTC" || code === "USDT") {
+    const error = new RangeError("Crypto assets require a dedicated payment adapter");
+    error.code = "UNSUPPORTED_CURRENCY";
+    throw error;
+  }
+  if (supportedCurrencies && !supportedCurrencies.has(code)) {
+    const error = new RangeError("Currency is not present in this runtime's ISO currency data");
+    error.code = "UNSUPPORTED_CURRENCY";
     throw error;
   }
   return code;
