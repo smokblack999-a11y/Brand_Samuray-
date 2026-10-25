@@ -454,11 +454,21 @@ function reconcileManualBankPayment(orderId, adminId, bankReference) {
         bankReference: reference,
         verifiedByAdminId: reviewer,
         verifiedAt: now,
+        amountKzt: o.totalKzt,
+        currency: o.currency,
+        receiptFileIds: (Array.isArray(o.paymentReceipts) ? o.paymentReceipts : []).map((r) => r.telegramFileId),
         attestation: "Administrator confirmed actual settled funds in the bank/payment-provider ledger; receipt image alone is not proof"
       },
       paymentAudit: [
         ...(Array.isArray(o.paymentAudit) ? o.paymentAudit : []),
-        { event: "MANUAL_BANK_PAYMENT_CONFIRMED", adminId: reviewer, bankReference: reference, at: now }
+        {
+          event: "MANUAL_BANK_PAYMENT_CONFIRMED",
+          adminId: reviewer,
+          bankReference: reference,
+          amountKzt: o.totalKzt,
+          currency: o.currency,
+          at: now
+        }
       ]
     };
   });
