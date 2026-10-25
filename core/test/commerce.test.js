@@ -496,6 +496,21 @@ test("verified payment and notification outbox are committed together and dedupl
   assert.equal(commerce.listOutboxJobsForTests().length, 1);
 });
 
+test("order and payment state transitions reject impossible jumps", () => {
+  commerce.resetForTests();
+  const order = newDeliveryOrder();
+  assert.throws(
+    () => commerce.updateOrderForTests(order.id, { status: "DELIVERED" }),
+    { code: "INVALID_ORDER_STATE_TRANSITION" }
+  );
+  assert.throws(
+    () => commerce.updateOrderForTests(order.id, { paymentStatus: "REFUNDED" }),
+    { code: "INVALID_PAYMENT_STATE_TRANSITION" }
+  );
+  assert.equal(commerce.getOrder(order.id).status, "AWAITING_PAYMENT");
+  assert.equal(commerce.getOrder(order.id).paymentStatus, "AWAITING_PAYMENT");
+});
+
 test("order and payment transitions are recorded in transactional audit without address or customer identifiers", () => {
   commerce.resetForTests();
   const order = newDeliveryOrder();
