@@ -17,6 +17,7 @@ const dualAI = require("./dual-ai/engine");
 const { checkDraft } = require("./kill-critic");
 const commerce = require("./commerce");
 const commerceStripe = require("./commerce-stripe");
+const { stripeWebhookFailureStatus } = require("./stripe-webhook-policy");
 const commerceBot = require("./commerce-bot");
 
 const app = express();
@@ -466,9 +467,17 @@ app.post("/api/commerce/stripe/webhook", (req, res) => {
     }
     return res.json({ received: true, processed: !result.ignored && !result.pending, duplicate: Boolean(result.duplicate), requestId: req.requestId });
   } catch (error) {
-    console.error(JSON.stringify({ event: "commerce_stripe_event_rejected", code: error.code || "INVALID_EVENT", requestId: req.requestId }));
-    const status = error.code === "ORDER_NOT_FOUND" ? 400 : 400;
-    return res.status(status).json(errorBody(error.code || "STRIPE_EVENT_REJECTED", "Stripe event was not accepted", req.requestId));
+    const status = stripeWebhookFailureStatus(error);
+    const code = error.code || (status === 500 ? "STRIPE_WEBHOOK_PROCESSING_FAILED" : "STRIPE_EVENT_REJECTED");
+    console.error(JSON.stringify({
+      event: status === 400 ? "commerce_stripe_event_rejected" : "commerce_stripe_event_processing_failed",
+      code,
+      requestId: req.requestId
+    }));
+    const message = status === 400
+      ? "Stripe event was not accepted"
+      : "Verified payment event could not be processed; retry is safe";
+    return res.status(status).json(errorBody(code, message, req.requestId));
   }
 });
 
