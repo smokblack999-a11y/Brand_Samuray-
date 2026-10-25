@@ -194,10 +194,7 @@ test("photo proof must belong to the assigned courier and is required before del
 test("closed orders cannot create a new Stripe Checkout session", async () => {
   commerce.resetForTests();
   const order = newDeliveryOrder();
-  const file = path.join(dataDir, "commerce-orders.json");
-  const orders = JSON.parse(fs.readFileSync(file, "utf8"));
-  orders[0].status = "CANCELLED";
-  fs.writeFileSync(file, JSON.stringify(orders, null, 2) + "\n");
+  commerce.updateOrderForTests(order.id, { status: "CANCELLED" });
   await assert.rejects(commerce.createCheckoutSession(order.id), { code: "ORDER_CLOSED" });
 });
 
@@ -205,10 +202,7 @@ test("expired Stripe checkout session is replaced on payment retry", async (t) =
   commerce.resetForTests();
   const order = newDeliveryOrder();
   commerce.attachCheckoutSession(order.id, "cs_test_expired", "https://checkout.stripe.com/c/pay/expired");
-  const file = path.join(dataDir, "commerce-orders.json");
-  const orders = JSON.parse(fs.readFileSync(file, "utf8"));
-  orders[0].checkoutSessionExpiresAt = new Date(Date.now() - 60000).toISOString();
-  fs.writeFileSync(file, JSON.stringify(orders, null, 2) + "\n");
+  commerce.updateOrderForTests(order.id, { checkoutSessionExpiresAt: new Date(Date.now() - 60000).toISOString() });
   process.env.STRIPE_SECRET_KEY = "sk_test_unit_test";
   process.env.COMMERCE_SUCCESS_URL = "https://example.test/success";
   process.env.COMMERCE_CANCEL_URL = "https://example.test/cancel";
@@ -250,10 +244,7 @@ test("a paid but expired Checkout session is recovered from Stripe without creat
   commerce.resetForTests();
   const order = newDeliveryOrder();
   commerce.attachCheckoutSession(order.id, "cs_test_already_paid", "https://checkout.stripe.com/c/pay/old");
-  const file = path.join(dataDir, "commerce-orders.json");
-  const orders = JSON.parse(fs.readFileSync(file, "utf8"));
-  orders[0].checkoutSessionExpiresAt = new Date(Date.now() - 60000).toISOString();
-  fs.writeFileSync(file, JSON.stringify(orders, null, 2) + "\n");
+  commerce.updateOrderForTests(order.id, { checkoutSessionExpiresAt: new Date(Date.now() - 60000).toISOString() });
   process.env.STRIPE_SECRET_KEY = "sk_test_unit_test";
   process.env.COMMERCE_SUCCESS_URL = "https://example.test/success";
   process.env.COMMERCE_CANCEL_URL = "https://example.test/cancel";
@@ -282,10 +273,7 @@ test("an expired Checkout with unresolved status does not produce another payabl
   commerce.resetForTests();
   const order = newDeliveryOrder();
   commerce.attachCheckoutSession(order.id, "cs_test_uncertain", "https://checkout.stripe.com/c/pay/old");
-  const file = path.join(dataDir, "commerce-orders.json");
-  const orders = JSON.parse(fs.readFileSync(file, "utf8"));
-  orders[0].checkoutSessionExpiresAt = new Date(Date.now() - 60000).toISOString();
-  fs.writeFileSync(file, JSON.stringify(orders, null, 2) + "\n");
+  commerce.updateOrderForTests(order.id, { checkoutSessionExpiresAt: new Date(Date.now() - 60000).toISOString() });
   process.env.STRIPE_SECRET_KEY = "sk_test_unit_test";
   process.env.COMMERCE_SUCCESS_URL = "https://example.test/success";
   process.env.COMMERCE_CANCEL_URL = "https://example.test/cancel";
@@ -465,10 +453,7 @@ test("late successful payment for a cancelled order is held for review and never
   commerce.resetForTests();
   const order = newDeliveryOrder();
   commerce.attachCheckoutSession(order.id, "cs_test_late_closed");
-  const file = path.join(dataDir, "commerce-orders.json");
-  const orders = JSON.parse(fs.readFileSync(file, "utf8"));
-  orders[0].status = "CANCELLED";
-  fs.writeFileSync(file, JSON.stringify(orders, null, 2) + "\n");
+  commerce.updateOrderForTests(order.id, { status: "CANCELLED" });
 
   const input = {
     verified: true, eventId: "evt_late_closed", orderId: order.id,
