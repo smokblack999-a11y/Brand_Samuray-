@@ -84,6 +84,28 @@ test("Telegram sessions and update IDs are persisted transactionally", () => {
   assert.equal(storage.markTelegramUpdate(44), true);
 });
 
+test("database constraint rejects duplicate order idempotency keys", () => {
+  storage.writeOrders([{
+    id: "SAM-IDEM-CONSTRAINT-1",
+    customerId: "700",
+    idempotencyKey: "telegram:storage-unique",
+    status: "AWAITING_PAYMENT",
+    paymentStatus: "AWAITING_PAYMENT",
+    createdAt: "2026-04-01T00:00:00.000Z",
+    updatedAt: "2026-04-01T00:00:00.000Z"
+  }]);
+  assert.throws(() => storage.writeOrders([{
+    id: "SAM-IDEM-CONSTRAINT-2",
+    customerId: "701",
+    idempotencyKey: "telegram:storage-unique",
+    status: "AWAITING_PAYMENT",
+    paymentStatus: "AWAITING_PAYMENT",
+    createdAt: "2026-04-01T00:00:01.000Z",
+    updatedAt: "2026-04-01T00:00:01.000Z"
+  }]), /UNIQUE constraint failed/);
+  assert.equal(storage.readOrders().filter((order) => order.idempotencyKey === "telegram:storage-unique").length, 1);
+});
+
 test("payment attempts preserve immutable amount and enforce unique provider session", () => {
   const attempt = storage.upsertPaymentAttempt({
     attemptKey: "attempt-legacy-1",
