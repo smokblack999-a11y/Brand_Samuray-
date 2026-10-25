@@ -129,6 +129,14 @@ function validateCommerceEnv(env = process.env) {
     if (!/^\d{1,20}$/.test(id)) errors.push("Administrator IDs must be numeric Telegram user IDs");
   }
 
+  const manualBankFlag = String(env.COMMERCE_MANUAL_BANK_CONFIRM_ENABLED || "false").trim().toLowerCase();
+  if (!["true", "false", ""].includes(manualBankFlag)) {
+    errors.push("COMMERCE_MANUAL_BANK_CONFIRM_ENABLED must be true or false");
+  }
+  if (manualBankFlag === "true" && String(env.NODE_ENV || "").trim().toLowerCase() === "production") {
+    errors.push("Manual bank confirmation is disabled in production");
+  }
+
   if (String(env.COMMERCE_CURRENCY || "KZT").toUpperCase() !== "KZT") {
     errors.push("This checkout implementation currently supports KZT only");
   }
