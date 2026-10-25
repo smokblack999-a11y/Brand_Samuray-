@@ -68,6 +68,8 @@ jobs:
           node --check dual-ai/critic.js
           node --check dual-ai/store.js
           node --check dual-ai/engine.js
+          node --check money.js
+          node --check commerce-storage.js
           node --check commerce.js
           node --check commerce-stripe.js
           node --check stripe-webhook-policy.js
