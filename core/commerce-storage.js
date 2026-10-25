@@ -283,6 +283,18 @@ function upsertPaymentAttempt(input) {
   });
 }
 
+function findPaymentAttemptByEventId(eventId, provider = "stripe", environment = "test") {
+  const id = String(eventId || "").trim();
+  if (!id) return null;
+  const rows = db.prepare("SELECT * FROM commerce_payment_attempts WHERE provider = ? AND environment = ? ORDER BY created_at")
+    .all(String(provider), String(environment));
+  for (const row of rows) {
+    const attempt = mapPaymentAttempt(row);
+    if (attempt.providerEventIds.includes(id)) return attempt;
+  }
+  return null;
+}
+
 function listPaymentAttemptsForTests(orderId) {
   const rows = orderId == null
     ? db.prepare("SELECT * FROM commerce_payment_attempts ORDER BY created_at, attempt_key").all()
@@ -642,6 +654,7 @@ module.exports = {
   writeEvents,
   getPaymentAttemptByKey,
   getPaymentAttemptBySession,
+  findPaymentAttemptByEventId,
   upsertPaymentAttempt,
   listPaymentAttemptsForTests,
   readBotSessions,
