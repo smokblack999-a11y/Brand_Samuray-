@@ -48,13 +48,20 @@ Do not expose tools that let a model mark payments PAID, modify a total, invent 
 
 ## Critical reliability gaps to close before public testing
 
-- Stripe webhook handling must return a retryable 5xx when valid events fail because of internal storage/network faults. Returning 4xx for all exceptions can permanently drop a paid event because providers generally do not retry a permanent rejection.
-- Distinguish a repeated webhook for the same Checkout Session from a second successful Session for an already-paid order. A second successful Session must raise an admin reconciliation/refund incident instead of being silently treated as a harmless duplicate.
+- Implemented in this branch: `stripe-webhook-policy.js` returns 4xx for known permanent signed-event validation rejections and retryable 5xx for unknown/internal processing or storage failures. A regression test checks permanent vs transient codes. This reduces lost paid events but still needs a test against the real deployed Stripe webhook and persistent storage.
+- Implemented in this branch: repeat events for the same paid Checkout Session stay idempotent, while a different paid Session for an already-paid order creates a `REVIEW_REQUIRED` incident, preserves the first recorded payment, and alerts admins. The notification worker retries admin alerts. Tests cover the incident and notification retry.
 - JSON file storage is single-instance prototype storage. Atomic renames help prevent partial writes but are not a transactional database or a durable event/outbox guarantee. Add persistent transactional storage before production/multiple instances.
-- Receipt submission and courier proof need separate fields/tables: payment evidence must never overwrite the delivery photo.
+- Implemented in this branch: `paymentReceipts` and courier `proof` are separate order fields. Customer `/receipt ORDER_ID` sets `PAYMENT_REVIEW`, forwards the picture to admins and never sets `PAID`. `/confirmbank ORDER_ID BANK_REFERENCE` presents the receipt again and requires a second admin confirmation after the operator independently checks settled funds in the bank/provider ledger. The manual attestation records administrator ID, transaction reference, amount, currency, time and receipt IDs. This is not a bank API and is not automatic verification.
 - Multi-country payments require a configured market/country, currency, currency minor-unit scale, provider eligibility, settlement currency, and payment attempt. Do not generalize the current KZT-only amount fields by simply changing an environment variable.
 - USDT network remains deliberately unspecified. Keep all crypto customer-facing routes disabled until one exact testnet network and its trusted node/indexer are selected.
 - HTTPS deployment needs persistent storage, correct health/readiness checks, configured webhook endpoints, secrets stored only in host variables, and a real-device build with a configured Core URL.
+
+
+## Provider eligibility findings (checked 2026-10-25)
+
+- Stripe's current global availability list does not list Kazakhstan and says payments are not supported for businesses outside supported countries/regions. Its cross-country account requirements include a legal entity and local presence/banking requirements. Keep Stripe as a TEST harness unless the actual merchant entity is legally eligible: https://stripe.com/global and https://support.stripe.com/questions/requirements-to-open-a-stripe-account-in-another-country?locale=en-GB.
+- Official Kaspi Pay partner documentation describes online "Payments" for eligible partners; a supplier must apply and have a Kaspi Pay account. This is a candidate to investigate, not an integrated adapter; merchant eligibility and a current API/webhook specification are still needed: https://guide.kaspi.kz/partner/ru/payments/distributor/general/q4387 and https://guide.kaspi.kz/partner/ru/payments/distributor/connection/q4389.
+- Kazakhstan AFM has published a warning on unbacked digital assets and crypto settlement, with an exception described for exchanges licensed by AIFC. The digital-assets law was updated in July 2026. Obtain local legal review for the actual merchant and payment/custody route before enabling BTC/USDT; this engineering note is not legal advice: https://www.gov.kz/org/afm/press/news/details/722187?lang=ru and https://adilet.zan.kz/rus/docs/Z2300000193.
 
 ## Test plan / release gate
 
