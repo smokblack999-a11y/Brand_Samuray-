@@ -419,7 +419,7 @@ function submitPaymentReceipt(orderId, customerId, receipt) {
 function reconcileManualBankPayment(orderId, adminId, bankReference) {
   const reviewer = String(adminId || "").trim();
   const reference = String(bankReference || "").trim();
-  if (!/^\\d{1,20}$/.test(reviewer)) throw fail("ADMIN_ID_REQUIRED", "A valid administrator Telegram ID is required");
+  if (!/^\d{1,20}$/.test(reviewer)) throw fail("ADMIN_ID_REQUIRED", "A valid administrator Telegram ID is required");
   if (!/^[A-Za-z0-9][A-Za-z0-9._/-]{4,127}$/.test(reference)) {
     throw fail("BANK_REFERENCE_INVALID", "A bank transaction reference of 5–128 safe characters is required");
   }
