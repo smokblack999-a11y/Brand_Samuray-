@@ -390,7 +390,14 @@ function retryOutboxJob(jobId, errorCode = "NOTIFICATION_FAILED") {
 
 function listOutboxJobsForTests() {
   return db.prepare("SELECT id, dedupe_key, type, order_id, status, attempts FROM commerce_outbox_jobs ORDER BY id")
-    .all().map((row) => ({ ...row }));
+    .all().map((row) => ({
+      id: row.id,
+      dedupeKey: row.dedupe_key,
+      type: row.type,
+      orderId: row.order_id,
+      status: row.status,
+      attempts: row.attempts
+    }));
 }
 
 function resetForTests() {
