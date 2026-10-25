@@ -111,7 +111,12 @@ test("manual bank reconciliation requires review, stores audit data and blocks r
   assert.equal(confirmed.paymentVerification.method, "manual_bank_reconciliation");
   assert.equal(confirmed.paymentVerification.verifiedByAdminId, "700");
   assert.ok(confirmed.paymentVerification.verifiedAt);
+  assert.equal(confirmed.paymentVerification.amountKzt, 5700);
+  assert.equal(confirmed.paymentVerification.currency, "KZT");
+  assert.deepEqual(confirmed.paymentVerification.receiptFileIds, ["bank-receipt-1"]);
   assert.equal(confirmed.paymentAudit.at(-1).event, "MANUAL_BANK_PAYMENT_CONFIRMED");
+  assert.equal(confirmed.paymentAudit.at(-1).amountKzt, 5700);
+  assert.equal(confirmed.paymentAudit.at(-1).currency, "KZT");
   assert.equal(commerce.assignCourier(order.id, "777").status, "COURIER_ASSIGNED");
 
   const second = newDeliveryOrder();
