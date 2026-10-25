@@ -73,6 +73,35 @@ test("Telegram sessions and update IDs are persisted transactionally", () => {
   assert.equal(storage.markTelegramUpdate(44), true);
 });
 
+test("payment attempts preserve immutable amount and enforce unique provider session", () => {
+  const attempt = storage.upsertPaymentAttempt({
+    attemptKey: "attempt-legacy-1",
+    orderId: "SAM-LEGACY-001",
+    provider: "stripe",
+    environment: "test",
+    expectedAmountMinor: 500000,
+    currency: "KZT",
+    providerSessionId: "cs_test_ledger_001",
+    status: "OPEN"
+  });
+  assert.equal(attempt.expectedAmountMinor, 500000);
+  assert.equal(storage.getPaymentAttemptByKey("attempt-legacy-1").providerSessionId, "cs_test_ledger_001");
+  const succeeded = storage.upsertPaymentAttempt({
+    ...attempt,
+    status: "SUCCEEDED",
+    providerEventIds: ["evt-ledger-001"],
+    verifiedAt: "2026-03-01T00:00:00.000Z"
+  });
+  assert.equal(succeeded.status, "SUCCEEDED");
+  assert.deepEqual(succeeded.providerEventIds, ["evt-ledger-001"]);
+  assert.throws(() => storage.upsertPaymentAttempt({
+    ...succeeded, expectedAmountMinor: 500100
+  }), /immutable fields cannot be changed/);
+  assert.throws(() => storage.upsertPaymentAttempt({
+    ...succeeded, attemptKey: "attempt-duplicate-session"
+  }), /UNIQUE constraint failed/);
+});
+
 test("payment notification outbox deduplicates jobs and completes a claimed job", () => {
   storage.enqueuePaymentNotification("SAM-LEGACY-001");
   storage.enqueuePaymentNotification("SAM-LEGACY-001");
