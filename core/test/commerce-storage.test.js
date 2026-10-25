@@ -20,6 +20,10 @@ fs.writeFileSync(path.join(dataDir, "commerce-orders.json"), JSON.stringify([{
   updatedAt: "2026-01-01T00:00:00.000Z"
 }], null, 2) + "\n");
 fs.writeFileSync(path.join(dataDir, "commerce-payment-events.json"), JSON.stringify(["evt-legacy-001"], null, 2) + "\n");
+fs.writeFileSync(path.join(dataDir, "commerce-bot-sessions.json"), JSON.stringify({
+  "12345": { state: "delivery_address", productId: "legacy-product", quantity: 2 }
+}, null, 2) + "\n");
+fs.writeFileSync(path.join(dataDir, "commerce-bot-updates.json"), JSON.stringify([41, 42, 43], null, 2) + "\n");
 process.env.DATA_DIR = dataDir;
 delete process.env.COMMERCE_DB_PATH;
 
@@ -31,6 +35,11 @@ test("one-time migration imports legacy orders/events and preserves source files
   assert.deepEqual(storage.readEvents(), ["evt-legacy-001"]);
   assert.equal(fs.existsSync(path.join(dataDir, "commerce-orders.json")), true);
   assert.equal(fs.existsSync(path.join(dataDir, "commerce-payment-events.json")), true);
+  assert.deepEqual(storage.readBotSessions()["12345"], { state: "delivery_address", productId: "legacy-product", quantity: 2 });
+  assert.equal(storage.hasTelegramUpdate(41), true);
+  assert.equal(storage.hasTelegramUpdate(44), false);
+  assert.equal(fs.existsSync(path.join(dataDir, "commerce-bot-sessions.json")), true);
+  assert.equal(fs.existsSync(path.join(dataDir, "commerce-bot-updates.json")), true);
 });
 
 test("a failed transaction rolls back order, payment event, and outbox writes together", () => {
@@ -52,6 +61,16 @@ test("a failed transaction rolls back order, payment event, and outbox writes to
   assert.equal(storage.readOrders().length, originalOrderCount);
   assert.deepEqual(storage.readEvents(), originalEventIds);
   assert.equal(storage.listOutboxJobsForTests().length, 0);
+});
+
+test("Telegram sessions and update IDs are persisted transactionally", () => {
+  storage.setBotSession("12345", { state: "awaiting_payment_receipt", orderId: "SAM-LEGACY-001" });
+  assert.deepEqual(storage.readBotSessions()["12345"], { state: "awaiting_payment_receipt", orderId: "SAM-LEGACY-001" });
+  storage.setBotSession("12345", null);
+  assert.equal(Object.prototype.hasOwnProperty.call(storage.readBotSessions(), "12345"), false);
+  assert.equal(storage.markTelegramUpdate(44), true);
+  assert.equal(storage.hasTelegramUpdate(44), true);
+  assert.equal(storage.markTelegramUpdate(44), true);
 });
 
 test("payment notification outbox deduplicates jobs and completes a claimed job", () => {
