@@ -4,13 +4,21 @@ This is a first implementation slice for the Telegram order workflow. It is not 
 
 ## Features in this branch
 - Server-side product prices and delivery-zone fees from environment configuration.
-- Persistent JSON order records with unique order IDs.
+- Transactional SQLite order/payment-event storage (`DATA_DIR/commerce.sqlite` by default), plus a durable notification outbox; old JSON order/event files are imported once and retained as backup.
 - Customer Telegram commands: `/start`, `/catalog`, `/myorders`, and `/pay ORDER_ID` to retry checkout for the customer's own unpaid order.
 - Courier workflow: `/courier`, `/photo ORDER_ID`, `/done ORDER_ID`.
 - Test-only Stripe Checkout creation; `PAID` is set only after a valid Stripe signature, a paid Checkout Session, exact amount/currency and matching session ID.
 - Courier assignment is blocked until payment is verified. Proof photos are bound to an order and sent to that order's customer.
 - Duplicate Telegram updates, Stripe payment events, Checkout creation retries and per-recipient Telegram notification results are tracked.
 - Payment notification failures are retried by a single-instance worker after restart; successful recipient notifications are not intentionally resent.
+
+## Storage, migration and backup
+
+The Commerce branch uses Node's built-in SQLite support and requires **Node.js 22.13.0 or newer**. By default, the database is stored at `DATA_DIR/commerce.sqlite`; `COMMERCE_DB_PATH` can override that location. Docker Compose already mounts `samurai-data:/app/data`, so keep that persistent volume attached to the Core service.
+
+On first startup with an existing JSON installation, Core imports orders and payment events from `commerce-orders.json` and `commerce-payment-events.json`, then imports Telegram bot sessions and processed update IDs from their legacy JSON files. Each migration has a database migration marker and runs once. The original JSON files are **not deleted**. Back them up before upgrading and verify order counts and several sample orders after the first startup. Do not delete those files until the database backup has been verified.
+
+Order updates, payment event deduplication, Telegram session updates, and successful-payment notification jobs now use database transactions. The notification outbox survives process restarts and retries failed Telegram sends. This is a **single-Core-instance** storage configuration: do not run multiple replicas against a shared SQLite file or use a network filesystem for it. Move to PostgreSQL before horizontal scaling or multi-region deployment. Take regular backups of the persistent data volume and test restoration before accepting public customer orders.
 
 ## Required configuration
 If `core/.env` already exists, do NOT overwrite it: preserve the current secrets and settings, and merge only the commerce variables from `core/.env.example`. If it does not exist, copy the example first. Replace the DEMO product and delivery-zone values before using the bot.
@@ -85,7 +93,7 @@ Prices are stored as whole KZT. Stripe lists KZT as a two-decimal currency; API 
 - On checkout retry after an expired session, Core queries Stripe first: it recovers an already-paid session or stops if the previous session is not confirmed expired. It does not issue a second payable link while the prior session status is uncertain.
 - Test-mode Stripe does not prove that a merchant account in Kazakhstan is eligible for live Stripe processing. Kazakhstan is not listed on Stripe's current supported payments country list; do not choose it for production until the actual merchant entity/country is eligible. See `PAYMENT_PROVIDER_SELECTION.md`.
 - `PAYMENT_PROVIDER_SELECTION.md` documents the official Kaspi Pay candidate, the evidence needed to integrate it, and country/legal gates. This branch does not yet have a live bank/acquirer API adapter, multi-currency order model, USDT network adapter or BTC network adapter. Crypto payment buttons and mainnet transactions must remain disabled until the exact network and legal/merchant model are approved.
-- JSON file storage is suitable only for a single-instance prototype. Do not scale horizontally or run multiple Core instances against the same files. Move orders, payment events, notification outbox and sessions to a transactional shared database before production traffic.
+- SQLite is now the transactional store for Commerce orders, payment events, Telegram sessions/update deduplication, and the notification outbox. It is intended for one Core instance on persistent local storage; use PostgreSQL before running multiple Core replicas. Verify the one-time import and a restorable backup before accepting public traffic.
 - Do not use DEMO catalog entries or example delivery prices for real customers.
 - Android gallery-photo upload with captured GPS metadata is included in the CI-built debug APK, but has not yet been tested on the user's physical device. The app stores timestamp/location in its private sidecar metadata and attempts both a visible image stamp and JPEG EXIF GPS/time fields; if high-resolution decoding fails, EXIF metadata can still be saved. Uploads are limited to 8 per minute per client IP and 10 MiB, validate image signatures, and use SHA-256 to make retries safe when Telegram delivery fails. The courier must be assigned to the order, be listed in COMMERCE_COURIER_IDS, and authenticate with a per-courier token. In Android, enter the courier ID/token and tap `ЗАГРУЗИТЬ МОИ АКТИВНЫЕ ЗАКАЗЫ` to select from the authenticated courier's own order list rather than typing the order ID by hand. GPS is optional and is not cryptographic proof of location.
 - No real deployment, live webhook delivery, live payment, courier-device test or end-to-end APK test has been performed by this branch creation.
