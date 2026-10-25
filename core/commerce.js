@@ -420,6 +420,8 @@ function reconcileManualBankPayment(orderId, adminId, bankReference) {
   const reviewer = String(adminId || "").trim();
   const reference = String(bankReference || "").trim();
   if (!/^\d{1,20}$/.test(reviewer)) throw fail("ADMIN_ID_REQUIRED", "A valid administrator Telegram ID is required");
+  const allowedAdmins = String(process.env.COMMERCE_ADMIN_IDS || "").split(",").map((id) => id.trim()).filter(Boolean);
+  if (!allowedAdmins.includes(reviewer)) throw fail("ADMIN_NOT_AUTHORIZED", "Administrator ID is not allow-listed for manual bank reconciliation");
   if (!/^[A-Za-z0-9][A-Za-z0-9._/-]{4,127}$/.test(reference)) {
     throw fail("BANK_REFERENCE_INVALID", "A bank transaction reference of 5–128 safe characters is required");
   }
