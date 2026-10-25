@@ -366,7 +366,8 @@ async function handleMessage(message, updateId) {
       "Самовывоз готов: " + count((o) => o.status === "READY_FOR_PICKUP") + "\n" +
       "Доставка без курьера: " + count((o) => o.fulfillment === "delivery" && o.paymentStatus === "PAID" && !o.courierId) + "\n" +
       "В доставке: " + count((o) => ["COURIER_ASSIGNED", "IN_DELIVERY", "PHOTO_RECEIVED"].includes(o.status)) + "\n" +
-      "Доставлено: " + count((o) => o.status === "DELIVERED") + "\n\n" +
+      "Доставлено: " + count((o) => o.status === "DELIVERED") + "\n" +
+      "Платёжные инциденты: " + count((o) => Array.isArray(o.duplicatePaymentIncidents) && o.duplicatePaymentIncidents.some((i) => i.status === "REVIEW_REQUIRED")) + "\n\n" +
       "Команды администратора: /orders, /order НОМЕР"
     );
   }
@@ -391,7 +392,9 @@ async function handleMessage(message, updateId) {
       "\nКурьер: " + (order.courierId || "не назначен") +
       "\nФотоотчёт: " + (order.proof ? "получен" : "нет") +
       (order.proof?.latitude != null ? "\nGPS: " + order.proof.latitude + ", " + order.proof.longitude +
-        (order.proof.accuracyMeters == null ? "" : " ± " + order.proof.accuracyMeters + " м") : "")
+        (order.proof.accuracyMeters == null ? "" : " ± " + order.proof.accuracyMeters + " м") : "") +
+      (Array.isArray(order.duplicatePaymentIncidents) && order.duplicatePaymentIncidents.length
+        ? "\n\nВНИМАНИЕ: " + order.duplicatePaymentIncidents.filter((i) => i.status === "REVIEW_REQUIRED").length + " платёжных инцидента(ов), требуется сверка в Stripe." : "")
     );
   }
   if (text === "/mydelivery") {
