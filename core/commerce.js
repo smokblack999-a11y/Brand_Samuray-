@@ -85,7 +85,13 @@ function createOrder(input) {
   if (idempotencyKey) {
     const existing = readOrders().find((o) => o.idempotencyKey === idempotencyKey);
     if (existing) {
-      if (existing.customerId !== customerId) throw fail("IDEMPOTENCY_CONFLICT", "Idempotency key belongs to another customer");
+      const sameRequest = existing.customerId === customerId &&
+        existing.productId === product.id &&
+        existing.quantity === quantity &&
+        existing.fulfillment === fulfillment &&
+        (existing.address || null) === address &&
+        (existing.deliveryZone || null) === deliveryZone;
+      if (!sameRequest) throw fail("IDEMPOTENCY_CONFLICT", "Idempotency key was reused for a different order request");
       return existing;
     }
   }
