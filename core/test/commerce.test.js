@@ -367,6 +367,51 @@ test("Stripe webhook rejects live mode, wrong Checkout mode and conflicting orde
   assert.equal(commerce.getOrder(order.id).paymentStatus, "AWAITING_PAYMENT");
 });
 
+test("a second successful Checkout session is recorded as an admin reconciliation incident", () => {
+  commerce.resetForTests();
+  const order = newDeliveryOrder();
+  commerce.attachCheckoutSession(order.id, "cs_test_first_paid");
+  const first = commerce.applyVerifiedPayment({
+    verified: true, eventId: "evt_first_paid", orderId: order.id,
+    sessionId: "cs_test_first_paid", amountKzt: 5700, currency: "KZT", provider: "stripe_test"
+  });
+  assert.equal(first.order.paymentStatus, "PAID");
+  assert.equal(first.order.paymentSessionId, "cs_test_first_paid");
+
+  commerce.attachCheckoutSession(order.id, "cs_test_second_paid");
+  const second = commerce.applyVerifiedPayment({
+    verified: true, eventId: "evt_second_paid", orderId: order.id,
+    sessionId: "cs_test_second_paid", amountKzt: 5700, currency: "KZT", provider: "stripe_test"
+  });
+  assert.equal(second.duplicate, true);
+  assert.equal(second.duplicatePayment, true);
+  assert.equal(second.order.paymentStatus, "PAID");
+  assert.equal(second.order.paymentSessionId, "cs_test_first_paid");
+  assert.equal(second.order.duplicatePaymentIncidents.length, 1);
+  assert.equal(second.order.duplicatePaymentIncidents[0].sessionId, "cs_test_second_paid");
+  assert.equal(second.order.duplicatePaymentIncidents[0].status, "REVIEW_REQUIRED");
+  assert.deepEqual(second.order.duplicatePaymentIncidents[0].adminNotifiedIds, []);
+  commerce.markDuplicatePaymentIncidentNotified(order.id, "cs_test_second_paid", "700");
+  assert.deepEqual(commerce.getOrder(order.id).duplicatePaymentIncidents[0].adminNotifiedIds, ["700"]);
+});
+
+test("a second Stripe event for the same successful session is idempotent, not a duplicate charge incident", () => {
+  commerce.resetForTests();
+  const order = newDeliveryOrder();
+  commerce.attachCheckoutSession(order.id, "cs_test_single_paid");
+  commerce.applyVerifiedPayment({
+    verified: true, eventId: "evt_completed", orderId: order.id,
+    sessionId: "cs_test_single_paid", amountKzt: 5700, currency: "KZT", provider: "stripe_test"
+  });
+  const repeatedEvent = commerce.applyVerifiedPayment({
+    verified: true, eventId: "evt_async_succeeded", orderId: order.id,
+    sessionId: "cs_test_single_paid", amountKzt: 5700, currency: "KZT", provider: "stripe_test"
+  });
+  assert.equal(repeatedEvent.duplicate, true);
+  assert.equal(repeatedEvent.duplicatePayment, undefined);
+  assert.equal(repeatedEvent.order.duplicatePaymentIncidents.length, 0);
+});
+
 test("Stripe event only marks a matching test checkout as paid", () => {
   commerce.resetForTests();
   const order = newDeliveryOrder();
