@@ -321,6 +321,32 @@ async function handleMessage(message, updateId) {
   if (!chatId || !userId || message.from?.is_bot || message.chat?.type !== "private") return;
   const text = String(message.text || "").trim();
   const session = readSessions()[userId];
+  if (message.photo?.length && session?.state === "awaiting_payment_receipt") {
+    const orderId = String(session.orderId || "");
+    const photo = message.photo[message.photo.length - 1];
+    try {
+      const order = commerce.submitPaymentReceipt(orderId, userId, {
+        telegramFileId: photo.file_id,
+        fileUniqueId: photo.file_unique_id
+      });
+      setSession(userId, null);
+      await notifyPaymentReceiptAdmins(order, photo.file_id);
+      await sendText(chatId,
+        "Чек прикреплён к заказу " + order.id + " и отправлен на проверку.\n" +
+        "Текущий статус: PAYMENT_REVIEW. Это НЕ подтверждение поступления денег. " +
+        "Передача курьеру будет разрешена только после подтверждения оплаты по доверенному источнику."
+      );
+    } catch (error) {
+      setSession(userId, null);
+      const message = error.code === "FORBIDDEN"
+        ? "Чек не принят: заказ не найден или принадлежит другому клиенту."
+        : error.code === "ORDER_NOT_REVIEWABLE"
+          ? "Чек не принят: заказ уже оплачен, отменён или завершён."
+          : "Чек не принят. Проверьте заказ и попробуйте снова.";
+      await sendText(chatId, message);
+    }
+    return;
+  }
   if (message.photo?.length && session?.state === "awaiting_order_photo") {
     const orderId = session.orderId;
     const existingOrder = commerce.getOrder(orderId);
@@ -384,6 +410,18 @@ async function handleMessage(message, updateId) {
         : "Ссылку оплаты создать не удалось: " + (error.code || "PAYMENT_SETUP_REQUIRED") + ". Оплата не подтверждена.");
     }
   }
+  if (text.startsWith("/receipt ")) {
+    const orderId = text.slice("/receipt ".length).trim();
+    const order = commerce.getOrder(orderId);
+    if (!order || order.customerId !== userId) return sendText(chatId, "Заказ не найден.");
+    if (order.paymentStatus === "PAID") return sendText(chatId, "Заказ уже оплачен. Повторно отправлять чек не нужно.");
+    if (["CANCELLED", "DELIVERED"].includes(order.status)) return sendText(chatId, "Этот заказ уже закрыт и не принимает чеки.");
+    setSession(userId, { state: "awaiting_payment_receipt", orderId });
+    return sendText(chatId,
+      "Пришлите фото чека для заказа " + order.id + ".\n" +
+      "Чек будет передан администратору на ручную сверку. Скриншот сам по себе не подтверждает поступление денег, а заказ не будет передан курьеру до проверки."
+    );
+  }
   if (text === "/courier") {
     if (!isCourier(userId) && !isAdmin(userId)) return sendText(chatId, "Эта команда доступна только назначенным курьерам.");
     const orders = commerce.listOrders({ status: "PAID" }).filter((o) => o.fulfillment === "delivery" && !o.courierId);
@@ -399,6 +437,7 @@ async function handleMessage(message, updateId) {
       "SAMURAI · Сводка\n" +
       "Всего заказов: " + orders.length + "\n" +
       "Ожидают оплаты: " + count((o) => o.paymentStatus !== "PAID" && o.status !== "CANCELLED") + "\n" +
+      "Чеки на ручной сверке: " + count((o) => o.status === "PAYMENT_REVIEW" && o.paymentStatus !== "PAID") + "\n" +
       "Самовывоз готов: " + count((o) => o.status === "READY_FOR_PICKUP") + "\n" +
       "Доставка без курьера: " + count((o) => o.fulfillment === "delivery" && o.paymentStatus === "PAID" && !o.courierId) + "\n" +
       "В доставке: " + count((o) => ["COURIER_ASSIGNED", "IN_DELIVERY", "PHOTO_RECEIVED"].includes(o.status)) + "\n" +
@@ -406,6 +445,34 @@ async function handleMessage(message, updateId) {
       "Платёжные инциденты: " + count((o) => Array.isArray(o.duplicatePaymentIncidents) && o.duplicatePaymentIncidents.some((i) => i.status === "REVIEW_REQUIRED")) + "\n\n" +
       "Команды администратора: /orders, /order НОМЕР"
     );
+  }
+  if (text === "/paymentreviews") {
+    if (!isAdmin(userId)) return sendText(chatId, "Нет доступа.");
+    const orders = commerce.listPaymentReviewOrders().slice(0, 20);
+    return sendText(chatId, orders.length
+      ? "Чеки ожидают ручной сверки:\n\n" + orders.map((o) =>
+          orderSummary(o) + "\nЧеков: " + (Array.isArray(o.paymentReceipts) ? o.paymentReceipts.length : 0) + "\nПовторно открыть: /review " + o.id
+        ).join("\n\n---\n\n")
+      : "Нет чеков, ожидающих сверки."
+    );
+  }
+  if (text.startsWith("/review ")) {
+    if (!isAdmin(userId)) return sendText(chatId, "Нет доступа.");
+    const orderId = text.slice("/review ".length).trim();
+    const order = commerce.getOrder(orderId);
+    if (!order || order.status !== "PAYMENT_REVIEW") return sendText(chatId, "Заказ не найден в очереди ручной сверки.");
+    const receipts = Array.isArray(order.paymentReceipts) ? order.paymentReceipts.slice(-5) : [];
+    if (!receipts.length) return sendText(chatId, "У этого заказа нет сохранённых чеков.");
+    await sendText(chatId,
+      "Ручная сверка. Не отмечайте оплату по скриншоту одному.\n" + orderSummary(order) +
+      (order.fulfillment === "delivery" ? "\nАдрес: " + order.address : "") +
+      "\nСверьте фактическое поступление в банке или у провайдера."
+    );
+    for (const receipt of receipts) {
+      await tg("sendPhoto", { chat_id: chatId, photo: receipt.telegramFileId, caption: "Чек для " + order.id + " · НЕ ПОДТВЕРЖДЕНИЕ ОПЛАТЫ · " + receipt.submittedAt });
+      commerce.markPaymentReceiptAdminNotified(order.id, receipt.telegramFileId, userId);
+    }
+    return;
   }
   if (text === "/orders") {
     if (!isAdmin(userId)) return sendText(chatId, "Нет доступа.");
@@ -426,6 +493,8 @@ async function handleMessage(message, updateId) {
       orderSummary(order) + "\nКлиент Telegram ID: " + order.customerId +
       (order.fulfillment === "delivery" ? "\nАдрес: " + order.address + "\nЗона: " + order.deliveryZone : "") +
       "\nКурьер: " + (order.courierId || "не назначен") +
+      "\nЧеков на оплату: " + (Array.isArray(order.paymentReceipts) ? order.paymentReceipts.length : 0) +
+      (order.status === "PAYMENT_REVIEW" ? "\nСтатус чека: ожидает ручной сверки; оплата не подтверждена" : "") +
       "\nФотоотчёт: " + (order.proof ? "получен" : "нет") +
       (order.proof?.latitude != null ? "\nGPS: " + order.proof.latitude + ", " + order.proof.longitude +
         (order.proof.accuracyMeters == null ? "" : " ± " + order.proof.accuracyMeters + " м") : "") +
@@ -477,7 +546,7 @@ async function handleMessage(message, updateId) {
       return sendText(chatId, "Заказ " + order.id + " завершён.");
     } catch (error) { return sendText(chatId, "Не удалось завершить: " + (error.code || "ERROR")); }
   }
-  if (text === "/help") return sendText(chatId, "/catalog — каталог\n/myorders — мои заказы\n/pay НОМЕР — повторить оплату своего заказа\n/courier — очередь доставок\n/mydelivery — мои активные доставки\n/startdelivery НОМЕР — начать доставку\n/photo НОМЕР — фотоотчёт\n/done НОМЕР — завершить доставку\n\nАдминистратор: /admin, /orders, /order НОМЕР");
+  if (text === "/help") return sendText(chatId, "/catalog — каталог\n/myorders — мои заказы\n/pay НОМЕР — повторить оплату своего заказа\n/courier — очередь доставок\n/mydelivery — мои активные доставки\n/startdelivery НОМЕР — начать доставку\n/photo НОМЕР — фотоотчёт\n/done НОМЕР — завершить доставку\n\nКлиент: /receipt НОМЕР — отправить чек на ручную сверку\nАдминистратор: /admin, /orders, /order НОМЕР, /paymentreviews, /review НОМЕР");
 }
 async function handleCommerceUpdate(update) {
   const rawUpdateId = update?.update_id;
