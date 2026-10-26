@@ -46,7 +46,7 @@ test("test order reserves stock and simulated payment fulfills idempotently", as
   } finally { await fs.rm(dir, { recursive: true, force: true }); }
 });
 
-test("order lookup enforces optional customer ownership", async () => {
+test("order lookup returns an order only for the matching customerId", async () => {
   const { dir, store } = await fixture();
   try {
     const order = await store.createOrder({ sku: "guide", quantity: 1, customerId: "client-1" });
