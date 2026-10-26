@@ -95,7 +95,7 @@ function registerCommerceRoutes(app, options = {}) {
     return responseError(res, req, mapped.status, mapped.code, mapped.message);
   }
 
-  app.get("/api/commerce/products", featureGate, requireWebAppAuth, rateLimit, async (req, res) => {
+  app.get("/v1/commerce/catalog", featureGate, requireWebAppAuth, rateLimit, async (req, res) => {
     const customerId = requireVerifiedCustomer(req, res);
     if (!customerId) return;
     const store = await getStore(req, res);
@@ -105,7 +105,7 @@ function registerCommerceRoutes(app, options = {}) {
     } catch (error) { return handleError(req, res, error); }
   });
 
-  app.post("/api/commerce/orders", featureGate, requireWebAppAuth, rateLimit, async (req, res) => {
+  app.post("/v1/commerce/orders", featureGate, requireWebAppAuth, rateLimit, async (req, res) => {
     const customerId = requireVerifiedCustomer(req, res);
     if (!customerId) return;
     const store = await getStore(req, res);
@@ -120,7 +120,7 @@ function registerCommerceRoutes(app, options = {}) {
     } catch (error) { return handleError(req, res, error); }
   });
 
-  app.post("/api/commerce/orders/:id/checkout-session", featureGate, requireWebAppAuth, rateLimit, async (req, res) => {
+  app.post("/v1/commerce/orders/:id/checkout", featureGate, requireWebAppAuth, rateLimit, async (req, res) => {
     const customerId = requireVerifiedCustomer(req, res);
     if (!customerId) return;
     if (String(env.STRIPE_TEST_MODE || "").trim().toLowerCase() !== "true" ||
@@ -151,7 +151,7 @@ function registerCommerceRoutes(app, options = {}) {
     }
   });
 
-  app.get("/api/commerce/orders/:id", featureGate, requireWebAppAuth, rateLimit, async (req, res) => {
+  app.get("/v1/commerce/orders/:id", featureGate, requireWebAppAuth, rateLimit, async (req, res) => {
     const customerId = requireVerifiedCustomer(req, res);
     if (!customerId) return;
     const store = await getStore(req, res);
@@ -163,7 +163,7 @@ function registerCommerceRoutes(app, options = {}) {
     } catch (error) { return handleError(req, res, error); }
   });
 
-  app.post("/api/commerce/orders/:id/cancel", featureGate, requireWebAppAuth, rateLimit, async (req, res) => {
+  app.post("/v1/commerce/orders/:id/cancel", featureGate, requireWebAppAuth, rateLimit, async (req, res) => {
     const customerId = requireVerifiedCustomer(req, res);
     if (!customerId) return;
     const store = await getStore(req, res);
@@ -175,7 +175,7 @@ function registerCommerceRoutes(app, options = {}) {
   });
 
   // This endpoint simulates a payment and demo fulfillment. It MUST NOT be exposed in production.
-  app.post("/api/commerce/orders/:id/test-pay", featureGate, testPaymentGate, requireWebAppAuth, rateLimit, async (req, res) => {
+  app.post("/v1/commerce/orders/:id/simulate-payment", featureGate, testPaymentGate, requireWebAppAuth, rateLimit, async (req, res) => {
     const customerId = requireVerifiedCustomer(req, res);
     if (!customerId) return;
     const store = await getStore(req, res);
