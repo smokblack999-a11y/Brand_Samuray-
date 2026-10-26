@@ -448,8 +448,11 @@ app.post("/v1/commerce/orders", requireApiKey, async (req, res) => {
 
 app.get("/v1/commerce/orders/:id", requireApiKey, async (req, res) => {
   try {
+    if (typeof req.query.customerId !== "string" || !/^[a-zA-Z0-9_:-]{1,100}$/.test(req.query.customerId)) {
+      return res.status(400).json(errorBody("CUSTOMER_ID_REQUIRED", "A valid customerId is required", req.requestId));
+    }
     const commerce = await getCommerceStore();
-    const order = commerce.getOrder(req.params.id, req.query.customerId == null ? null : String(req.query.customerId));
+    const order = commerce.getOrder(req.params.id, req.query.customerId);
     if (!order) return res.status(404).json(errorBody("ORDER_NOT_FOUND", "Order not found", req.requestId));
     return res.json({ ok: true, mode: "test", order, requestId: req.requestId });
   } catch (error) { return commerceError(res, req, error); }
