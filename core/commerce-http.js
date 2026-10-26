@@ -7,6 +7,12 @@ function responseError(res, req, status, code, message) {
   });
 }
 
+function publicOrder(order) {
+  if (!order) return order;
+  const { stripeCheckoutAttempt, ...safe } = order;
+  return { ...safe, checkoutInProgress: Boolean(stripeCheckoutAttempt && !order.stripeCheckout) };
+}
+
 function customerIdFromVerifiedTelegram(req) {
   const rawId = req?.telegramWebApp?.user?.id;
   const id = typeof rawId === "number" && Number.isSafeInteger(rawId)
@@ -23,13 +29,14 @@ function mapCommerceError(error) {
     "INVALID_PRODUCT_NAME", "INVALID_PRICE", "INVALID_CURRENCY", "INVALID_PRODUCT_TYPE",
     "INVALID_STOCK", "DIGITAL_DELIVERY_REQUIRED", "TOTAL_OVERFLOW", "STRIPE_ORDER_INVALID", "STRIPE_AMOUNT_INVALID"
   ]);
-  const conflicts = new Set(["INSUFFICIENT_STOCK", "ORDER_CANCELLED", "ORDER_ALREADY_FULFILLED", "STRIPE_CHECKOUT_ACTIVE"]);
+  const conflicts = new Set(["INSUFFICIENT_STOCK", "ORDER_CANCELLED", "ORDER_ALREADY_FULFILLED", "STRIPE_CHECKOUT_ACTIVE", "STRIPE_CHECKOUT_RECONCILIATION_REQUIRED", "STRIPE_CHECKOUT_ATTEMPT_MISMATCH"]);
   const notFound = new Set(["PRODUCT_NOT_FOUND", "ORDER_NOT_FOUND"]);
   const unavailable = new Set([
     "COMMERCE_NOT_READY", "REAL_PAYMENTS_NOT_IMPLEMENTED", "STATE_READ_FAILED",
     "STATE_WRITE_FAILED", "INVALID_STATE_SHAPE", "CATALOG_REQUIRED", "CATALOG_READ_FAILED",
     "INVALID_CATALOG", "DUPLICATE_CATALOG_SKU", "DUPLICATE_STATE_SKU",
-    "DUPLICATE_STATE_ORDER", "ORPHANED_STATE_ORDER", "STRIPE_UPSTREAM_UNAVAILABLE", "STRIPE_TEST_NOT_CONFIGURED", "STRIPE_SESSION_INVALID"
+    "DUPLICATE_STATE_ORDER", "ORPHANED_STATE_ORDER", "STRIPE_UPSTREAM_UNAVAILABLE",
+    "STRIPE_TEST_NOT_CONFIGURED", "STRIPE_SESSION_INVALID", "STRIPE_CHECKOUT_ATTEMPT_INVALID"
   ]);
   if (clientErrors.has(code)) return { status: 400, code, message: "Invalid commerce request" };
   if (conflicts.has(code)) return { status: 409, code, message: "Order state or stock conflict" };
@@ -117,7 +124,7 @@ function registerCommerceRoutes(app, options = {}) {
         quantity: req.body?.quantity === undefined ? 1 : req.body.quantity,
         customerId
       });
-      return res.status(201).json({ ok: true, mode: "test", order, requestId: req.requestId || null });
+      return res.status(201).json({ ok: true, mode: "test", order: publicOrder(order), requestId: req.requestId || null });
     } catch (error) { return handleError(req, res, error); }
   });
 
@@ -139,15 +146,26 @@ function registerCommerceRoutes(app, options = {}) {
     if (order.stripeCheckout) {
       return res.json({ ok: true, mode: "stripe_test", session: { id: order.stripeCheckout.sessionId, url: order.stripeCheckout.url, livemode: false, expiresAt: order.stripeCheckout.expiresAt || null }, requestId: req.requestId || null });
     }
+    let attemptOrder;
     try {
-      const session = await stripeClient.createCheckoutSession(order);
+      attemptOrder = await store.beginStripeCheckout(order.id, customerId);
+      if (attemptOrder.stripeCheckout) {
+        return res.json({ ok: true, mode: "stripe_test", session: { id: attemptOrder.stripeCheckout.sessionId, url: attemptOrder.stripeCheckout.url, livemode: false, expiresAt: attemptOrder.stripeCheckout.expiresAt || null }, requestId: req.requestId || null });
+      }
+      const session = await stripeClient.createCheckoutSession(attemptOrder);
       const savedOrder = await store.recordStripeCheckout(order.id, customerId, session);
       return res.status(201).json({ ok: true, mode: "stripe_test", session: { id: session.id, url: session.url, livemode: false, expiresAt: savedOrder.stripeCheckout?.expiresAt || null }, requestId: req.requestId || null });
     } catch (error) {
+      if (attemptOrder?.stripeCheckoutAttempt?.idempotencyKey &&
+          ["STRIPE_ORDER_INVALID", "STRIPE_AMOUNT_INVALID", "STRIPE_CHECKOUT_REJECTED"].includes(error.code)) {
+        try { await store.clearStripeCheckoutAttempt(order.id, customerId, attemptOrder.stripeCheckoutAttempt.idempotencyKey); }
+        catch { /* Keep the inventory reservation if clearing the attempt cannot be persisted. */ }
+      }
       if (error.code === "STRIPE_SESSION_ALREADY_ATTACHED") return responseError(res, req, 409, error.code, "A Checkout Session is already attached to this order");
-      if (["STRIPE_TEST_NOT_CONFIGURED", "STRIPE_UPSTREAM_UNAVAILABLE"].includes(error.code)) return responseError(res, req, 503, error.code, "Stripe test checkout is temporarily unavailable");
+      if (["STRIPE_TEST_NOT_CONFIGURED", "STRIPE_UPSTREAM_UNAVAILABLE"].includes(error.code)) return responseError(res, req, 503, error.code, "Stripe test checkout is temporarily unavailable; keep this order and retry it");
+      if (error.code === "STRIPE_CHECKOUT_RECONCILIATION_REQUIRED") return responseError(res, req, 409, error.code, "The previous Checkout attempt may still exist; do not cancel this order until its payment state is reconciled");
       if (error.code === "ORDER_NOT_FOUND") return responseError(res, req, 404, "ORDER_NOT_FOUND", "Product or order not found");
-      if (["ORDER_CANCELLED", "ORDER_ALREADY_FULFILLED"].includes(error.code)) return responseError(res, req, 409, error.code, "Order state conflict");
+      if (["ORDER_CANCELLED", "ORDER_ALREADY_FULFILLED", "STRIPE_CHECKOUT_ACTIVE"].includes(error.code)) return responseError(res, req, 409, error.code, "Order state conflict");
       return responseError(res, req, 502, error.code || "STRIPE_CHECKOUT_FAILED", "Stripe test checkout could not be created");
     }
   });
@@ -160,7 +178,7 @@ function registerCommerceRoutes(app, options = {}) {
     try {
       const order = store.getOrder(req.params?.id, customerId);
       if (!order) return responseError(res, req, 404, "ORDER_NOT_FOUND", "Product or order not found");
-      return res.json({ ok: true, mode: "test", order, requestId: req.requestId || null });
+      return res.json({ ok: true, mode: "test", order: publicOrder(order), requestId: req.requestId || null });
     } catch (error) { return handleError(req, res, error); }
   });
 
@@ -171,7 +189,7 @@ function registerCommerceRoutes(app, options = {}) {
     if (!store) return;
     try {
       const order = await store.cancelOrder(req.params?.id, customerId);
-      return res.json({ ok: true, mode: "test", order, requestId: req.requestId || null });
+      return res.json({ ok: true, mode: "test", order: publicOrder(order), requestId: req.requestId || null });
     } catch (error) { return handleError(req, res, error); }
   });
 
@@ -187,7 +205,7 @@ function registerCommerceRoutes(app, options = {}) {
         ok: true,
         testOnly: true,
         warning: "SIMULATED PAYMENT ONLY — no money was charged and no physical shipment was created.",
-        order,
+        order: publicOrder(order),
         requestId: req.requestId || null
       });
     } catch (error) { return handleError(req, res, error); }
@@ -196,4 +214,4 @@ function registerCommerceRoutes(app, options = {}) {
   return { customerIdFromVerifiedTelegram, mapCommerceError };
 }
 
-module.exports = { registerCommerceRoutes, customerIdFromVerifiedTelegram, mapCommerceError };
+module.exports = { registerCommerceRoutes, customerIdFromVerifiedTelegram, mapCommerceError, publicOrder };
