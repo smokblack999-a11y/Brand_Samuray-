@@ -91,6 +91,32 @@ test("order owner is derived from verified Telegram identity, not client custome
   assert.equal("customerId" in res.body.order, false);
 });
 
+test("missing verified Telegram identity cannot create an order", () => {
+  const { commerce, calls } = fixture();
+  const handlers = createMiniAppCommerceHandlers({ commerce, enabled: () => true });
+  const req = request({ userId: null, body: { productId: "tea", quantity: 1, fulfillment: "pickup" } });
+  req.telegramWebApp = null;
+  const res = response();
+  handlers.createOrder(req, res);
+  assert.equal(res.statusCode, 401);
+  assert.equal(res.body.error.code, "INVALID_WEBAPP_IDENTITY");
+  assert.equal(calls.length, 0);
+});
+
+test("malformed idempotency key is rejected before order creation", () => {
+  const { commerce, calls } = fixture();
+  const handlers = createMiniAppCommerceHandlers({ commerce, enabled: () => true });
+  const req = request({
+    body: { productId: "tea", quantity: 1, fulfillment: "pickup" },
+    headers: { "Idempotency-Key": "x" }
+  });
+  const res = response();
+  handlers.createOrder(req, res);
+  assert.equal(res.statusCode, 400);
+  assert.equal(res.body.error.code, "INVALID_IDEMPOTENCY_KEY");
+  assert.equal(calls.length, 0);
+});
+
 test("foreign order IDs cannot be read", () => {
   const { commerce, orders } = fixture();
   orders.set("SAM-FOREIGN", {
