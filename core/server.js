@@ -39,6 +39,10 @@ function getCommerceStore() {
   return commerceStorePromise;
 }
 
+if (process.env.COMMERCE_MODE && process.env.COMMERCE_MODE !== "test") {
+  throw new Error("Commerce only supports COMMERCE_MODE=test; real payments are not implemented");
+}
+
 if (process.env.NODE_ENV === "production") {
   const missing = [];
   if (!API_KEY) missing.push("CORE_API_KEY");
