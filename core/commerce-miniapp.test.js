@@ -2,6 +2,8 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const path = require("node:path");
+const { spawnSync } = require("node:child_process");
 const { createMiniAppCommerceHandlers } = require("./commerce-miniapp");
 
 function response() {
@@ -122,4 +124,11 @@ test("checkout is owner-scoped and only returns test-mode session metadata", asy
   assert.equal(own.body.session.livemode, false);
   assert.equal(own.body.session.id, "cs_test_abc123");
   assert.equal("customerId" in own.body.order, false);
+});
+
+
+test("browser Mini App JavaScript parses under Node syntax checker", () => {
+  const script = path.join(__dirname, "mini-app", "app.js");
+  const checked = spawnSync(process.execPath, ["--check", script], { encoding: "utf8" });
+  assert.equal(checked.status, 0, checked.stderr || checked.stdout || "Mini App syntax check failed");
 });
