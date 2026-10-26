@@ -141,5 +141,5 @@ test("Commerce feature gate hides routes outside explicit test mode", () => {
   let status = 200; let body;
   route.handlers[0]({}, { status(n) { status = n; return this; }, json(value) { body = value; return this; } }, () => { throw new Error("gate should reject request"); });
   assert.equal(status, 404);
-  assert.equal(body.error.code, "COMMERCE_DISABLED");
+  assert.equal(body.error.code, "COMMERCE_TEST_ONLY");
 });
