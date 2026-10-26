@@ -7,7 +7,7 @@ const fs = require("node:fs/promises");
 const os = require("node:os");
 const path = require("node:path");
 const { CommerceStore } = require("../commerce");
-const { customerIdFromVerifiedTelegram, registerCommerceRoutes } = require("../commerce-http");
+const { customerIdFromVerifiedTelegram, registerCommerceRoutes, publicOrder } = require("../commerce-http");
 const { createStripeTestClient, stripeAmountMinor, registerStripeTestWebhook } = require("../stripe-test");
 
 const catalog = { mode: "test", products: [
@@ -99,7 +99,7 @@ test("Stripe client is locked unless test-mode flags and test credentials are pr
   assert.equal(createStripeTestClient({ env: stripeEnv() }).isConfigured(), true);
 });
 
-test("Stripe Checkout validates the response and uses per-order idempotency", async () => {
+test("public order responses hide the internal Stripe idempotency key", () => {\n  const order = { id: "ord_0123456789abcdef01234567", status: "pending_payment", stripeCheckoutAttempt: { idempotencyKey: "samurai-order-ord_0123456789abcdef01234567-0123456789abcdef01234567", createdAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 3600000).toISOString() } };\n  const visible = publicOrder(order);\n  assert.equal(visible.checkoutInProgress, true);\n  assert.equal(Object.prototype.hasOwnProperty.call(visible, "stripeCheckoutAttempt"), false);\n});\ntest("Stripe Checkout validates the response and uses per-order idempotency", async () => {
   let request;
   const client = createStripeTestClient({ env: stripeEnv(), fetchImpl: async (url, options) => {
     request = { url, options };
