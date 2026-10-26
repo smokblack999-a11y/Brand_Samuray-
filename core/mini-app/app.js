@@ -65,6 +65,11 @@
   async function api(path, options = {}) {
     if (!initData) throw Object.assign(new Error("Telegram WebApp initData missing"), { code: "INVALID_WEBAPP_AUTH" });
     const headers = { "X-Telegram-Init-Data": initData, "Accept": "application/json" };
+    if (options.headers && typeof options.headers === "object") {
+      for (const [name, value] of Object.entries(options.headers)) {
+        if (typeof value === "string" && value.length <= 256) headers[name] = value;
+      }
+    }
     if (options.body !== undefined) headers["Content-Type"] = "application/json";
     let response;
     try {
@@ -270,15 +275,42 @@
     } catch { /* Keep the original checkout error visible. */ }
   }
 
+  const pendingOrderKeys = new Map();
+  function getOrderIdempotencyKey(product, quantity) {
+    const intent = String(product.id || product.sku) + ":" + String(quantity) + ":pickup";
+    if (pendingOrderKeys.has(intent)) return pendingOrderKeys.get(intent);
+    const storageKey = "samurai.commerce.idempotency." + intent;
+    let key = "";
+    try { key = sessionStorage.getItem(storageKey) || ""; } catch { /* Storage may be unavailable in embedded browsers. */ }
+    if (!/^[A-Za-z0-9._:-]{8,128}$/.test(key)) {
+      key = "miniapp-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 14);
+      try { sessionStorage.setItem(storageKey, key); } catch { /* In-memory key still protects same-page retries. */ }
+    }
+    pendingOrderKeys.set(intent, key);
+    return key;
+  }
+  function clearOrderIdempotencyKey(product, quantity) {
+    const intent = String(product.id || product.sku) + ":" + String(quantity) + ":pickup";
+    const storageKey = "samurai.commerce.idempotency." + intent;
+    pendingOrderKeys.delete(intent);
+    try { sessionStorage.removeItem(storageKey); } catch { /* Ignore unavailable session storage. */ }
+  }
+
   async function createOrder(product, quantity) {
     const key = "buy:" + product.sku;
     if (busy.has(key)) return;
     setBusy(key, true);
     setOrderState("Создаём тестовый заказ…");
+    const idempotencyKey = getOrderIdempotencyKey(product, quantity);
     try {
-      const payload = await api("/v1/commerce/orders", { method: "POST", body: { productId: product.id || product.sku, quantity, fulfillment: "pickup" } });
+      const payload = await api("/v1/commerce/orders", {
+        method: "POST",
+        headers: { "Idempotency-Key": idempotencyKey },
+        body: { productId: product.id || product.sku, quantity, fulfillment: "pickup" }
+      });
       const order = payload.order;
       if (!order || !/^SAM-[A-F0-9]{12}$/i.test(order.id)) throw new Error("Сервер не вернул корректный номер заказа.");
+      clearOrderIdempotencyKey(product, quantity);
       revealOrder(order.id);
       setOrderState(statusLabel(order) + ". Открываем тестовую оплату…", "success");
       await continueCheckout();
