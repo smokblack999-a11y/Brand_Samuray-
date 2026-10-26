@@ -55,7 +55,8 @@ function createMiniAppCommerceHandlers({ commerce, enabled = () =>
           id: product.id,
           name: product.name,
           priceKzt: product.priceKzt,
-          currency: "KZT"
+          currency: "KZT",
+          inventoryTracked: false
         })),
         deliveryZones: commerce.getDeliveryZones()
       });
