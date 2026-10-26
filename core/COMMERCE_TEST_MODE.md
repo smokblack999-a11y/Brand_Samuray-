@@ -28,6 +28,10 @@ STRIPE_CANCEL_URL=https://your-https-site.example/payment/cancel
 
 Для Checkout требуются обе настройки `COMMERCE_ENABLED=true` и `STRIPE_TEST_MODE=true`, `COMMERCE_MODE=test`, тестовый `sk_test_` ключ, `whsec_` webhook secret и HTTPS success/cancel URL. Нельзя использовать `sk_live_`.
 
+## Telegram Mini App
+
+Страница магазина находится по пути `core/mini-app/` и раздаётся Core на `/mini-app/`. После HTTPS-развёртывания владелец бота должен отдельно настроить Web App URL в меню бота (например, через BotFather) на `https://<ваш-домен>/mini-app/`. Этот PR не меняет настройки BotFather и не выполняет развёртывание. При открытии внутри Telegram Mini App передаёт `X-Telegram-Init-Data`; backend проверяет подпись и сам определяет владельца заказа. Если Stripe test Checkout не настроен, интерфейс показывает ошибку, позволяет проверить или отменить неоплаченный заказ и не имитирует поступление денег.
+
 ## API
 
 - `GET /v1/commerce/catalog` — публичные поля тестового каталога; данные выдачи не включаются.
