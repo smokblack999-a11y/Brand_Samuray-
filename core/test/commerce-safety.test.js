@@ -59,6 +59,13 @@ test("order access is scoped to the verified customer id", async () => withStore
   assert.equal(store.getOrder(order.id, "tg:12345").id, order.id);
 }));
 
+test("manual cancel and simulated payment cannot race an active Stripe checkout", async () => withStore(async ({ store }) => {
+  const order = await store.createOrder({ sku: "demo-digital-guide", quantity: 1, customerId: "tg:14" });
+  await store.recordStripeCheckout(order.id, "tg:14", checkoutSession());
+  await assert.rejects(store.cancelOrder(order.id, "tg:14"), e => e.code === "STRIPE_CHECKOUT_ACTIVE");
+  await assert.rejects(store.simulatePayment(order.id, "tg:14"), e => e.code === "STRIPE_CHECKOUT_ACTIVE");
+  assert.equal(store.listProducts().find(p => p.sku === order.sku).stock, 3);
+}));
 test("test payment is idempotent and physical orders do not claim shipment", async () => withStore(async ({ store }) => {
   const digital = await store.createOrder({ sku: "demo-digital-guide", quantity: 1, customerId: "tg:11" });
   const first = await store.simulatePayment(digital.id, "tg:11");
