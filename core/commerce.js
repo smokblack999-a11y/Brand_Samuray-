@@ -310,6 +310,7 @@ class CommerceStore {
       if (!order) throw commerceError("ORDER_NOT_FOUND");
       if (order.status === "cancelled") throw commerceError("ORDER_CANCELLED");
       if (["fulfilled", "test_paid"].includes(order.status)) return order;
+      if (order.stripeCheckout) throw commerceError("STRIPE_CHECKOUT_ACTIVE");
       const product = state.products.find(p => p.sku === order.sku);
       if (!product) throw commerceError("PRODUCT_NOT_FOUND");
       order.status = product.type === "digital" ? "fulfilled" : "test_paid";
@@ -328,6 +329,7 @@ class CommerceStore {
       if (!order) throw commerceError("ORDER_NOT_FOUND");
       if (["fulfilled", "test_paid"].includes(order.status)) throw commerceError("ORDER_ALREADY_FULFILLED");
       if (order.status === "cancelled") return order;
+      if (order.stripeCheckout) throw commerceError("STRIPE_CHECKOUT_ACTIVE");
       const product = state.products.find(p => p.sku === order.sku);
       if (!product) throw commerceError("PRODUCT_NOT_FOUND");
       product.stock += order.quantity;
