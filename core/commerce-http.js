@@ -50,7 +50,7 @@ function registerCommerceRoutes(app, options = {}) {
   if (typeof storeProvider !== "function" && !storeProvider) throw new TypeError("storeProvider is required");
 
   const featureGate = (req, res, next) => {
-    if (String(env.NODE_ENV || "").trim().toLowerCase() === "production") {
+    if (String(env.NODE_ENV || "").trim().toLowerCase() === "production" || String(env.COMMERCE_MODE || "").trim().toLowerCase() !== "test") {
       return responseError(res, req, 404, "COMMERCE_TEST_ONLY", "Test-only commerce is unavailable in production");
     }
     if (String(env.COMMERCE_ENABLED || "").trim().toLowerCase() !== "true") {
@@ -61,6 +61,7 @@ function registerCommerceRoutes(app, options = {}) {
 
   const testPaymentGate = (req, res, next) => {
     if (String(env.NODE_ENV || "").trim().toLowerCase() === "production" ||
+        String(env.COMMERCE_MODE || "").trim().toLowerCase() !== "test" ||
         String(env.COMMERCE_TEST_PAYMENTS_ENABLED || "").trim().toLowerCase() !== "true") {
       return responseError(res, req, 404, "TEST_PAYMENTS_DISABLED", "Test payments are disabled");
     }
