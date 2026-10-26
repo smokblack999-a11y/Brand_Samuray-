@@ -10,16 +10,16 @@ const supportedCurrencies = typeof Intl.supportedValuesOf === "function"
 
 function currencyCode(value) {
   const code = String(value || "").trim().toUpperCase();
-  if (!CURRENCY_RE.test(code)) {
-    const error = new TypeError("Currency must be a three-letter ISO code");
-    error.code = "INVALID_CURRENCY";
-    throw error;
-  }
-  // Three-letter crypto tickers are not fiat ISO-4217 currencies and require
-  // separate network/precision/settlement rules. Never treat them as cents.
+  // Crypto tickers are not ISO-4217 fiat currency codes. Reject them with a
+  // stable, explicit error even when the ticker is not three characters long.
   if (code === "BTC" || code === "USDT") {
     const error = new RangeError("Crypto assets require a dedicated payment adapter");
     error.code = "UNSUPPORTED_CURRENCY";
+    throw error;
+  }
+  if (!CURRENCY_RE.test(code)) {
+    const error = new TypeError("Currency must be a three-letter ISO code");
+    error.code = "INVALID_CURRENCY";
     throw error;
   }
   if (supportedCurrencies && !supportedCurrencies.has(code)) {
