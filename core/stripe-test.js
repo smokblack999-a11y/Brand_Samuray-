@@ -18,7 +18,7 @@ function getConfig(env = process.env) {
   const key = String(env.STRIPE_SECRET_KEY || "").trim();
   const webhookSecret = String(env.STRIPE_WEBHOOK_SECRET || "").trim();
   const enabled = String(env.NODE_ENV || "").toLowerCase() !== "production" &&
-    String(env.COMMERCE_ENABLED || "").toLowerCase() === "true" && String(env.STRIPE_TEST_MODE || "").toLowerCase() === "true";
+    String(env.COMMERCE_ENABLED || "").toLowerCase() === "true" && String(env.COMMERCE_MODE || "").toLowerCase() === "test" && String(env.STRIPE_TEST_MODE || "").toLowerCase() === "true";
   return { enabled, key: /^sk_test_[A-Za-z0-9_]+$/.test(key) ? key : "",
     webhookSecret: /^whsec_[A-Za-z0-9_]+$/.test(webhookSecret) ? webhookSecret : "",
     successUrl: httpsUrl(env.STRIPE_SUCCESS_URL), cancelUrl: httpsUrl(env.STRIPE_CANCEL_URL) };
