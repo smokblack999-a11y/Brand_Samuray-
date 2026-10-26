@@ -12,6 +12,7 @@ const { saveLead, claimEvent, updateLead, listLeads, stats } = require("./store"
 const { createRateLimiter } = require("./rate-limit");
 const { ingestMessageMedia } = require("./media-ingest");
 const { requireWebAppAuth } = require("./webapp-auth");
+const { registerCommerceMiniAppRoutes } = require("./commerce-miniapp");
 const { emitHamylionEvent } = require("./hamylion-adapter");
 const dualAI = require("./dual-ai/engine");
 const { checkDraft } = require("./kill-critic");
@@ -494,6 +495,8 @@ app.post("/api/commerce/stripe/webhook", (req, res) => {
     return res.status(status).json(errorBody(code, message, req.requestId));
   }
 });
+
+registerCommerceMiniAppRoutes(app, { commerce, requireWebAppAuth });
 
 app.get("/api/dual-ai/config", requireApiKey, (req, res) => res.json({ ok: true, config: dualAI.config(), requestId: req.requestId }));
 
