@@ -32,7 +32,9 @@ test.before(async () => {
       OPENAI_API_KEY: '',
       CORE_API_KEY: API_KEY,
       TELEGRAM_WEBHOOK_SECRET: WEBHOOK_SECRET,
-      MAX_MESSAGE_CHARS: '4000'
+      MAX_MESSAGE_CHARS: '4000',
+      COMMERCE_ENABLED: 'true',
+      COMMERCE_MODE: 'test'
     },
     stdio: ['ignore', 'pipe', 'pipe']
   });
@@ -188,4 +190,73 @@ test('unknown route returns JSON 404', async () => {
   assert.equal(r.status, 404);
   const body = await r.json();
   assert.equal(body.ok, false);
+});
+
+test('Commerce API requires admin key and exposes demo catalog only when enabled', async () => {
+  const denied = await fetch(`http://127.0.0.1:${port}/v1/commerce/catalog`);
+  assert.equal(denied.status, 401);
+  const r = await api('/v1/commerce/catalog');
+  assert.equal(r.status, 200);
+  const body = await r.json();
+  assert.equal(body.mode, 'test');
+  assert.ok(body.products.some(p => p.sku === 'demo-digital-guide'));
+  assert.ok(body.products.every(p => !('deliveryText' in p)));
+});
+
+test('Commerce API order lifecycle enforces lookup customerId and simulates payment idempotently', async () => {
+  const created = await api('/v1/commerce/orders', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ sku: 'demo-digital-guide', quantity: 1, customerId: 'client-1' })
+  });
+  assert.equal(created.status, 201);
+  const createdBody = await created.json();
+  const id = createdBody.order.id;
+  assert.match(id, /^ord_[a-f0-9]{24}$/);
+  assert.equal(createdBody.order.paymentMode, 'test_only_no_money_moved');
+
+  const missingCustomer = await api(`/v1/commerce/orders/${id}`);
+  assert.equal(missingCustomer.status, 400);
+  const wrongOwner = await api(`/v1/commerce/orders/${id}?customerId=client-2`);
+  assert.equal(wrongOwner.status, 404);
+  const rightOwner = await api(`/v1/commerce/orders/${id}?customerId=client-1`);
+  assert.equal(rightOwner.status, 200);
+  assert.equal((await rightOwner.json()).order.id, id);
+
+  const firstPayment = await api(`/v1/commerce/orders/${id}/simulate-payment`, { method: 'POST' });
+  assert.equal(firstPayment.status, 200);
+  const firstBody = await firstPayment.json();
+  assert.equal(firstBody.order.status, 'fulfilled_test');
+  assert.equal(firstBody.order.delivery.kind, 'digital_test');
+
+  const secondPayment = await api(`/v1/commerce/orders/${id}/simulate-payment`, { method: 'POST' });
+  assert.equal(secondPayment.status, 200);
+  assert.equal((await secondPayment.json()).order.status, 'fulfilled_test');
+});
+
+test('Commerce API cancellation restores physical stock only once', async () => {
+  const before = await (await api('/v1/commerce/catalog')).json();
+  const initialStock = before.products.find(p => p.sku === 'demo-physical-box').stock;
+  const created = await api('/v1/commerce/orders', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ sku: 'demo-physical-box', quantity: 1, customerId: 'client-1' })
+  });
+  assert.equal(created.status, 201);
+  const id = (await created.json()).order.id;
+  const cancelled = await api(`/v1/commerce/orders/${id}/cancel`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ customerId: 'client-1' })
+  });
+  assert.equal(cancelled.status, 200);
+  assert.equal((await cancelled.json()).order.status, 'cancelled');
+  const cancelledAgain = await api(`/v1/commerce/orders/${id}/cancel`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ customerId: 'client-1' })
+  });
+  assert.equal(cancelledAgain.status, 200);
+  const after = await (await api('/v1/commerce/catalog')).json();
+  assert.equal(after.products.find(p => p.sku === 'demo-physical-box').stock, initialStock);
 });
