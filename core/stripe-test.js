@@ -87,7 +87,7 @@ function registerStripeTestWebhook(app, { storeProvider, stripeClient, rawBodyMi
     if (!stripeClient.isWebhookConfigured()) return res.status(503).json({ ok: false, error: { code: "STRIPE_TEST_NOT_CONFIGURED", message: "Stripe test webhook is not configured" } });
     return next();
   };
-  app.post("/api/stripe/test-webhook", gate, rawBodyMiddleware, async (req, res) => {
+  app.post("/webhooks/stripe", gate, rawBodyMiddleware, async (req, res) => {
     let event;
     try { event = stripeClient.verifyAndParseWebhook(req.body, req.get ? req.get("Stripe-Signature") : req.headers?.["stripe-signature"]); }
     catch (error) { const status = error.code === "STRIPE_TEST_NOT_CONFIGURED" ? 503 : 400; return res.status(status).json({ ok: false, error: { code: error.code || "STRIPE_WEBHOOK_REJECTED", message: status === 503 ? "Stripe test webhook is not configured" : "Stripe webhook rejected" } }); }
