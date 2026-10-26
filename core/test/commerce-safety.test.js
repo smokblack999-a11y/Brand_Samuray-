@@ -103,7 +103,8 @@ test("Stripe Checkout validates the response and uses per-order idempotency", as
   let request;
   const client = createStripeTestClient({ env: stripeEnv(), fetchImpl: async (url, options) => {
     request = { url, options };
-    return { ok: true, json: async () => ({ ...checkoutSession(), livemode: false }) };
+    const expiresAt = Number(new URLSearchParams(options.body).get("expires_at"));
+    return { ok: true, status: 200, json: async () => ({ ...checkoutSession(), expires_at: expiresAt, livemode: false }) };
   } });
   const order = { id: "ord_0123456789abcdef01234567", customerId: "tg:456", currency: "KZT", quantity: 1, unitPriceMinor: 1990, totalMinor: 1990, productType: "digital", productName: "Demo guide" };
   const session = await client.createCheckoutSession(order);
