@@ -15,6 +15,10 @@ const { requireWebAppAuth } = require("./webapp-auth");
 const { emitHamylionEvent } = require("./hamylion-adapter");
 const dualAI = require("./dual-ai/engine");
 const { checkDraft } = require("./kill-critic");
+const { CommerceStore } = require("./commerce");
+const { registerCommerceRoutes } = require("./commerce-http");
+const { createStripeTestClient, registerStripeTestWebhook } = require("./stripe-test");
+const stripeTestClient = createStripeTestClient({ env: process.env });
 
 const app = express();
 const PORT = Number(process.env.PORT || 8787);
@@ -27,6 +31,19 @@ const LEAD_RATE_LIMIT_WINDOW_MS = Math.max(1000, Number(process.env.LEAD_RATE_LI
 const LEAD_RATE_LIMIT_MAX = Math.max(1, Number(process.env.LEAD_RATE_LIMIT_MAX || 20));
 const WEBAPP_MAX_MEDIA_BYTES = Math.max(1024 * 1024, Number(process.env.WEBAPP_MAX_MEDIA_BYTES || 50 * 1024 * 1024));
 const WEBAPP_MEDIA_DIR = process.env.MEDIA_DIR || path.join(process.env.DATA_DIR || path.join(__dirname, "data"), "media");
+const COMMERCE_ENABLED = String(process.env.COMMERCE_ENABLED || "").trim().toLowerCase() === "true" && String(process.env.NODE_ENV || "").trim().toLowerCase() !== "production";
+const COMMERCE_DATA_ROOT = path.resolve(__dirname, process.env.DATA_DIR || "data");
+const COMMERCE_DATA_DIR = path.join(COMMERCE_DATA_ROOT, "commerce");
+const COMMERCE_RATE_LIMIT_WINDOW_MS = Math.max(1000, Number(process.env.COMMERCE_RATE_LIMIT_WINDOW_MS || 60000));
+const COMMERCE_RATE_LIMIT_MAX = Math.max(1, Number(process.env.COMMERCE_RATE_LIMIT_MAX || 30));
+const commerceRateLimit = createRateLimiter({ windowMs: COMMERCE_RATE_LIMIT_WINDOW_MS, max: COMMERCE_RATE_LIMIT_MAX, keyGenerator: req => req.telegramWebApp?.user?.id ? "tg:" + String(req.telegramWebApp.user.id) : req.ip || "unknown" });
+const commerceStorePromise = COMMERCE_ENABLED
+  ? new CommerceStore({ dataDir: COMMERCE_DATA_DIR, catalogFile: path.join(__dirname, "commerce-catalog.json"), mode: "test" }).init()
+      .catch(error => {
+        console.error(JSON.stringify({ event: "commerce_init_failed", code: error.code || "COMMERCE_INIT_FAILED", message: "Commerce storage failed to initialize" }));
+        return null;
+      })
+  : Promise.resolve(null);
 
 if (process.env.NODE_ENV === "production") {
   const missing = [];
@@ -38,6 +55,7 @@ if (process.env.NODE_ENV === "production") {
 app.disable("x-powered-by");
 app.set("trust proxy", process.env.TRUST_PROXY === "true" ? 1 : false);
 app.use(cors(CORS_ORIGIN ? { origin: CORS_ORIGIN } : { origin: false }));
+registerStripeTestWebhook(app, { storeProvider: () => commerceStorePromise, stripeClient: stripeTestClient, rawBodyMiddleware: express.raw({ type: "application/json", limit: "1mb" }), env: process.env });
 app.use(express.json({ limit: "256kb" }));
 
 function errorBody(code, message, requestId) {
@@ -392,6 +410,8 @@ app.post("/api/telegram/webhook", requireWebhookSecret, async (req, res) => {
     }));
   }
 });
+
+registerCommerceRoutes(app, { storeProvider: () => commerceStorePromise, requireWebAppAuth, rateLimit: commerceRateLimit, env: process.env, stripeClient: stripeTestClient });
 
 app.use((req, res) => res.status(404).json(errorBody("NOT_FOUND", "Endpoint not found", req.requestId)));
 
