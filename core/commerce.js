@@ -63,13 +63,33 @@ function validateOrder(input) {
   if (["fulfilled", "test_paid"].includes(input.status) && !input.fulfillment) throw commerceError("INVALID_STATE_FULFILLMENT");
   if (input.stripeCheckout !== undefined) {
     const checkout = input.stripeCheckout;
-    let url;
-    try { url = new URL(checkout?.url); } catch { throw commerceError("INVALID_STATE_STRIPE_CHECKOUT"); }
+    let url = null;
+    if (typeof checkout?.url === "string") {
+      try { url = new URL(checkout.url); } catch { throw commerceError("INVALID_STATE_STRIPE_CHECKOUT"); }
+    }
+    const recoveredWithoutUrl = checkout?.url === null && (
+      (["fulfilled", "test_paid"].includes(input.status) && input.testPayment?.provider === "stripe_test") ||
+      (input.status === "cancelled" && ["checkout_expired", "async_payment_failed"].includes(input.cancellationReason))
+    );
     if (!checkout || typeof checkout !== "object" || !STRIPE_SESSION_RE.test(String(checkout.sessionId || "")) ||
-        checkout.livemode !== false || url.protocol !== "https:" || url.hostname !== "checkout.stripe.com" ||
+        checkout.livemode !== false ||
+        (url && (url.protocol !== "https:" || url.hostname !== "checkout.stripe.com")) ||
+        (!url && !recoveredWithoutUrl) ||
         typeof checkout.createdAt !== "string" || !Number.isFinite(Date.parse(checkout.createdAt)) ||
         (checkout.expiresAt !== null && checkout.expiresAt !== undefined && !Number.isFinite(Date.parse(checkout.expiresAt)))) {
       throw commerceError("INVALID_STATE_STRIPE_CHECKOUT");
+    }
+  }
+  if (input.stripeCheckoutAttempt !== undefined) {
+    const attempt = input.stripeCheckoutAttempt;
+    const expectedKeyPrefix = "samurai-order-" + input.id + "-";
+    if (input.status !== "pending_payment" || input.stripeCheckout || !attempt || typeof attempt !== "object" ||
+        typeof attempt.idempotencyKey !== "string" || !attempt.idempotencyKey.startsWith(expectedKeyPrefix) ||
+        !/^[a-f0-9]{24}$/.test(attempt.idempotencyKey.slice(expectedKeyPrefix.length)) ||
+        typeof attempt.createdAt !== "string" || !Number.isFinite(Date.parse(attempt.createdAt)) ||
+        typeof attempt.expiresAt !== "string" || !Number.isFinite(Date.parse(attempt.expiresAt)) ||
+        Date.parse(attempt.expiresAt) <= Date.parse(attempt.createdAt)) {
+      throw commerceError("INVALID_STATE_STRIPE_CHECKOUT_ATTEMPT");
     }
   }
   return structuredClone(input);
@@ -209,6 +229,40 @@ class CommerceStore {
     return order ? structuredClone(order) : null;
   }
 
+  async beginStripeCheckout(id, customerId) {
+    if (typeof id !== "string" || !ORDER_RE.test(id) || typeof customerId !== "string") throw commerceError("ORDER_NOT_FOUND");
+    return this.#mutate(state => {
+      const order = state.orders.find(o => o.id === id && o.customerId === customerId);
+      if (!order) throw commerceError("ORDER_NOT_FOUND");
+      if (order.status === "cancelled") throw commerceError("ORDER_CANCELLED");
+      if (["fulfilled", "test_paid"].includes(order.status)) throw commerceError("ORDER_ALREADY_FULFILLED");
+      if (order.stripeCheckout || order.stripeCheckoutAttempt) return order;
+      const now = Date.now();
+      order.stripeCheckoutAttempt = {
+        idempotencyKey: "samurai-order-" + order.id + "-" + crypto.randomBytes(12).toString("hex"),
+        createdAt: new Date(now).toISOString(),
+        // Match the Stripe session expiry and leave a margin before Stripe's 24h idempotency-key pruning window.
+        expiresAt: new Date(now + 23.5 * 60 * 60 * 1000).toISOString()
+      };
+      return order;
+    });
+  }
+
+  async clearStripeCheckoutAttempt(id, customerId, idempotencyKey) {
+    if (typeof id !== "string" || !ORDER_RE.test(id) || typeof customerId !== "string" || typeof idempotencyKey !== "string") {
+      throw commerceError("ORDER_NOT_FOUND");
+    }
+    return this.#mutate(state => {
+      const order = state.orders.find(o => o.id === id && o.customerId === customerId);
+      if (!order) throw commerceError("ORDER_NOT_FOUND");
+      if (order.stripeCheckout) return order;
+      if (!order.stripeCheckoutAttempt) return order;
+      if (order.stripeCheckoutAttempt.idempotencyKey !== idempotencyKey) throw commerceError("STRIPE_CHECKOUT_ATTEMPT_MISMATCH");
+      delete order.stripeCheckoutAttempt;
+      return order;
+    });
+  }
+
   async recordStripeCheckout(id, customerId, session) {
     if (typeof id !== "string" || !ORDER_RE.test(id) || typeof customerId !== "string") throw commerceError("ORDER_NOT_FOUND");
     let url;
@@ -227,8 +281,15 @@ class CommerceStore {
       if (order.status === "cancelled") throw commerceError("ORDER_CANCELLED");
       if (["fulfilled", "test_paid"].includes(order.status)) throw commerceError("ORDER_ALREADY_FULFILLED");
       if (order.stripeCheckout) {
-        if (order.stripeCheckout.sessionId === session.id) return order;
+        if (order.stripeCheckout.sessionId === session.id) {
+          delete order.stripeCheckoutAttempt;
+          return order;
+        }
         throw commerceError("STRIPE_SESSION_ALREADY_ATTACHED");
+      }
+      if (order.stripeCheckoutAttempt) {
+        const expectedExpiry = Math.floor(Date.parse(order.stripeCheckoutAttempt.expiresAt) / 1000);
+        if (!Number.isSafeInteger(session.expires_at) || session.expires_at !== expectedExpiry) throw commerceError("STRIPE_EXPIRY_MISMATCH");
       }
       order.stripeCheckout = {
         sessionId: session.id,
@@ -237,11 +298,12 @@ class CommerceStore {
         createdAt: now,
         expiresAt
       };
+      delete order.stripeCheckoutAttempt;
       return order;
     });
   }
 
-  async markStripePaid({ orderId, sessionId, eventId, metadataOrderId, metadataCustomerId, clientReferenceId, amountTotal, currency, paymentStatus, livemode }) {
+  async markStripePaid({ orderId, sessionId, eventId, metadataOrderId, metadataCustomerId, clientReferenceId, amountTotal, currency, paymentStatus, livemode, sessionExpiresAt }) {
     if (typeof orderId !== "string" || !ORDER_RE.test(orderId) || !STRIPE_SESSION_RE.test(String(sessionId || "")) || !STRIPE_EVENT_RE.test(String(eventId || ""))) {
       throw commerceError("STRIPE_EVENT_INVALID");
     }
@@ -253,7 +315,15 @@ class CommerceStore {
       if (!order || metadataOrderId !== order.id || clientReferenceId !== order.id || metadataCustomerId !== order.customerId) {
         throw commerceError("STRIPE_ORDER_MISMATCH");
       }
-      if (!order.stripeCheckout || order.stripeCheckout.sessionId !== sessionId) throw commerceError("STRIPE_SESSION_MISMATCH");
+      if (!order.stripeCheckout) {
+        const attempt = order.stripeCheckoutAttempt;
+        if (!attempt || !Number.isSafeInteger(sessionExpiresAt) || sessionExpiresAt !== Math.floor(Date.parse(attempt.expiresAt) / 1000)) {
+          throw commerceError("STRIPE_SESSION_MISMATCH");
+        }
+        order.stripeCheckout = { sessionId, url: null, livemode: false, createdAt: attempt.createdAt, expiresAt: attempt.expiresAt };
+        delete order.stripeCheckoutAttempt;
+      }
+      if (order.stripeCheckout.sessionId !== sessionId) throw commerceError("STRIPE_SESSION_MISMATCH");
       // CommerceStore treats KZT as whole tenge; Stripe Checkout expects two-decimal KZT amounts.
       const expectedStripeAmount = order.currency === "KZT" ? order.totalMinor * 100 : order.totalMinor;
       if (!Number.isSafeInteger(expectedStripeAmount) || !Number.isSafeInteger(amountTotal) || amountTotal !== expectedStripeAmount || String(currency || "").toUpperCase() !== order.currency) {
@@ -278,7 +348,7 @@ class CommerceStore {
     });
   }
 
-  async cancelStripeCheckout({ orderId, sessionId, eventId, metadataOrderId, metadataCustomerId, livemode, reason = "checkout_expired" }) {
+  async cancelStripeCheckout({ orderId, sessionId, eventId, metadataOrderId, metadataCustomerId, livemode, sessionExpiresAt, reason = "checkout_expired" }) {
     if (typeof orderId !== "string" || !ORDER_RE.test(orderId) || !STRIPE_SESSION_RE.test(String(sessionId || "")) || !STRIPE_EVENT_RE.test(String(eventId || ""))) {
       throw commerceError("STRIPE_EVENT_INVALID");
     }
@@ -287,7 +357,15 @@ class CommerceStore {
       const order = state.orders.find(o => o.id === orderId);
       if (state.stripeEventIds.includes(eventId)) return { duplicate: true, order: order || null };
       if (!order || metadataOrderId !== order.id || metadataCustomerId !== order.customerId) throw commerceError("STRIPE_ORDER_MISMATCH");
-      if (!order.stripeCheckout || order.stripeCheckout.sessionId !== sessionId) throw commerceError("STRIPE_SESSION_MISMATCH");
+      if (!order.stripeCheckout) {
+        const attempt = order.stripeCheckoutAttempt;
+        if (!attempt || !Number.isSafeInteger(sessionExpiresAt) || sessionExpiresAt !== Math.floor(Date.parse(attempt.expiresAt) / 1000)) {
+          throw commerceError("STRIPE_SESSION_MISMATCH");
+        }
+        order.stripeCheckout = { sessionId, url: null, livemode: false, createdAt: attempt.createdAt, expiresAt: attempt.expiresAt };
+        delete order.stripeCheckoutAttempt;
+      }
+      if (order.stripeCheckout.sessionId !== sessionId) throw commerceError("STRIPE_SESSION_MISMATCH");
       if (order.status !== "pending_payment") {
         rememberStripeEvent(state, eventId);
         return { duplicate: true, order };
@@ -310,7 +388,7 @@ class CommerceStore {
       if (!order) throw commerceError("ORDER_NOT_FOUND");
       if (order.status === "cancelled") throw commerceError("ORDER_CANCELLED");
       if (["fulfilled", "test_paid"].includes(order.status)) return order;
-      if (order.stripeCheckout) throw commerceError("STRIPE_CHECKOUT_ACTIVE");
+      if (order.stripeCheckout || order.stripeCheckoutAttempt) throw commerceError("STRIPE_CHECKOUT_ACTIVE");
       const product = state.products.find(p => p.sku === order.sku);
       if (!product) throw commerceError("PRODUCT_NOT_FOUND");
       order.status = product.type === "digital" ? "fulfilled" : "test_paid";
@@ -329,7 +407,7 @@ class CommerceStore {
       if (!order) throw commerceError("ORDER_NOT_FOUND");
       if (["fulfilled", "test_paid"].includes(order.status)) throw commerceError("ORDER_ALREADY_FULFILLED");
       if (order.status === "cancelled") return order;
-      if (order.stripeCheckout) throw commerceError("STRIPE_CHECKOUT_ACTIVE");
+      if (order.stripeCheckout || order.stripeCheckoutAttempt) throw commerceError("STRIPE_CHECKOUT_ACTIVE");
       const product = state.products.find(p => p.sku === order.sku);
       if (!product) throw commerceError("PRODUCT_NOT_FOUND");
       product.stock += order.quantity;
