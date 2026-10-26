@@ -56,7 +56,7 @@
   function setBusy(key, on) {
     if (on) busy.add(key); else busy.delete(key);
     document.querySelectorAll("[data-busy-key]").forEach((button) => {
-      button.disabled = busy.has(button.dataset.busyKey);
+      button.disabled = button.dataset.baseDisabled === "true" || busy.has(button.dataset.busyKey);
     });
   }
 
@@ -127,7 +127,8 @@
       quantityRow.append(qty);
       const buy = element("button", "primary-button buy-button");
       buy.type = "button"; buy.dataset.busyKey = "buy:" + product.sku;
-      buy.disabled = !initData || product.stock < 1;
+      buy.dataset.baseDisabled = String(!initData || product.stock < 1);
+      buy.disabled = buy.dataset.baseDisabled === "true" || busy.has(buy.dataset.busyKey);
       buy.append(document.createTextNode(product.stock < 1 ? "Нет в наличии" : "Оформить тестовый заказ"));
       if (product.stock > 0) buy.append(element("span", "", "↗"));
       buy.addEventListener("click", () => createOrder(product, quantity));
