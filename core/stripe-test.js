@@ -82,7 +82,7 @@ function createStripeTestClient({ env = process.env, fetchImpl = (...args) => gl
 function registerStripeTestWebhook(app, { storeProvider, stripeClient, rawBodyMiddleware, env = process.env } = {}) {
   if (!app || typeof app.post !== "function" || typeof storeProvider !== "function" || !stripeClient || typeof stripeClient.verifyAndParseWebhook !== "function" || typeof stripeClient.isWebhookConfigured !== "function" || typeof rawBodyMiddleware !== "function") throw new TypeError("Stripe webhook dependencies are required");
   const gate = (_req, res, next) => {
-    const enabled = String(env.NODE_ENV || "").toLowerCase() !== "production" && String(env.COMMERCE_ENABLED || "").toLowerCase() === "true" && String(env.STRIPE_TEST_MODE || "").toLowerCase() === "true";
+    const enabled = String(env.NODE_ENV || "").toLowerCase() !== "production" && String(env.COMMERCE_ENABLED || "").toLowerCase() === "true" && String(env.COMMERCE_MODE || "").toLowerCase() === "test" && String(env.STRIPE_TEST_MODE || "").toLowerCase() === "true";
     if (!enabled) return res.status(404).json({ ok: false, error: { code: "STRIPE_TEST_DISABLED", message: "Stripe test webhook is disabled" } });
     if (!stripeClient.isWebhookConfigured()) return res.status(503).json({ ok: false, error: { code: "STRIPE_TEST_NOT_CONFIGURED", message: "Stripe test webhook is not configured" } });
     return next();
