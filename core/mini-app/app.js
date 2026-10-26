@@ -221,7 +221,7 @@
 
   async function continueCheckout() {
     const id = (activeOrderId || orderInput.value).trim();
-    if (!/^ord_[a-f0-9]{24}$/.test(id)) {
+    if (!/^SAM-[A-F0-9]{12}$/i.test(id)) {
       setOrderState("Сначала введите или создайте номер заказа.", "error");
       return;
     }
@@ -254,7 +254,7 @@
       const payload = await api("/v1/commerce/orders/" + encodeURIComponent(id));
       if (payload.order) {
         revealOrder(payload.order.id);
-        const pending = payload.order.status === "pending_payment";
+        const pending = ["AWAITING_PAYMENT", "PAYMENT_REVIEW"].includes(payload.order.status);
         const uncertain = Boolean(payload.order.checkoutInProgress);
         const needsReconciliation = checkoutError?.code === "STRIPE_CHECKOUT_RECONCILIATION_REQUIRED";
         const guidance = needsReconciliation
@@ -278,7 +278,7 @@
     try {
       const payload = await api("/v1/commerce/orders", { method: "POST", body: { productId: product.id || product.sku, quantity, fulfillment: "pickup" } });
       const order = payload.order;
-      if (!order || !/^ord_[a-f0-9]{24}$/.test(order.id)) throw new Error("Сервер не вернул корректный номер заказа.");
+      if (!order || !/^SAM-[A-F0-9]{12}$/i.test(order.id)) throw new Error("Сервер не вернул корректный номер заказа.");
       revealOrder(order.id);
       setOrderState(statusLabel(order) + ". Открываем тестовую оплату…", "success");
       await continueCheckout();
@@ -289,26 +289,6 @@
       await loadCatalog();
     } finally {
       setBusy(key, false);
-    }
-  }
-
-  async function cancelOrder() {
-    const id = (activeOrderId || orderInput.value).trim();
-    if (!/^ord_[a-f0-9]{24}$/.test(id)) return;
-    setBusy("cancel", true);
-    $("cancel-order").disabled = true;
-    try {
-      const payload = await api("/v1/commerce/orders/" + encodeURIComponent(id) + "/cancel", { method: "POST", body: {} });
-      setOrderState(statusLabel(payload.order), "success");
-      orderActions.hidden = true;
-      showToast("Тестовый заказ отменён.");
-      await loadCatalog();
-    } catch (error) {
-      setOrderState(error.message || "Не удалось отменить заказ.", "error");
-      showToast(error.message || "Ошибка отмены");
-    } finally {
-      setBusy("cancel", false);
-      $("cancel-order").disabled = false;
     }
   }
 
