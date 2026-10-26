@@ -123,10 +123,10 @@ function registerStripeTestWebhook(app, { storeProvider, stripeClient, rawBodyMi
     try {
       if (["checkout.session.completed", "checkout.session.async_payment_succeeded"].includes(event.type)) {
         if (session.payment_status !== "paid") return res.status(200).json({ received: true, processed: false, reason: "payment_not_paid" });
-        const result = await store.markStripePaid({ orderId: metadataOrderId, sessionId: session.id, eventId: event.id, metadataOrderId, metadataCustomerId, clientReferenceId: session.client_reference_id, amountTotal: session.amount_total, currency: String(session.currency || "").toUpperCase(), paymentStatus: session.payment_status, livemode: event.livemode });
+        const result = await store.markStripePaid({ orderId: metadataOrderId, sessionId: session.id, eventId: event.id, metadataOrderId, metadataCustomerId, clientReferenceId: session.client_reference_id, amountTotal: session.amount_total, currency: String(session.currency || "").toUpperCase(), paymentStatus: session.payment_status, livemode: event.livemode, sessionExpiresAt: session.expires_at });
         return res.status(200).json({ received: true, processed: true, duplicate: Boolean(result.duplicate) });
       }
-      const result = await store.cancelStripeCheckout({ orderId: metadataOrderId, sessionId: session.id, eventId: event.id, metadataOrderId, metadataCustomerId, livemode: event.livemode, reason: event.type === "checkout.session.expired" ? "checkout_expired" : "async_payment_failed" });
+      const result = await store.cancelStripeCheckout({ orderId: metadataOrderId, sessionId: session.id, eventId: event.id, metadataOrderId, metadataCustomerId, livemode: event.livemode, sessionExpiresAt: session.expires_at, reason: event.type === "checkout.session.expired" ? "checkout_expired" : "async_payment_failed" });
       return res.status(200).json({ received: true, processed: true, duplicate: Boolean(result.duplicate) });
     } catch (error) {
       const conflicts = new Set(["STRIPE_ORDER_MISMATCH", "STRIPE_SESSION_MISMATCH", "STRIPE_AMOUNT_MISMATCH", "STRIPE_LIVE_EVENT_REJECTED", "STRIPE_PAYMENT_NOT_PAID", "ORDER_ALREADY_FULFILLED", "ORDER_NOT_PENDING"]);
