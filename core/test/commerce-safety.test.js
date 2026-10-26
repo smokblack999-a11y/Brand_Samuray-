@@ -126,6 +126,47 @@ test("Stripe webhook signature is checked over exact raw body and freshness wind
   assert.throws(() => client.verifyAndParseWebhook(raw, "t=" + (timestamp - 3600) + ",v1=" + signature), e => e.code === "STRIPE_SIGNATURE_INVALID");
 });
 
+test("a Stripe test webhook marks the matching order paid exactly once", async () => withStore(async ({ store }) => {
+  const order = await store.createOrder({ sku: "demo-digital-guide", quantity: 1, customerId: "tg:15" });
+  const session = checkoutSession();
+  await store.recordStripeCheckout(order.id, "tg:15", session);
+  const event = { orderId: order.id, sessionId: session.id, eventId: "evt_paid_example", metadataOrderId: order.id, metadataCustomerId: "tg:15", clientReferenceId: order.id, amountTotal: 199000, currency: "KZT", paymentStatus: "paid", livemode: false };
+  const first = await store.markStripePaid(event);
+  assert.equal(first.duplicate, false);
+  assert.equal(first.order.status, "fulfilled");
+  assert.equal(first.order.testPayment.provider, "stripe_test");
+  assert.equal(first.order.fulfillment.content, "DEMO ONLY");
+  const replay = await store.markStripePaid(event);
+  assert.equal(replay.duplicate, true);
+  assert.equal(store.listProducts().find(p => p.sku === order.sku).stock, 3);
+}));
+
+test("Stripe webhook amount mismatch leaves the order unpaid", async () => withStore(async ({ store }) => {
+  const order = await store.createOrder({ sku: "demo-digital-guide", quantity: 1, customerId: "tg:16" });
+  const session = checkoutSession();
+  await store.recordStripeCheckout(order.id, "tg:16", session);
+  await assert.rejects(store.markStripePaid({ orderId: order.id, sessionId: session.id, eventId: "evt_wrong_amount", metadataOrderId: order.id, metadataCustomerId: "tg:16", clientReferenceId: order.id, amountTotal: 1, currency: "KZT", paymentStatus: "paid", livemode: false }), e => e.code === "STRIPE_AMOUNT_MISMATCH");
+  assert.equal(store.getOrder(order.id, "tg:16").status, "pending_payment");
+}));
+
+test("expired Checkout releases reserved stock only once", async () => withStore(async ({ store }) => {
+  const order = await store.createOrder({ sku: "demo-physical-box", quantity: 1, customerId: "tg:17" });
+  const session = checkoutSession();
+  await store.recordStripeCheckout(order.id, "tg:17", session);
+  const event = { orderId: order.id, sessionId: session.id, eventId: "evt_expired_example", metadataOrderId: order.id, metadataCustomerId: "tg:17", livemode: false, reason: "checkout_expired" };
+  const first = await store.cancelStripeCheckout(event);
+  assert.equal(first.order.status, "cancelled");
+  const replay = await store.cancelStripeCheckout(event);
+  assert.equal(replay.duplicate, true);
+  assert.equal(store.listProducts().find(p => p.sku === order.sku).stock, 2);
+}));
+
+test("orders and payment state survive a process restart", async () => withStore(async ({ store, dataDir, catalogFile }) => {
+  const order = await store.createOrder({ sku: "demo-digital-guide", quantity: 1, customerId: "tg:18" });
+  const restarted = await new CommerceStore({ dataDir, catalogFile, mode: "test" }).init();
+  assert.equal(restarted.getOrder(order.id, "tg:18").status, "pending_payment");
+  assert.equal(restarted.listProducts().find(p => p.sku === order.sku).stock, 3);
+}));
 test("Stripe webhook and Commerce routes are unique and versioned", () => {
   const routes = [];
   const app = { get: (p, ...h) => routes.push({ method: "GET", path: p, handlers: h }), post: (p, ...h) => routes.push({ method: "POST", path: p, handlers: h }) };
