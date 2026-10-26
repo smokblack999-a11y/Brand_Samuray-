@@ -130,7 +130,7 @@ test("a Stripe test webhook marks the matching order paid exactly once", async (
   const order = await store.createOrder({ sku: "demo-digital-guide", quantity: 1, customerId: "tg:15" });
   const session = checkoutSession();
   await store.recordStripeCheckout(order.id, "tg:15", session);
-  const event = { orderId: order.id, sessionId: session.id, eventId: "evt_paid_example", metadataOrderId: order.id, metadataCustomerId: "tg:15", clientReferenceId: order.id, amountTotal: 199000, currency: "KZT", paymentStatus: "paid", livemode: false };
+  const event = { orderId: order.id, sessionId: session.id, eventId: "evt_paidexample", metadataOrderId: order.id, metadataCustomerId: "tg:15", clientReferenceId: order.id, amountTotal: 199000, currency: "KZT", paymentStatus: "paid", livemode: false };
   const first = await store.markStripePaid(event);
   assert.equal(first.duplicate, false);
   assert.equal(first.order.status, "fulfilled");
@@ -145,7 +145,7 @@ test("Stripe webhook amount mismatch leaves the order unpaid", async () => withS
   const order = await store.createOrder({ sku: "demo-digital-guide", quantity: 1, customerId: "tg:16" });
   const session = checkoutSession();
   await store.recordStripeCheckout(order.id, "tg:16", session);
-  await assert.rejects(store.markStripePaid({ orderId: order.id, sessionId: session.id, eventId: "evt_wrong_amount", metadataOrderId: order.id, metadataCustomerId: "tg:16", clientReferenceId: order.id, amountTotal: 1, currency: "KZT", paymentStatus: "paid", livemode: false }), e => e.code === "STRIPE_AMOUNT_MISMATCH");
+  await assert.rejects(store.markStripePaid({ orderId: order.id, sessionId: session.id, eventId: "evt_wrongamount", metadataOrderId: order.id, metadataCustomerId: "tg:16", clientReferenceId: order.id, amountTotal: 1, currency: "KZT", paymentStatus: "paid", livemode: false }), e => e.code === "STRIPE_AMOUNT_MISMATCH");
   assert.equal(store.getOrder(order.id, "tg:16").status, "pending_payment");
 }));
 
@@ -153,7 +153,7 @@ test("expired Checkout releases reserved stock only once", async () => withStore
   const order = await store.createOrder({ sku: "demo-physical-box", quantity: 1, customerId: "tg:17" });
   const session = checkoutSession();
   await store.recordStripeCheckout(order.id, "tg:17", session);
-  const event = { orderId: order.id, sessionId: session.id, eventId: "evt_expired_example", metadataOrderId: order.id, metadataCustomerId: "tg:17", livemode: false, reason: "checkout_expired" };
+  const event = { orderId: order.id, sessionId: session.id, eventId: "evt_expiredexample", metadataOrderId: order.id, metadataCustomerId: "tg:17", livemode: false, reason: "checkout_expired" };
   const first = await store.cancelStripeCheckout(event);
   assert.equal(first.order.status, "cancelled");
   const replay = await store.cancelStripeCheckout(event);
