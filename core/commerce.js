@@ -278,8 +278,6 @@ class CommerceStore {
     return this.#mutate(state => {
       const order = state.orders.find(o => o.id === id && o.customerId === customerId);
       if (!order) throw commerceError("ORDER_NOT_FOUND");
-      if (order.status === "cancelled") throw commerceError("ORDER_CANCELLED");
-      if (["fulfilled", "test_paid"].includes(order.status)) throw commerceError("ORDER_ALREADY_FULFILLED");
       if (order.stripeCheckout) {
         if (order.stripeCheckout.sessionId === session.id) {
           delete order.stripeCheckoutAttempt;
@@ -287,6 +285,8 @@ class CommerceStore {
         }
         throw commerceError("STRIPE_SESSION_ALREADY_ATTACHED");
       }
+      if (order.status === "cancelled") throw commerceError("ORDER_CANCELLED");
+      if (["fulfilled", "test_paid"].includes(order.status)) throw commerceError("ORDER_ALREADY_FULFILLED");
       if (order.stripeCheckoutAttempt) {
         const expectedExpiry = Math.floor(Date.parse(order.stripeCheckoutAttempt.expiresAt) / 1000);
         if (!Number.isSafeInteger(session.expires_at) || session.expires_at !== expectedExpiry) throw commerceError("STRIPE_EXPIRY_MISMATCH");
