@@ -1,0 +1,761 @@
+"use strict";
+
+// Transactional persistence for order/payment state. Node 22.13+ provides node:sqlite.
+// SQLite is intended for one Core instance with a persistent local volume. Do not share
+// this file over a network filesystem or mount it into multiple replicas; use PostgreSQL
+// before horizontal scaling.
+const fs = require("node:fs");
+const path = require("node:path");
+const { DatabaseSync } = require("node:sqlite");
+const { createMoneySnapshot, amountMinorForOrder } = require("./money");
+
+const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, "data");
+const DB_PATH = process.env.COMMERCE_DB_PATH || path.join(DATA_DIR, "commerce.sqlite");
+const ORDERS_FILE = path.join(DATA_DIR, "commerce-orders.json");
+const EVENTS_FILE = path.join(DATA_DIR, "commerce-payment-events.json");
+const SESSIONS_FILE = path.join(DATA_DIR, "commerce-bot-sessions.json");
+const UPDATES_FILE = path.join(DATA_DIR, "commerce-bot-updates.json");
+const MIGRATION_NAME = "001_legacy_commerce_json_to_sqlite";
+const TELEGRAM_MIGRATION_NAME = "002_legacy_telegram_state_to_sqlite";
+const PAYMENT_ATTEMPT_MIGRATION_NAME = "003_backfill_legacy_payment_attempts";
+
+if (DB_PATH !== ":memory:") {
+  fs.mkdirSync(path.dirname(path.resolve(DB_PATH)), { recursive: true, mode: 0o700 });
+}
+
+const db = new DatabaseSync(DB_PATH);
+db.exec("PRAGMA busy_timeout = 5000;");
+db.exec("PRAGMA foreign_keys = ON;");
+db.exec("PRAGMA journal_mode = WAL;");
+db.exec("PRAGMA synchronous = FULL;");
+db.exec(`
+  CREATE TABLE IF NOT EXISTS commerce_orders (
+    id TEXT PRIMARY KEY,
+    customer_id TEXT NOT NULL,
+    idempotency_key TEXT,
+    status TEXT NOT NULL,
+    payment_status TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    payload TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_commerce_orders_customer_created
+    ON commerce_orders(customer_id, created_at);
+  CREATE INDEX IF NOT EXISTS idx_commerce_orders_status
+    ON commerce_orders(status, payment_status);
+  CREATE UNIQUE INDEX IF NOT EXISTS uq_commerce_orders_idempotency
+    ON commerce_orders(idempotency_key)
+    WHERE idempotency_key IS NOT NULL;
+
+  CREATE TABLE IF NOT EXISTS commerce_payment_events (
+    event_id TEXT PRIMARY KEY,
+    order_id TEXT,
+    created_at TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_commerce_payment_events_order
+    ON commerce_payment_events(order_id);
+
+  CREATE TABLE IF NOT EXISTS commerce_payment_attempts (
+    attempt_key TEXT PRIMARY KEY,
+    order_id TEXT NOT NULL,
+    provider TEXT NOT NULL,
+    environment TEXT NOT NULL,
+    expected_amount_minor INTEGER NOT NULL CHECK(expected_amount_minor > 0),
+    currency TEXT NOT NULL CHECK(length(currency) = 3),
+    provider_session_id TEXT,
+    provider_transaction_id TEXT,
+    status TEXT NOT NULL,
+    provider_event_ids TEXT NOT NULL DEFAULT '[]',
+    metadata TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    verified_at TEXT
+  );
+  CREATE INDEX IF NOT EXISTS idx_commerce_payment_attempt_order
+    ON commerce_payment_attempts(order_id, created_at);
+  CREATE UNIQUE INDEX IF NOT EXISTS uq_commerce_payment_attempt_session
+    ON commerce_payment_attempts(provider, environment, provider_session_id)
+    WHERE provider_session_id IS NOT NULL;
+  CREATE UNIQUE INDEX IF NOT EXISTS uq_commerce_payment_attempt_transaction
+    ON commerce_payment_attempts(provider, environment, provider_transaction_id)
+    WHERE provider_transaction_id IS NOT NULL;
+
+  CREATE TABLE IF NOT EXISTS commerce_outbox_jobs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    dedupe_key TEXT NOT NULL UNIQUE,
+    type TEXT NOT NULL,
+    order_id TEXT NOT NULL,
+    payload TEXT NOT NULL,
+    status TEXT NOT NULL CHECK(status IN ('PENDING', 'PROCESSING', 'RETRY', 'SENT')),
+    attempts INTEGER NOT NULL DEFAULT 0,
+    available_at TEXT NOT NULL,
+    lease_until TEXT,
+    last_error_code TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    processed_at TEXT
+  );
+  CREATE INDEX IF NOT EXISTS idx_commerce_outbox_due
+    ON commerce_outbox_jobs(status, available_at, lease_until);
+
+  CREATE TABLE IF NOT EXISTS commerce_order_audit_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    order_id TEXT NOT NULL REFERENCES commerce_orders(id),
+    event_type TEXT NOT NULL,
+    actor_type TEXT NOT NULL DEFAULT 'system',
+    actor_id TEXT,
+    from_status TEXT,
+    to_status TEXT,
+    from_payment_status TEXT,
+    to_payment_status TEXT,
+    details TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_commerce_order_audit_order_time
+    ON commerce_order_audit_events(order_id, created_at, id);
+
+  CREATE TABLE IF NOT EXISTS commerce_bot_sessions (
+    user_id TEXT PRIMARY KEY,
+    payload TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS commerce_telegram_updates (
+    update_id INTEGER PRIMARY KEY,
+    created_at TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS commerce_schema_migrations (
+    name TEXT PRIMARY KEY,
+    applied_at TEXT NOT NULL
+  );
+`);
+
+let transactionDepth = 0;
+
+function withTransaction(fn) {
+  if (typeof fn !== "function") throw new TypeError("Transaction callback is required");
+  // Synchronous callbacks only: no network requests or await inside a DB transaction.
+  if (transactionDepth > 0) return fn();
+  db.exec("BEGIN IMMEDIATE;");
+  transactionDepth = 1;
+  try {
+    const result = fn();
+    if (result && typeof result.then === "function") {
+      throw new TypeError("SQLite transaction callbacks must be synchronous");
+    }
+    db.exec("COMMIT;");
+    return result;
+  } catch (error) {
+    try { db.exec("ROLLBACK;"); } catch {}
+    throw error;
+  } finally {
+    transactionDepth = 0;
+  }
+}
+
+const upsertOrderStatement = db.prepare(`
+  INSERT INTO commerce_orders
+    (id, customer_id, idempotency_key, status, payment_status, created_at, updated_at, payload)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  ON CONFLICT(id) DO UPDATE SET
+    customer_id = excluded.customer_id,
+    idempotency_key = excluded.idempotency_key,
+    status = excluded.status,
+    payment_status = excluded.payment_status,
+    created_at = excluded.created_at,
+    updated_at = excluded.updated_at,
+    payload = excluded.payload
+`);
+
+function upsertOrder(order) {
+  if (!order || typeof order !== "object" || !String(order.id || "").trim()) {
+    throw new Error("Cannot persist an order without an ID");
+  }
+  const now = new Date().toISOString();
+  const createdAt = String(order.createdAt || now);
+  const updatedAt = String(order.updatedAt || createdAt);
+  const payload = { ...order, createdAt, updatedAt };
+  // Backfill legacy KZT order payloads as they are touched, without changing historical
+  // major-unit fields or accepting a snapshot whose total disagrees with the saved total.
+  if (!payload.money && String(payload.currency || "").toUpperCase() === "KZT" &&
+      Number.isSafeInteger(payload.unitPriceKzt) && Number.isSafeInteger(payload.quantity) &&
+      Number.isSafeInteger(payload.deliveryFeeKzt) && Number.isSafeInteger(payload.totalKzt)) {
+    try {
+      const snapshot = createMoneySnapshot({
+        currency: "KZT",
+        unitAmount: String(payload.unitPriceKzt),
+        quantity: payload.quantity,
+        deliveryFee: String(payload.deliveryFeeKzt)
+      });
+      if (snapshot.totalMinor === amountMinorForOrder({ currency: "KZT", totalKzt: payload.totalKzt })) {
+        payload.money = snapshot;
+      }
+    } catch {
+      // Keep the old record readable; the order/amount needs explicit reconciliation.
+    }
+  }
+  upsertOrderStatement.run(
+    String(order.id),
+    String(order.customerId || ""),
+    String(order.idempotencyKey || "") || null,
+    String(order.status || "AWAITING_PAYMENT"),
+    String(order.paymentStatus || "AWAITING_PAYMENT"),
+    createdAt,
+    updatedAt,
+    JSON.stringify(payload)
+  );
+}
+
+function mapPaymentAttempt(row) {
+  if (!row) return null;
+  let providerEventIds = [];
+  let metadata = {};
+  try { providerEventIds = JSON.parse(row.provider_event_ids || "[]"); } catch {}
+  try { metadata = JSON.parse(row.metadata || "{}"); } catch {}
+  return {
+    attemptKey: row.attempt_key,
+    orderId: row.order_id,
+    provider: row.provider,
+    environment: row.environment,
+    expectedAmountMinor: row.expected_amount_minor,
+    currency: row.currency,
+    providerSessionId: row.provider_session_id || null,
+    providerTransactionId: row.provider_transaction_id || null,
+    status: row.status,
+    providerEventIds,
+    metadata,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    verifiedAt: row.verified_at || null
+  };
+}
+
+function getPaymentAttemptByKey(attemptKey) {
+  return mapPaymentAttempt(db.prepare("SELECT * FROM commerce_payment_attempts WHERE attempt_key = ?").get(String(attemptKey || "")));
+}
+
+function getPaymentAttemptBySession(provider, environment, sessionId) {
+  const session = String(sessionId || "").trim();
+  if (!session) return null;
+  return mapPaymentAttempt(db.prepare(`
+    SELECT * FROM commerce_payment_attempts
+    WHERE provider = ? AND environment = ? AND provider_session_id = ?
+  `).get(String(provider), String(environment), session));
+}
+
+function upsertPaymentAttempt(input) {
+  if (!input || typeof input !== "object") throw new TypeError("Payment attempt input is required");
+  const attemptKey = String(input.attemptKey || "").trim();
+  const orderId = String(input.orderId || "").trim();
+  const provider = String(input.provider || "").trim();
+  const environment = String(input.environment || "").trim();
+  const amountMinor = Number(input.expectedAmountMinor);
+  const currency = String(input.currency || "").toUpperCase();
+  if (!attemptKey || !orderId || !provider || !environment) throw new Error("Payment attempt identity fields are required");
+  if (!Number.isSafeInteger(amountMinor) || amountMinor <= 0) throw new Error("Payment attempt amount must be a positive integer in minor units");
+  if (!/^[A-Z]{3}$/.test(currency)) throw new Error("Payment attempt currency must be a three-letter ISO code");
+
+  return withTransaction(() => {
+    const now = new Date().toISOString();
+    const current = getPaymentAttemptByKey(attemptKey);
+    const sessionId = input.providerSessionId == null ? null : String(input.providerSessionId).trim() || null;
+    const transactionId = input.providerTransactionId == null ? null : String(input.providerTransactionId).trim() || null;
+    if (current && (
+      current.orderId !== orderId ||
+      current.provider !== provider ||
+      current.environment !== environment ||
+      current.expectedAmountMinor !== amountMinor ||
+      current.currency !== currency
+    )) throw new Error("Payment attempt immutable fields cannot be changed");
+
+    const providerEventIds = [...new Set([
+      ...(current?.providerEventIds || []),
+      ...(Array.isArray(input.providerEventIds) ? input.providerEventIds : [])
+    ].map((value) => String(value || "").trim()).filter(Boolean))];
+    const metadata = { ...(current?.metadata || {}), ...(input.metadata && typeof input.metadata === "object" && !Array.isArray(input.metadata) ? input.metadata : {}) };
+    const record = {
+      attemptKey,
+      orderId,
+      provider,
+      environment,
+      expectedAmountMinor: amountMinor,
+      currency,
+      providerSessionId: sessionId || current?.providerSessionId || null,
+      providerTransactionId: transactionId || current?.providerTransactionId || null,
+      status: String(input.status || current?.status || "CREATING"),
+      providerEventIds,
+      metadata,
+      createdAt: current?.createdAt || now,
+      updatedAt: now,
+      verifiedAt: input.verifiedAt || current?.verifiedAt || null
+    };
+
+    if (current) {
+      db.prepare(`
+        UPDATE commerce_payment_attempts SET
+          provider_session_id = ?, provider_transaction_id = ?, status = ?,
+          provider_event_ids = ?, metadata = ?, updated_at = ?, verified_at = ?
+        WHERE attempt_key = ?
+      `).run(
+        record.providerSessionId, record.providerTransactionId, record.status,
+        JSON.stringify(record.providerEventIds), JSON.stringify(record.metadata),
+        record.updatedAt, record.verifiedAt, attemptKey
+      );
+    } else {
+      db.prepare(`
+        INSERT INTO commerce_payment_attempts (
+          attempt_key, order_id, provider, environment, expected_amount_minor, currency,
+          provider_session_id, provider_transaction_id, status, provider_event_ids, metadata,
+          created_at, updated_at, verified_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        record.attemptKey, record.orderId, record.provider, record.environment,
+        record.expectedAmountMinor, record.currency, record.providerSessionId,
+        record.providerTransactionId, record.status, JSON.stringify(record.providerEventIds),
+        JSON.stringify(record.metadata), record.createdAt, record.updatedAt, record.verifiedAt
+      );
+    }
+    return record;
+  });
+}
+
+function findPaymentAttemptByEventId(eventId, provider = "stripe", environment = "test") {
+  const id = String(eventId || "").trim();
+  if (!id) return null;
+  const rows = db.prepare("SELECT * FROM commerce_payment_attempts WHERE provider = ? AND environment = ? ORDER BY created_at")
+    .all(String(provider), String(environment));
+  for (const row of rows) {
+    const attempt = mapPaymentAttempt(row);
+    if (attempt.providerEventIds.includes(id)) return attempt;
+  }
+  return null;
+}
+
+function listPaymentAttemptsForTests(orderId) {
+  const rows = orderId == null
+    ? db.prepare("SELECT * FROM commerce_payment_attempts ORDER BY created_at, attempt_key").all()
+    : db.prepare("SELECT * FROM commerce_payment_attempts WHERE order_id = ? ORDER BY created_at, attempt_key").all(String(orderId));
+  return rows.map(mapPaymentAttempt);
+}
+
+function appendOrderAuditEvent(input) {
+  if (!input || typeof input !== "object") throw new TypeError("Order audit input is required");
+  const orderId = String(input.orderId || "").trim();
+  const eventType = String(input.eventType || "").trim().toUpperCase();
+  if (!orderId || !/^[A-Z][A-Z0-9_]{2,79}$/.test(eventType)) throw new Error("Valid order audit identity is required");
+  const details = input.details && typeof input.details === "object" && !Array.isArray(input.details)
+    ? input.details : {};
+  const createdAt = String(input.createdAt || new Date().toISOString());
+  const result = db.prepare(`
+    INSERT INTO commerce_order_audit_events (
+      order_id, event_type, actor_type, actor_id, from_status, to_status,
+      from_payment_status, to_payment_status, details, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    orderId,
+    eventType,
+    String(input.actorType || "system"),
+    input.actorId == null ? null : String(input.actorId),
+    input.fromStatus || null,
+    input.toStatus || null,
+    input.fromPaymentStatus || null,
+    input.toPaymentStatus || null,
+    JSON.stringify(details),
+    createdAt
+  );
+  return Number(result.lastInsertRowid);
+}
+
+function listOrderAuditEvents(orderId) {
+  const rows = db.prepare(`
+    SELECT id, order_id, event_type, actor_type, actor_id, from_status, to_status,
+           from_payment_status, to_payment_status, details, created_at
+    FROM commerce_order_audit_events
+    WHERE order_id = ?
+    ORDER BY id
+  `).all(String(orderId || ""));
+  return rows.map((row) => {
+    let details = {};
+    try { details = JSON.parse(row.details || "{}"); } catch {}
+    return {
+      id: row.id, orderId: row.order_id, eventType: row.event_type,
+      actorType: row.actor_type, actorId: row.actor_id,
+      fromStatus: row.from_status, toStatus: row.to_status,
+      fromPaymentStatus: row.from_payment_status, toPaymentStatus: row.to_payment_status,
+      details, createdAt: row.created_at
+    };
+  });
+}
+
+function readOrders() {
+  return db.prepare("SELECT payload FROM commerce_orders ORDER BY rowid").all()
+    .map((row) => JSON.parse(row.payload));
+}
+
+function writeOrders(orders) {
+  if (!Array.isArray(orders)) throw new TypeError("Orders must be an array");
+  return withTransaction(() => {
+    for (const order of orders) upsertOrder(order);
+  });
+}
+
+function readEvents() {
+  return db.prepare("SELECT event_id FROM commerce_payment_events ORDER BY created_at, event_id")
+    .all().map((row) => row.event_id);
+}
+
+function writeEvents(events) {
+  if (!Array.isArray(events)) throw new TypeError("Payment events must be an array");
+  return withTransaction(() => {
+    const orders = readOrders();
+    const statement = db.prepare(`
+      INSERT INTO commerce_payment_events(event_id, order_id, created_at)
+      VALUES (?, ?, ?)
+      ON CONFLICT(event_id) DO NOTHING
+    `);
+    const now = new Date().toISOString();
+    for (const eventId of new Set(events.map((value) => String(value || "").trim()).filter(Boolean))) {
+      const order = orders.find((item) =>
+        (Array.isArray(item.paymentEventIds) && item.paymentEventIds.includes(eventId)) ||
+        item.paymentReference === eventId
+      );
+      statement.run(eventId, order?.id || null, now);
+    }
+  });
+}
+
+function readLegacyJson(file, fallback) {
+  if (!fs.existsSync(file)) return fallback;
+  let parsed;
+  try { parsed = JSON.parse(fs.readFileSync(file, "utf8")); }
+  catch (error) {
+    throw new Error("Legacy commerce file is invalid JSON and was not imported: " + path.basename(file), { cause: error });
+  }
+  if (!Array.isArray(parsed)) throw new Error("Legacy commerce file must contain a JSON array: " + path.basename(file));
+  return parsed;
+}
+
+function readLegacyObject(file, fallback) {
+  if (!fs.existsSync(file)) return fallback;
+  let parsed;
+  try { parsed = JSON.parse(fs.readFileSync(file, "utf8")); }
+  catch (error) {
+    throw new Error("Legacy state file is invalid JSON and was not imported: " + path.basename(file), { cause: error });
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("Legacy state file must contain a JSON object: " + path.basename(file));
+  }
+  return parsed;
+}
+
+function migrateLegacyJsonOnce() {
+  if (db.prepare("SELECT name FROM commerce_schema_migrations WHERE name = ?").get(MIGRATION_NAME)) return;
+
+  const legacyOrders = readLegacyJson(ORDERS_FILE, []);
+  const legacyEvents = readLegacyJson(EVENTS_FILE, []);
+  withTransaction(() => {
+    for (const order of legacyOrders) upsertOrder(order);
+    const eventStatement = db.prepare(`
+      INSERT INTO commerce_payment_events(event_id, order_id, created_at)
+      VALUES (?, ?, ?)
+      ON CONFLICT(event_id) DO NOTHING
+    `);
+    const now = new Date().toISOString();
+    for (const value of new Set(legacyEvents.map((eventId) => String(eventId || "").trim()).filter(Boolean))) {
+      const order = legacyOrders.find((item) =>
+        (Array.isArray(item.paymentEventIds) && item.paymentEventIds.includes(value)) ||
+        item.paymentReference === value
+      );
+      eventStatement.run(value, order?.id || null, now);
+    }
+    db.prepare("INSERT INTO commerce_schema_migrations(name, applied_at) VALUES (?, ?)")
+      .run(MIGRATION_NAME, now);
+  });
+}
+
+function migrateLegacyTelegramStateOnce() {
+  if (db.prepare("SELECT name FROM commerce_schema_migrations WHERE name = ?").get(TELEGRAM_MIGRATION_NAME)) return;
+
+  const legacySessions = readLegacyObject(SESSIONS_FILE, {});
+  const legacyUpdateIds = readLegacyJson(UPDATES_FILE, []);
+  withTransaction(() => {
+    const sessionStatement = db.prepare(`
+      INSERT INTO commerce_bot_sessions(user_id, payload, updated_at)
+      VALUES (?, ?, ?)
+      ON CONFLICT(user_id) DO NOTHING
+    `);
+    const now = new Date().toISOString();
+    for (const [userId, payload] of Object.entries(legacySessions)) {
+      if (!String(userId).trim() || payload == null) continue;
+      sessionStatement.run(String(userId), JSON.stringify(payload), now);
+    }
+    const updateStatement = db.prepare(`
+      INSERT INTO commerce_telegram_updates(update_id, created_at)
+      VALUES (?, ?)
+      ON CONFLICT(update_id) DO NOTHING
+    `);
+    for (const updateId of new Set(legacyUpdateIds.filter(Number.isSafeInteger))) {
+      updateStatement.run(updateId, now);
+    }
+    db.exec(`
+      DELETE FROM commerce_telegram_updates
+      WHERE update_id NOT IN (
+        SELECT update_id FROM commerce_telegram_updates ORDER BY update_id DESC LIMIT 10000
+      )
+    `);
+    db.prepare("INSERT INTO commerce_schema_migrations(name, applied_at) VALUES (?, ?)")
+      .run(TELEGRAM_MIGRATION_NAME, now);
+  });
+}
+
+function readBotSessions() {
+  const sessions = {};
+  for (const row of db.prepare("SELECT user_id, payload FROM commerce_bot_sessions").all()) {
+    try { sessions[row.user_id] = JSON.parse(row.payload); } catch {}
+  }
+  return sessions;
+}
+
+function setBotSession(userId, value) {
+  const id = String(userId || "").trim();
+  if (!id) throw new Error("Telegram user ID is required for a session");
+  return withTransaction(() => {
+    if (value == null) {
+      db.prepare("DELETE FROM commerce_bot_sessions WHERE user_id = ?").run(id);
+      return;
+    }
+    db.prepare(`
+      INSERT INTO commerce_bot_sessions(user_id, payload, updated_at)
+      VALUES (?, ?, ?)
+      ON CONFLICT(user_id) DO UPDATE SET payload = excluded.payload, updated_at = excluded.updated_at
+    `).run(id, JSON.stringify(value), new Date().toISOString());
+  });
+}
+
+function hasTelegramUpdate(updateId) {
+  if (!Number.isSafeInteger(updateId)) return false;
+  return Boolean(db.prepare("SELECT update_id FROM commerce_telegram_updates WHERE update_id = ?").get(updateId));
+}
+
+function markTelegramUpdate(updateId) {
+  if (!Number.isSafeInteger(updateId)) return false;
+  return withTransaction(() => {
+    db.prepare("INSERT INTO commerce_telegram_updates(update_id, created_at) VALUES (?, ?) ON CONFLICT(update_id) DO NOTHING")
+      .run(updateId, new Date().toISOString());
+    db.exec(`
+      DELETE FROM commerce_telegram_updates
+      WHERE update_id NOT IN (
+        SELECT update_id FROM commerce_telegram_updates ORDER BY update_id DESC LIMIT 10000
+      )
+    `);
+    return true;
+  });
+}
+
+function migrateLegacyPaymentAttemptsOnce() {
+  if (db.prepare("SELECT name FROM commerce_schema_migrations WHERE name = ?").get(PAYMENT_ATTEMPT_MIGRATION_NAME)) return;
+
+  const orders = readOrders();
+  withTransaction(() => {
+    for (const order of orders) {
+      if (!order || !order.id) continue;
+      const sessions = [...new Set([
+        ...(Array.isArray(order.checkoutSessionIds) ? order.checkoutSessionIds : []),
+        ...(order.checkoutSessionId ? [order.checkoutSessionId] : [])
+      ].map((value) => String(value || "").trim()).filter((value) => value.startsWith("cs_test_")))];
+      for (const sessionId of sessions) {
+        if (getPaymentAttemptBySession("stripe", "test", sessionId)) continue;
+        const incident = (Array.isArray(order.duplicatePaymentIncidents) ? order.duplicatePaymentIncidents : [])
+          .find((item) => item && item.sessionId === sessionId && item.status === "REVIEW_REQUIRED") || null;
+        const paidSessionId = order.paymentSessionId || (order.paymentStatus === "PAID" ? order.checkoutSessionId : null);
+        const status = incident
+          ? (incident.reason === "PAYMENT_AFTER_ORDER_CLOSED" ? "REVIEW_REQUIRED" : "DUPLICATE_SUCCESS_REVIEW")
+          : order.paymentStatus === "PAID" && sessionId === paidSessionId
+            ? "SUCCEEDED"
+            : ["CANCELLED", "REFUNDED", "DELIVERED"].includes(order.status)
+              ? "REVIEW_REQUIRED"
+              : "OPEN";
+        const candidate = sessionId === order.checkoutSessionId && order.checkoutAttemptKey
+          ? getPaymentAttemptByKey(order.checkoutAttemptKey)
+          : null;
+        const attemptKey = candidate && (!candidate.providerSessionId || candidate.providerSessionId === sessionId)
+          ? candidate.attemptKey
+          : "legacy:" + order.id + ":" + sessionId;
+        const events = [];
+        if (incident?.eventId) events.push(incident.eventId);
+        else if (status === "SUCCEEDED" && order.paymentReference) events.push(String(order.paymentReference));
+        let amountMinor;
+        try { amountMinor = amountMinorForOrder(order); } catch { continue; }
+        if (!Number.isSafeInteger(amountMinor) || amountMinor <= 0 || !/^[A-Z]{3}$/.test(String(order.currency || "").toUpperCase())) continue;
+        upsertPaymentAttempt({
+          attemptKey,
+          orderId: order.id,
+          provider: "stripe",
+          environment: "test",
+          expectedAmountMinor: amountMinor,
+          currency: order.currency,
+          providerSessionId: sessionId,
+          status,
+          providerEventIds: events,
+          verifiedAt: status === "SUCCEEDED" ? (order.paidAt || null) : (incident?.detectedAt || null),
+          metadata: { source: "legacy_order_backfill" }
+        });
+      }
+
+      if (order.paymentProvider === "manual_bank_reconciliation" && order.paymentReference) {
+        const reference = String(order.paymentReference);
+        let amountMinor;
+        try { amountMinor = amountMinorForOrder(order); } catch { continue; }
+        if (Number.isSafeInteger(amountMinor) && amountMinor > 0 && /^[A-Z]{3}$/.test(String(order.currency || "").toUpperCase())) {
+          upsertPaymentAttempt({
+            attemptKey: "manual-bank:" + reference.toUpperCase(),
+            orderId: order.id,
+            provider: "manual_bank_reconciliation",
+            environment: "manual",
+            expectedAmountMinor: amountMinor,
+            currency: order.currency,
+            providerTransactionId: reference,
+            status: order.paymentStatus === "PAID" ? "SUCCEEDED" : "REVIEW_REQUIRED",
+            verifiedAt: order.paymentVerification?.verifiedAt || null,
+            metadata: { source: "legacy_order_backfill" }
+          });
+        }
+      }
+    }
+    db.prepare("INSERT INTO commerce_schema_migrations(name, applied_at) VALUES (?, ?)")
+      .run(PAYMENT_ATTEMPT_MIGRATION_NAME, new Date().toISOString());
+  });
+}
+
+function enqueuePaymentNotification(orderId) {
+  const id = String(orderId || "").trim();
+  if (!id) throw new Error("Order ID is required for a payment notification job");
+  return withTransaction(() => {
+    const now = new Date().toISOString();
+    return db.prepare(`
+      INSERT INTO commerce_outbox_jobs
+        (dedupe_key, type, order_id, payload, status, attempts, available_at, created_at, updated_at)
+      VALUES (?, 'payment_notifications', ?, ?, 'PENDING', 0, ?, ?, ?)
+      ON CONFLICT(dedupe_key) DO NOTHING
+    `).run("payment-notifications:" + id, id, JSON.stringify({ orderId: id }), now, now, now);
+  });
+}
+
+function claimPendingOutboxJobs(limit = 25) {
+  const safeLimit = Math.max(1, Math.min(Number(limit) || 25, 100));
+  return withTransaction(() => {
+    const nowMs = Date.now();
+    const now = new Date(nowMs).toISOString();
+    const leaseUntil = new Date(nowMs + 5 * 60 * 1000).toISOString();
+    const rows = db.prepare(`
+      SELECT id, type, order_id, payload, attempts
+      FROM commerce_outbox_jobs
+      WHERE (status IN ('PENDING', 'RETRY') AND available_at <= ?)
+         OR (status = 'PROCESSING' AND lease_until IS NOT NULL AND lease_until <= ?)
+      ORDER BY id
+      LIMIT ?
+    `).all(now, now, safeLimit);
+    const update = db.prepare(`
+      UPDATE commerce_outbox_jobs
+      SET status = 'PROCESSING', attempts = attempts + 1, lease_until = ?, updated_at = ?
+      WHERE id = ?
+    `);
+    return rows.map((row) => {
+      update.run(leaseUntil, now, row.id);
+      let payload = {};
+      try { payload = JSON.parse(row.payload); } catch {}
+      return {
+        id: row.id,
+        type: row.type,
+        orderId: row.order_id,
+        payload,
+        attempts: Number(row.attempts || 0) + 1
+      };
+    });
+  });
+}
+
+function completeOutboxJob(jobId) {
+  const id = Number(jobId);
+  if (!Number.isSafeInteger(id) || id <= 0) return false;
+  const now = new Date().toISOString();
+  const result = db.prepare(`
+    UPDATE commerce_outbox_jobs
+    SET status = 'SENT', lease_until = NULL, last_error_code = NULL,
+        processed_at = ?, updated_at = ?
+    WHERE id = ?
+  `).run(now, now, id);
+  return result.changes === 1;
+}
+
+function retryOutboxJob(jobId, errorCode = "NOTIFICATION_FAILED") {
+  const id = Number(jobId);
+  if (!Number.isSafeInteger(id) || id <= 0) return false;
+  const row = db.prepare("SELECT attempts FROM commerce_outbox_jobs WHERE id = ?").get(id);
+  if (!row) return false;
+  const attempts = Math.max(1, Number(row.attempts || 0));
+  const delayMs = Math.min(1000 * (2 ** Math.min(attempts, 10)), 15 * 60 * 1000);
+  const nowMs = Date.now();
+  const safeCode = String(errorCode || "NOTIFICATION_FAILED").replace(/[^A-Za-z0-9_.-]/g, "_").slice(0, 80);
+  const result = db.prepare(`
+    UPDATE commerce_outbox_jobs
+    SET status = 'RETRY', available_at = ?, lease_until = NULL,
+        last_error_code = ?, updated_at = ?
+    WHERE id = ?
+  `).run(new Date(nowMs + delayMs).toISOString(), safeCode, new Date(nowMs).toISOString(), id);
+  return result.changes === 1;
+}
+
+function listOutboxJobsForTests() {
+  return db.prepare("SELECT id, dedupe_key, type, order_id, status, attempts FROM commerce_outbox_jobs ORDER BY id")
+    .all().map((row) => ({
+      id: row.id,
+      dedupeKey: row.dedupe_key,
+      type: row.type,
+      orderId: row.order_id,
+      status: row.status,
+      attempts: row.attempts
+    }));
+}
+
+function resetForTests() {
+  return withTransaction(() => {
+    db.exec("DELETE FROM commerce_order_audit_events;");
+    db.exec("DELETE FROM commerce_orders;");
+    db.exec("DELETE FROM commerce_payment_events;");
+    db.exec("DELETE FROM commerce_payment_attempts;");
+    db.exec("DELETE FROM commerce_outbox_jobs;");
+    db.exec("DELETE FROM commerce_bot_sessions;");
+    db.exec("DELETE FROM commerce_telegram_updates;");
+  });
+}
+
+migrateLegacyJsonOnce();
+migrateLegacyTelegramStateOnce();
+migrateLegacyPaymentAttemptsOnce();
+
+module.exports = {
+  withTransaction,
+  appendOrderAuditEvent,
+  listOrderAuditEvents,
+  readOrders,
+  writeOrders,
+  readEvents,
+  writeEvents,
+  getPaymentAttemptByKey,
+  getPaymentAttemptBySession,
+  findPaymentAttemptByEventId,
+  upsertPaymentAttempt,
+  listPaymentAttemptsForTests,
+  readBotSessions,
+  setBotSession,
+  hasTelegramUpdate,
+  markTelegramUpdate,
+  enqueuePaymentNotification,
+  claimPendingOutboxJobs,
+  completeOutboxJob,
+  retryOutboxJob,
+  listOutboxJobsForTests,
+  resetForTests
+};

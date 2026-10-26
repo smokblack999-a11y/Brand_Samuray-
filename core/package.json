@@ -8,7 +8,8 @@
     "start": "node server.js",
     "test": "node --test",
     "verify-config": "node scripts/verify-config.js",
-    "set-webhook": "node scripts/set-webhook.js"
+    "set-webhook": "node scripts/set-webhook.js",
+    "verify-commerce": "node scripts/verify-commerce-config.js"
   },
   "dependencies": {
     "cors": "^2.8.6",
@@ -20,7 +21,7 @@
     "telegram": "^2.26.22"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22.13.0"
   },
   "type": "commonjs"
 }

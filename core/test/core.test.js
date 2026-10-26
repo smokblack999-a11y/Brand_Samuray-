@@ -6,6 +6,14 @@ const path = require('node:path');
 const { spawn } = require('node:child_process');
 
 const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'samurai-core-'));
+process.env.DATA_DIR = dataDir;
+process.env.COMMERCE_CURRENCY = 'KZT';
+process.env.COMMERCE_PRODUCTS_JSON = JSON.stringify([{ id: 'test-product', name: 'Test product', priceKzt: 5000 }]);
+process.env.COMMERCE_DELIVERY_ZONES_JSON = JSON.stringify({ 'test-zone': 700 });
+process.env.COMMERCE_COURIER_IDS = '777';
+process.env.COMMERCE_COURIER_TOKENS_JSON = JSON.stringify({ '777': 'test-courier-token-that-is-not-secret' });
+process.env.COMMERCE_ADMIN_IDS = '888';
+const commerce = require('../commerce');
 const port = 18000 + Math.floor(Math.random() * 1000);
 const API_KEY = 'test-core-api-key-123456';
 const WEBHOOK_SECRET = 'test-webhook-secret-123456';
@@ -32,6 +40,13 @@ test.before(async () => {
       OPENAI_API_KEY: '',
       CORE_API_KEY: API_KEY,
       TELEGRAM_WEBHOOK_SECRET: WEBHOOK_SECRET,
+      STRIPE_WEBHOOK_SECRET: '',
+      TELEGRAM_BOT_TOKEN: '',
+      COMMERCE_PRODUCTS_JSON: JSON.stringify([{ id: 'test-product', name: 'Test product', priceKzt: 5000 }]),
+      COMMERCE_DELIVERY_ZONES_JSON: JSON.stringify({ 'test-zone': 700 }),
+      COMMERCE_COURIER_IDS: '777',
+      COMMERCE_COURIER_TOKENS_JSON: JSON.stringify({ '777': 'test-courier-token-that-is-not-secret' }),
+      COMMERCE_ADMIN_IDS: '888',
       MAX_MESSAGE_CHARS: '4000'
     },
     stdio: ['ignore', 'pipe', 'pipe']
@@ -181,6 +196,123 @@ test('Telegram webhook requires secret and deduplicates business messages', asyn
   assert.equal(stats.stats.processing, 0);
   assert.equal(stats.stats.failed, 0);
   assert.equal(stats.stats.hot + stats.stats.warm + stats.stats.cold, 2);
+});
+
+test('commerce endpoints require API key and expose only configured catalog', async () => {
+  const denied = await fetch(`http://127.0.0.1:${port}/api/commerce/orders`);
+  assert.equal(denied.status, 401);
+
+  const catalogResponse = await fetch(`http://127.0.0.1:${port}/api/commerce/catalog`);
+  assert.equal(catalogResponse.status, 200);
+  const catalog = await catalogResponse.json();
+  assert.deepEqual(catalog.products, [{ id: 'test-product', name: 'Test product', priceKzt: 5000, active: true }]);
+  assert.deepEqual(catalog.deliveryZones, { 'test-zone': 700 });
+
+  const statusResponse = await api('/api/commerce/status');
+  assert.equal(statusResponse.status, 200);
+  const status = await statusResponse.json();
+  assert.equal(status.mode, 'stripe-test-only');
+  assert.equal(status.catalog.count, 1);
+  assert.equal(status.deliveryZones.count, 1);
+  assert.equal(status.payment.testSecretConfigured, false);
+  assert.equal(status.payment.webhookSecretConfigured, false);
+  assert.equal(JSON.stringify(status).includes('test-courier-token-that-is-not-secret'), false);
+  assert.equal(JSON.stringify(status).includes('STRIPE_SECRET_KEY='), false);
+});
+
+test('Stripe webhook fails closed when signature verification is not configured', async () => {
+  const response = await fetch(`http://127.0.0.1:${port}/api/commerce/stripe/webhook`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'Stripe-Signature': 't=123,v1=invalid' },
+    body: JSON.stringify({ id: 'evt_never_paid', type: 'checkout.session.completed' })
+  });
+  assert.equal(response.status, 503);
+  assert.equal((await response.json()).error.code, 'STRIPE_WEBHOOK_NOT_CONFIGURED');
+});
+
+test('courier photo upload rejects missing courier credentials before accepting a photo', async () => {
+  const response = await fetch(`http://127.0.0.1:${port}/api/commerce/orders/SAM-NOTREAL/photo-upload`, {
+    method: 'POST',
+    headers: { 'content-type': 'image/jpeg' },
+    body: Buffer.from([0xff, 0xd8, 0xff, 0xd9])
+  });
+  assert.equal(response.status, 401);
+  assert.equal((await response.json()).error.code, 'COURIER_AUTH_REQUIRED');
+});
+
+test('courier photo upload rejects non-image bytes even with valid courier authentication', async () => {
+  commerce.resetForTests();
+  const order = commerce.createOrder({
+    customerId: '500',
+    productId: 'test-product',
+    quantity: 1,
+    fulfillment: 'delivery',
+    address: 'Test address, 1',
+    deliveryZone: 'test-zone'
+  });
+  commerce.attachCheckoutSession(order.id, 'cs_test_photo_guard');
+  commerce.applyVerifiedPayment({
+    verified: true, eventId: 'evt_photo_guard', orderId: order.id,
+    sessionId: 'cs_test_photo_guard', amountKzt: 5700, currency: 'KZT'
+  });
+  commerce.assignCourier(order.id, '777');
+
+  const response = await fetch(`http://127.0.0.1:${port}/api/commerce/orders/${order.id}/photo-upload`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'image/jpeg',
+      'X-Courier-Id': '777',
+      'X-Courier-Token': 'test-courier-token-that-is-not-secret'
+    },
+    body: Buffer.from('not a real jpeg')
+  });
+  assert.equal(response.status, 415);
+  assert.equal((await response.json()).error.code, 'PHOTO_CONTENT_MISMATCH');
+});
+
+test('courier orders API requires the individual token and returns only that courier active assigned orders', async () => {
+  commerce.resetForTests();
+  function makePaidDelivery(customerId, eventId, sessionId) {
+    const order = commerce.createOrder({
+      customerId,
+      productId: 'test-product',
+      quantity: 1,
+      fulfillment: 'delivery',
+      address: 'Private address for ' + customerId,
+      deliveryZone: 'test-zone'
+    });
+    commerce.attachCheckoutSession(order.id, sessionId);
+    commerce.applyVerifiedPayment({
+      verified: true, eventId, orderId: order.id, sessionId,
+      amountKzt: 5700, currency: 'KZT'
+    });
+    return order;
+  }
+  const assignedToCaller = makePaidDelivery('500', 'evt_courier_list_1', 'cs_test_courier_list_1');
+  commerce.assignCourier(assignedToCaller.id, '777');
+  const assignedElsewhere = makePaidDelivery('600', 'evt_courier_list_2', 'cs_test_courier_list_2');
+  commerce.assignCourier(assignedElsewhere.id, '999');
+
+  const noToken = await fetch(`http://127.0.0.1:${port}/api/commerce/courier/orders`, {
+    headers: { 'X-Courier-Id': '777' }
+  });
+  assert.equal(noToken.status, 401);
+
+  const wrongToken = await fetch(`http://127.0.0.1:${port}/api/commerce/courier/orders`, {
+    headers: { 'X-Courier-Id': '777', 'X-Courier-Token': 'wrong-token' }
+  });
+  assert.equal(wrongToken.status, 401);
+
+  const response = await fetch(`http://127.0.0.1:${port}/api/commerce/courier/orders`, {
+    headers: { 'X-Courier-Id': '777', 'X-Courier-Token': 'test-courier-token-that-is-not-secret' }
+  });
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.courierId, '777');
+  assert.equal(body.orders.length, 1);
+  assert.equal(body.orders[0].id, assignedToCaller.id);
+  assert.equal(body.orders[0].address, 'Private address for 500');
+  assert.equal(JSON.stringify(body).includes('Private address for 600'), false);
 });
 
 test('unknown route returns JSON 404', async () => {

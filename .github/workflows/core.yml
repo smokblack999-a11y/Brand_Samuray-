@@ -59,6 +59,7 @@ jobs:
           node --check lead-engine.js
           node --check scripts/set-webhook.js
           node --check scripts/verify-config.js
+          node --check scripts/verify-commerce-config.js
           node --check media-ingest.js
           node --check webapp-auth.js
           node --check hamylion-adapter.js
@@ -67,6 +68,12 @@ jobs:
           node --check dual-ai/critic.js
           node --check dual-ai/store.js
           node --check dual-ai/engine.js
+          node --check money.js
+          node --check commerce-storage.js
+          node --check commerce.js
+          node --check commerce-stripe.js
+          node --check stripe-webhook-policy.js
+          node --check commerce-bot.js
 
       - name: Unit tests
         run: npm test
