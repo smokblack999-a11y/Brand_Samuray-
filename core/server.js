@@ -15,6 +15,7 @@ const { requireWebAppAuth } = require("./webapp-auth");
 const { emitHamylionEvent } = require("./hamylion-adapter");
 const dualAI = require("./dual-ai/engine");
 const { checkDraft } = require("./kill-critic");
+const { CommerceStore } = require("./commerce-store");
 
 const app = express();
 const PORT = Number(process.env.PORT || 8787);
@@ -27,6 +28,16 @@ const LEAD_RATE_LIMIT_WINDOW_MS = Math.max(1000, Number(process.env.LEAD_RATE_LI
 const LEAD_RATE_LIMIT_MAX = Math.max(1, Number(process.env.LEAD_RATE_LIMIT_MAX || 20));
 const WEBAPP_MAX_MEDIA_BYTES = Math.max(1024 * 1024, Number(process.env.WEBAPP_MAX_MEDIA_BYTES || 50 * 1024 * 1024));
 const WEBAPP_MEDIA_DIR = process.env.MEDIA_DIR || path.join(process.env.DATA_DIR || path.join(__dirname, "data"), "media");
+const COMMERCE_ENABLED = process.env.COMMERCE_ENABLED === "true";
+let commerceStorePromise = null;
+function getCommerceStore() {
+  if (!COMMERCE_ENABLED) return Promise.reject(Object.assign(new Error("Commerce is disabled"), { code: "COMMERCE_DISABLED" }));
+  if (!commerceStorePromise) {
+    const dataDir = process.env.DATA_DIR || path.join(__dirname, "data");
+    commerceStorePromise = new CommerceStore({ dataDir, catalogFile: process.env.COMMERCE_CATALOG_FILE || path.join(__dirname, "commerce-catalog.json") }).init();
+  }
+  return commerceStorePromise;
+}
 
 if (process.env.NODE_ENV === "production") {
   const missing = [];
@@ -391,6 +402,71 @@ app.post("/api/telegram/webhook", requireWebhookSecret, async (req, res) => {
       error: error.message
     }));
   }
+});
+
+
+function commerceError(res, req, error) {
+  const map = {
+    COMMERCE_DISABLED: [404, "COMMERCE_DISABLED", "Commerce is disabled"],
+    INVALID_SKU: [400, "INVALID_SKU", "Invalid SKU"],
+    INVALID_QUANTITY: [400, "INVALID_QUANTITY", "Quantity must be between 1 and 20"],
+    INVALID_CUSTOMER_ID: [400, "INVALID_CUSTOMER_ID", "Invalid customerId"],
+    PRODUCT_NOT_FOUND: [404, "PRODUCT_NOT_FOUND", "Product not found"],
+    OUT_OF_STOCK: [409, "OUT_OF_STOCK", "Insufficient stock"],
+    TOTAL_OVERFLOW: [400, "TOTAL_OVERFLOW", "Order total is invalid"],
+    ORDER_NOT_FOUND: [404, "ORDER_NOT_FOUND", "Order not found"],
+    ORDER_NOT_PAYABLE: [409, "ORDER_NOT_PAYABLE", "Order is not payable"],
+    PAID_ORDER_CANNOT_BE_CANCELLED: [409, "PAID_ORDER_CANNOT_BE_CANCELLED", "Paid orders cannot be cancelled"]
+  };
+  const [status, code, message] = map[error.code || error.message] || [500, "COMMERCE_ERROR", "Commerce operation failed"];
+  if (status === 500) console.error(JSON.stringify({ event: "commerce_error", requestId: req.requestId, error: error.message }));
+  return res.status(status).json(errorBody(code, message, req.requestId));
+}
+
+app.get("/v1/commerce/catalog", requireApiKey, async (req, res) => {
+  try {
+    const commerce = await getCommerceStore();
+    return res.json({ ok: true, mode: "test", products: commerce.listProducts(), requestId: req.requestId });
+  } catch (error) { return commerceError(res, req, error); }
+});
+
+app.post("/v1/commerce/orders", requireApiKey, async (req, res) => {
+  try {
+    const commerce = await getCommerceStore();
+    const order = await commerce.createOrder({
+      sku: req.body?.sku,
+      quantity: req.body?.quantity === undefined ? 1 : req.body.quantity,
+      customerId: req.body?.customerId
+    });
+    return res.status(201).json({ ok: true, mode: "test", order: commerce.publicOrder(order), requestId: req.requestId });
+  } catch (error) { return commerceError(res, req, error); }
+});
+
+app.get("/v1/commerce/orders/:id", requireApiKey, async (req, res) => {
+  try {
+    const commerce = await getCommerceStore();
+    const order = commerce.getOrder(req.params.id, req.query.customerId == null ? null : String(req.query.customerId));
+    if (!order) return res.status(404).json(errorBody("ORDER_NOT_FOUND", "Order not found", req.requestId));
+    return res.json({ ok: true, mode: "test", order, requestId: req.requestId });
+  } catch (error) { return commerceError(res, req, error); }
+});
+
+app.post("/v1/commerce/orders/:id/simulate-payment", requireApiKey, async (req, res) => {
+  try {
+    const commerce = await getCommerceStore();
+    const order = await commerce.simulatePayment(req.params.id);
+    return res.json({ ok: true, mode: "test", order, requestId: req.requestId });
+  } catch (error) { return commerceError(res, req, error); }
+});
+
+app.post("/v1/commerce/orders/:id/cancel", requireApiKey, async (req, res) => {
+  try {
+    const commerce = await getCommerceStore();
+    const customerId = req.body?.customerId;
+    if (typeof customerId !== "string") return res.status(400).json(errorBody("CUSTOMER_ID_REQUIRED", "customerId is required", req.requestId));
+    const order = await commerce.cancelOrder(req.params.id, customerId);
+    return res.json({ ok: true, mode: "test", order, requestId: req.requestId });
+  } catch (error) { return commerceError(res, req, error); }
 });
 
 app.use((req, res) => res.status(404).json(errorBody("NOT_FOUND", "Endpoint not found", req.requestId)));
