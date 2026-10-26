@@ -45,6 +45,19 @@ function createStripeTestClient({ env = process.env, fetchImpl = (...args) => gl
       order.totalMinor !== order.unitPriceMinor * order.quantity || !["digital", "physical"].includes(order.productType) || !String(order.productName || "").trim()) {
       throw err("STRIPE_ORDER_INVALID", "Order is invalid for Checkout");
     }
+    const attempt = order.stripeCheckoutAttempt;
+    const defaultExpiry = Math.floor(now() / 1000) + Math.floor(23.5 * 60 * 60);
+    const expiresAt = attempt
+      ? Math.floor(Date.parse(attempt.expiresAt) / 1000)
+      : defaultExpiry;
+    const secondsRemaining = expiresAt - Math.floor(now() / 1000);
+    if (!Number.isSafeInteger(expiresAt) || secondsRemaining < 30 * 60 || secondsRemaining > 24 * 60 * 60) {
+      throw err("STRIPE_CHECKOUT_RECONCILIATION_REQUIRED", "The previous Checkout attempt is outside the safe retry window");
+    }
+    if (attempt && (!/^samurai-order-ord_[a-f0-9]{24}-[a-f0-9]{24}$/.test(String(attempt.idempotencyKey || "")))) {
+      throw err("STRIPE_CHECKOUT_ATTEMPT_INVALID", "Invalid Checkout attempt state");
+    }
+    const idempotencyKey = attempt ? attempt.idempotencyKey : "samurai-order-" + order.id;
     const form = new URLSearchParams(); form.set("mode", "payment");
     form.set("client_reference_id", order.id); form.set("success_url", successUrlWithSession(c.successUrl));
     form.set("cancel_url", c.cancelUrl.toString()); form.set("metadata[order_id]", order.id);
@@ -53,14 +66,22 @@ function createStripeTestClient({ env = process.env, fetchImpl = (...args) => gl
     form.set("line_items[0][price_data][unit_amount]", String(order.currency === "KZT" ? order.unitPriceMinor * 100 : order.unitPriceMinor));
     form.set("line_items[0][price_data][product_data][name]", order.productName.slice(0, 250));
     form.set("line_items[0][quantity]", String(order.quantity));
+    form.set("expires_at", String(expiresAt));
     let response;
-    try { response = await fetchImpl(CHECKOUT_URL, { method: "POST", headers: { Authorization: "Bearer " + c.key, "Content-Type": "application/x-www-form-urlencoded", "Idempotency-Key": "samurai-order-" + order.id }, body: form.toString(), signal: AbortSignal.timeout(10000) }); }
+    try { response = await fetchImpl(CHECKOUT_URL, { method: "POST", headers: { Authorization: "Bearer " + c.key, "Content-Type": "application/x-www-form-urlencoded", "Idempotency-Key": idempotencyKey }, body: form.toString(), signal: AbortSignal.timeout(10000) }); }
     catch { throw err("STRIPE_UPSTREAM_UNAVAILABLE", "Stripe test API is unreachable"); }
+    if (!response.ok) {
+      if (Number.isInteger(response.status) && response.status >= 400 && response.status < 500) {
+        throw err("STRIPE_CHECKOUT_REJECTED", "Stripe rejected the Checkout request");
+      }
+      throw err("STRIPE_UPSTREAM_UNAVAILABLE", "Stripe test API returned an unsuccessful response");
+    }
     const payload = await response.json().catch(() => null);
-    if (!response.ok || !payload || !SESSION_ID_RE.test(String(payload.id || "")) || payload.livemode !== false || !httpsUrl(payload.url, true)) {
+    if (!payload || !SESSION_ID_RE.test(String(payload.id || "")) || payload.livemode !== false || !httpsUrl(payload.url, true) ||
+        !Number.isSafeInteger(payload.expires_at) || payload.expires_at !== expiresAt) {
       throw err("STRIPE_SESSION_INVALID", "Stripe did not return a valid test Checkout Session");
     }
-    return { id: payload.id, url: payload.url, livemode: false, expires_at: Number.isSafeInteger(payload.expires_at) ? payload.expires_at : null };
+    return { id: payload.id, url: payload.url, livemode: false, expires_at: payload.expires_at };
   }
   function verifyAndParseWebhook(rawBody, signatureHeader) {
     const c = config(); if (!c.enabled || !c.webhookSecret) throw err("STRIPE_TEST_NOT_CONFIGURED", "Stripe test webhook is not configured");
