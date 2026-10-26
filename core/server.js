@@ -101,11 +101,18 @@ app.use("/dual-ai", express.static(path.join(__dirname, "dual-ai", "public"), { 
 app.use("/mini-app", express.static(path.join(__dirname, "mini-app"), { index: "index.html" }));
 
 app.get("/health", (_req, res) => res.json({ ok: true, service: "SamuraiOS Core", version: "2.7.0" }));
-app.get("/ready", (req, res) => {
+app.get("/ready", async (req, res) => {
   try {
     const current = stats();
-    const ready = Boolean(API_KEY && WEBHOOK_SECRET && current && Number.isFinite(current.total));
-    return res.status(ready ? 200 : 503).json({ ok: ready, service: "SamuraiOS Core", ready, requestId: req.requestId });
+    const commerceReady = !COMMERCE_ENABLED || Boolean(await commerceStorePromise);
+    const ready = Boolean(API_KEY && WEBHOOK_SECRET && current && Number.isFinite(current.total) && commerceReady);
+    return res.status(ready ? 200 : 503).json({
+      ok: ready,
+      service: "SamuraiOS Core",
+      ready,
+      commerce: COMMERCE_ENABLED ? (commerceReady ? "ready" : "not_ready") : "disabled",
+      requestId: req.requestId
+    });
   } catch (_error) {
     return res.status(503).json(errorBody("NOT_READY", "Service is not ready", req.requestId));
   }
