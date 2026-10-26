@@ -42,7 +42,7 @@ STRIPE_CANCEL_URL=https://your-https-site.example/payment/cancel
 - `POST /v1/commerce/orders/:id/cancel` — отменить неоплаченный тестовый заказ.
 - `POST /v1/commerce/orders/:id/simulate-payment` — только локальная симуляция; дополнительно требует `COMMERCE_TEST_PAYMENTS_ENABLED=true` и никогда не доступен в production.
 
-Каждый маршрут проверяет Telegram WebApp initData через существующий `requireWebAppAuth`. `customerId` берётся только из подтверждённого сервером `req.telegramWebApp.user.id`, а не из тела запроса или query-параметра. Никогда не помещай `CORE_API_KEY`, Stripe secret или webhook secret в браузер, Telegram Mini App или APK.
+Каждый маршрут проверяет Telegram WebApp initData через существующий `requireWebAppAuth`. `customerId` берётся только из подтверждённого сервером `req.telegramWebApp.user.id`, а не из тела запроса или query-параметра. Внутренний ключ идемпотентности Checkout не возвращается клиенту. Если запрос к Stripe оборвался и неизвестно, создалась ли сессия, заказ остаётся зарезервированным, отмена и симуляция блокируются, а повтор Checkout использует сохранённый idempotency key. Подписанный webhook может восстановить сессию по подтверждённым metadata и `expires_at`, даже если ответ на создание сессии был потерян. Если безопасное окно повтора истекло, требуется ручная сверка; автоматическую отмену в такой ситуации делать нельзя. Никогда не помещай `CORE_API_KEY`, Stripe secret или webhook secret в браузер, Telegram Mini App или APK.
 
 ## Проверки перед дальнейшей интеграцией
 
