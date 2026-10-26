@@ -1,0 +1,28 @@
+{
+  "mode": "test",
+  "notice": "DEMO ONLY. No real payments or delivery are connected.",
+  "products": [
+    {
+      "sku": "demo-digital-guide",
+      "name": "Демо: цифровой гайд",
+      "description": "Демонстрационный цифровой товар для проверки заказа.",
+      "type": "digital",
+      "priceMinor": 1990,
+      "currency": "KZT",
+      "stock": 100,
+      "active": true,
+      "deliveryText": "DEMO CONTENT ONLY — цифровая выдача для проверки интеграции."
+    },
+    {
+      "sku": "demo-physical-box",
+      "name": "Демо: физический товар",
+      "description": "Тестовый товар для проверки остатков.",
+      "type": "physical",
+      "priceMinor": 4990,
+      "currency": "KZT",
+      "stock": 5,
+      "active": true,
+      "physicalInstructions": "DEMO ONLY — реальная доставка не оформляется."
+    }
+  ]
+}

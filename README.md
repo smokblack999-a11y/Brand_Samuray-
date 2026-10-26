@@ -134,3 +134,20 @@ The main Core remains usable without HAMYLION. Set HAMYLION_URL and HAMYLION_API
 - POST /api/webapp/location with X-Telegram-Init-Data
 
 Media is stored privately under DATA_DIR/media; SHA-256 is recorded for evidence. No public media route is exposed.
+
+
+## SAMURAI Commerce HTTP V1 (test-only, opt-in)
+
+This integration is disabled by default. It reuses Core's existing `X-API-Key` middleware and does not implement or claim real payment processing.
+
+Set `COMMERCE_ENABLED=true` and keep `COMMERCE_MODE=test` to enable the demo routes. `COMMERCE_CATALOG_FILE` points to `core/commerce-catalog.json` by default. If Commerce is disabled, these endpoints return a disabled/not-found response. Any `COMMERCE_MODE` value other than `test` blocks Core startup.
+
+- `GET /v1/commerce/catalog`
+- `POST /v1/commerce/orders` with `{ "sku": "demo-digital-guide", "quantity": 1, "customerId": "client-1" }`
+- `GET /v1/commerce/orders/:id?customerId=client-1` (customerId is required; this is only a test-mode consistency check, not customer authentication)
+- `POST /v1/commerce/orders/:id/simulate-payment` (test simulation only; no money moves)
+- `POST /v1/commerce/orders/:id/cancel` with `{ "customerId": "client-1" }`
+
+Every route requires `X-API-Key`. The API key is an administrative credential; do not expose it in a public browser or customer app. The supplied customerId is not proof of identity; these routes are admin/test-only and must not be exposed as a customer-facing API. Demo orders and stock are persisted in a local JSON file under `DATA_DIR`; this is for single-instance testing only, not production commerce. Real payments, signed provider webhooks, refunds, tax, inventory concurrency across instances, and shipping are not implemented. Do not enable this on a public production deployment until a transactional database, customer authentication/authorization, provider payment verification, and integration tests are in place.
+
+The isolated store tests can be run with `node --test core/test/commerce-store.test.js`; the full Core test suite remains `npm test` from `core/`.
