@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#080807">
+  <meta name="color-scheme" content="dark">
+  <title>SAMURAI Commerce</title>
+  <link rel="stylesheet" href="/mini-app/styles.css">
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <script defer src="/mini-app/app.js"></script>
+</head>
+<body>
+  <div class="shell">
+    <header class="topbar">
+      <a class="brand" href="/mini-app/" aria-label="SAMURAI Commerce, главная">
+        <span class="brand-mark" aria-hidden="true">侍</span>
+        <span class="brand-copy"><strong>SAMURAI</strong><span>COMMERCE</span></span>
+      </a>
+      <span class="mode-chip"><span class="mode-dot"></span> ТЕСТОВЫЙ РЕЖИМ</span>
+    </header>
+
+    <main>
+      <section class="hero">
+        <div class="eyebrow"><span></span> МАГАЗИН В TELEGRAM</div>
+        <h1>Покупка.<br><em>Без лишних шагов.</em></h1>
+        <p class="hero-copy">Каталог, заказ и защищённый переход к тестовой оплате — в одном окне.</p>
+        <div class="test-notice" role="note">
+          <span class="notice-symbol" aria-hidden="true">!</span>
+          <p><strong>Тестовый стенд.</strong> Все товары демонстрационные. Деньги не списываются, доставка не оформляется.</p>
+        </div>
+      </section>
+
+      <section class="catalog-section" aria-labelledby="catalog-title">
+        <div class="section-heading">
+          <div><p class="eyebrow">ВЫБЕРИ ТОВАР</p><h2 id="catalog-title">Каталог</h2></div>
+          <button id="refresh-catalog" class="icon-button" type="button" aria-label="Обновить каталог" title="Обновить каталог">↻</button>
+        </div>
+        <div id="catalog-state" class="state-line" role="status" aria-live="polite">Проверяем подключение Telegram…</div>
+        <div id="catalog" class="product-grid"></div>
+      </section>
+
+      <section class="order-section" aria-labelledby="order-title">
+        <div class="section-heading">
+          <div><p class="eyebrow">НЕ ТЕРЯЙ ЗАКАЗ</p><h2 id="order-title">Мой заказ</h2></div>
+        </div>
+        <div class="order-panel">
+          <p class="order-intro">Здесь можно проверить статус заказа или продолжить оплату, если окно Checkout закрылось.</p>
+          <label for="order-id">Номер заказа</label>
+          <div class="order-lookup">
+            <input id="order-id" inputmode="text" autocomplete="off" spellcheck="false" placeholder="ord_…" maxlength="28">
+            <button id="check-order" class="secondary-button" type="button">Проверить</button>
+          </div>
+          <div id="order-state" class="order-state" role="status" aria-live="polite">После создания заказа его номер появится здесь.</div>
+          <div id="order-actions" class="order-actions" hidden>
+            <button id="continue-checkout" class="primary-button" type="button">Продолжить оплату</button>
+            <button id="cancel-order" class="secondary-button" type="button">Отменить заказ</button>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <span class="footer-mark">侍</span>
+      <p>SAMURAI COMMERCE <span>·</span> TEST ENVIRONMENT</p>
+      <p class="footer-disclaimer">Не вводите настоящие платёжные данные на демонстрационном стенде.</p>
+    </footer>
+  </div>
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+</body>
+</html>
