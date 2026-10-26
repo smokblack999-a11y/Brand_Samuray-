@@ -144,10 +144,10 @@ Set `COMMERCE_ENABLED=true` and keep `COMMERCE_MODE=test` to enable the demo rou
 
 - `GET /v1/commerce/catalog`
 - `POST /v1/commerce/orders` with `{ "sku": "demo-digital-guide", "quantity": 1, "customerId": "client-1" }`
-- `GET /v1/commerce/orders/:id?customerId=client-1` (include customerId to enforce owner matching)
+- `GET /v1/commerce/orders/:id?customerId=client-1` (customerId is required; this is only a test-mode consistency check, not customer authentication)
 - `POST /v1/commerce/orders/:id/simulate-payment` (test simulation only; no money moves)
 - `POST /v1/commerce/orders/:id/cancel` with `{ "customerId": "client-1" }`
 
-Every route requires `X-API-Key`. The API key is an administrative credential; do not expose it in a public browser or customer app. Demo orders and stock are persisted in a local JSON file under `DATA_DIR`; this is for single-instance testing only, not production commerce. Real payments, signed provider webhooks, refunds, tax, inventory concurrency across instances, and shipping are not implemented. Do not enable this on a public production deployment until a transactional database, customer authentication/authorization, provider payment verification, and integration tests are in place.
+Every route requires `X-API-Key`. The API key is an administrative credential; do not expose it in a public browser or customer app. The supplied customerId is not proof of identity; these routes are admin/test-only and must not be exposed as a customer-facing API. Demo orders and stock are persisted in a local JSON file under `DATA_DIR`; this is for single-instance testing only, not production commerce. Real payments, signed provider webhooks, refunds, tax, inventory concurrency across instances, and shipping are not implemented. Do not enable this on a public production deployment until a transactional database, customer authentication/authorization, provider payment verification, and integration tests are in place.
 
 The isolated store tests can be run with `node --test core/test/commerce-store.test.js`; the full Core test suite remains `npm test` from `core/`.
