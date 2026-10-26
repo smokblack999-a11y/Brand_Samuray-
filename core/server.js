@@ -34,8 +34,10 @@ const WEBAPP_MEDIA_DIR = process.env.MEDIA_DIR || path.join(process.env.DATA_DIR
 const COMMERCE_ENABLED = String(process.env.COMMERCE_ENABLED || "").trim().toLowerCase() === "true" && String(process.env.COMMERCE_MODE || "").trim().toLowerCase() === "test" && String(process.env.NODE_ENV || "").trim().toLowerCase() !== "production";
 const COMMERCE_DATA_ROOT = path.resolve(__dirname, process.env.DATA_DIR || "data");
 const COMMERCE_DATA_DIR = path.join(COMMERCE_DATA_ROOT, "commerce");
-const COMMERCE_RATE_LIMIT_WINDOW_MS = Math.max(1000, Number(process.env.COMMERCE_RATE_LIMIT_WINDOW_MS || 60000));
-const COMMERCE_RATE_LIMIT_MAX = Math.max(1, Number(process.env.COMMERCE_RATE_LIMIT_MAX || 30));
+const COMMERCE_RATE_LIMIT_WINDOW_RAW = Number(process.env.COMMERCE_RATE_LIMIT_WINDOW_MS || 60000);
+const COMMERCE_RATE_LIMIT_MAX_RAW = Number(process.env.COMMERCE_RATE_LIMIT_MAX || 30);
+const COMMERCE_RATE_LIMIT_WINDOW_MS = Number.isFinite(COMMERCE_RATE_LIMIT_WINDOW_RAW) ? Math.max(1000, COMMERCE_RATE_LIMIT_WINDOW_RAW) : 60000;
+const COMMERCE_RATE_LIMIT_MAX = Number.isFinite(COMMERCE_RATE_LIMIT_MAX_RAW) ? Math.max(1, COMMERCE_RATE_LIMIT_MAX_RAW) : 30;
 const commerceRateLimit = createRateLimiter({ windowMs: COMMERCE_RATE_LIMIT_WINDOW_MS, max: COMMERCE_RATE_LIMIT_MAX, keyGenerator: req => req.telegramWebApp?.user?.id ? "tg:" + String(req.telegramWebApp.user.id) : req.ip || "unknown" });
 const commerceStorePromise = COMMERCE_ENABLED
   ? new CommerceStore({ dataDir: COMMERCE_DATA_DIR, catalogFile: path.join(__dirname, "commerce-catalog.json"), mode: "test" }).init()
