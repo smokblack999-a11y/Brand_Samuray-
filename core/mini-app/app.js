@@ -30,6 +30,7 @@
     STRIPE_TEST_NOT_CONFIGURED: "Тестовый Checkout пока не настроен на сервере.",
     STRIPE_UPSTREAM_UNAVAILABLE: "Платёжный тестовый сервис сейчас недоступен.",
     STRIPE_SESSION_INVALID: "Платёжный сервис вернул некорректную тестовую сессию.",
+    STRIPE_CHECKOUT_RECONCILIATION_REQUIRED: "Предыдущий запрос оплаты мог создать сессию. Заказ нельзя отменять до сверки платёжного состояния.",
     STRIPE_CHECKOUT_ACTIVE: "У заказа уже есть активная платёжная сессия. Продолжите оплату или дождитесь её истечения.",
     COMMERCE_NOT_READY: "Модуль магазина не готов. Проверьте серверные журналы."
   };
@@ -196,9 +197,11 @@
       revealOrder(payload.order.id);
       setOrderState(statusLabel(payload.order), "success");
       const pending = payload.order.status === "pending_payment";
+      const uncertain = Boolean(payload.order.checkoutInProgress);
       $("continue-checkout").hidden = !pending;
-      $("cancel-order").hidden = !pending;
-      $("continue-checkout").textContent = payload.order.stripeCheckout ? "Открыть оплату" : "Продолжить оплату";
+      $("cancel-order").hidden = !pending || uncertain;
+      $("continue-checkout").textContent = payload.order.stripeCheckout ? "Открыть оплату" : uncertain ? "Повторить проверку оплаты" : "Продолжить оплату";
+      if (uncertain) setOrderState(statusLabel(payload.order) + ". Запрос оплаты ещё сверяется; не отменяйте этот заказ.", "error");
       if (payload.order.status === "cancelled") $("cancel-order").hidden = true;
     } catch (error) {
       setOrderState(error.message || "Не удалось проверить заказ.", "error");
@@ -231,21 +234,30 @@
     } catch (error) {
       setOrderState(error.message || "Не удалось создать тестовую оплату.", "error");
       showToast(error.message || "Ошибка тестовой оплаты");
-      await loadOrderStateAfterCheckoutFailure(id);
+      await loadOrderStateAfterCheckoutFailure(id, error);
     } finally {
       setBusy("checkout", false);
       $("continue-checkout").disabled = false;
     }
   }
 
-  async function loadOrderStateAfterCheckoutFailure(id) {
+  async function loadOrderStateAfterCheckoutFailure(id, checkoutError) {
     try {
       const payload = await api("/v1/commerce/orders/" + encodeURIComponent(id));
       if (payload.order) {
         revealOrder(payload.order.id);
-        setOrderState(statusLabel(payload.order) + ". Можно повторно открыть Checkout или отменить заказ, если платёжная сессия ещё не создана.", "error");
-        $("continue-checkout").hidden = payload.order.status !== "pending_payment";
-        $("cancel-order").hidden = payload.order.status !== "pending_payment";
+        const pending = payload.order.status === "pending_payment";
+        const uncertain = Boolean(payload.order.checkoutInProgress);
+        const needsReconciliation = checkoutError?.code === "STRIPE_CHECKOUT_RECONCILIATION_REQUIRED";
+        const guidance = needsReconciliation
+          ? "Требуется ручная сверка состояния в платёжном провайдере. Не отменяйте заказ."
+          : uncertain
+            ? "Результат запроса оплаты не подтверждён. Не отменяйте заказ; нажмите «Повторить проверку оплаты»."
+            : "Можно повторно открыть Checkout или отменить заказ, если платёжная сессия не создана.";
+        setOrderState(statusLabel(payload.order) + ". " + guidance, "error");
+        $("continue-checkout").hidden = !pending || needsReconciliation;
+        $("cancel-order").hidden = !pending || uncertain || needsReconciliation;
+        if (uncertain) $("continue-checkout").textContent = "Повторить проверку оплаты";
       }
     } catch { /* Keep the original checkout error visible. */ }
   }
