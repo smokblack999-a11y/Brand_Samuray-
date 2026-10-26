@@ -122,6 +122,8 @@ test("actual Core creates a priced order, enforces ownership, and restores stock
   assert.equal(created.order.totalMinor, 3980);
   assert.equal(created.order.customerId, "tg:751234568");
   assert.equal(created.order.status, "pending_payment");
+  assert.equal(created.order.checkoutInProgress, false);
+  assert.equal(Object.prototype.hasOwnProperty.call(created.order, "stripeCheckoutAttempt"), false);
 
   const own = await webAppRequest("/v1/commerce/orders/" + created.order.id, buyer);
   assert.equal(own.status, 200);
