@@ -99,7 +99,13 @@ test("Stripe client is locked unless test-mode flags and test credentials are pr
   assert.equal(createStripeTestClient({ env: stripeEnv() }).isConfigured(), true);
 });
 
-test("public order responses hide the internal Stripe idempotency key", () => {\n  const order = { id: "ord_0123456789abcdef01234567", status: "pending_payment", stripeCheckoutAttempt: { idempotencyKey: "samurai-order-ord_0123456789abcdef01234567-0123456789abcdef01234567", createdAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 3600000).toISOString() } };\n  const visible = publicOrder(order);\n  assert.equal(visible.checkoutInProgress, true);\n  assert.equal(Object.prototype.hasOwnProperty.call(visible, "stripeCheckoutAttempt"), false);\n});\ntest("Stripe Checkout validates the response and uses per-order idempotency", async () => {
+test("public order responses hide the internal Stripe idempotency key", () => {
+  const order = { id: "ord_0123456789abcdef01234567", status: "pending_payment", stripeCheckoutAttempt: { idempotencyKey: "samurai-order-ord_0123456789abcdef01234567-0123456789abcdef01234567", createdAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 3600000).toISOString() } };
+  const visible = publicOrder(order);
+  assert.equal(visible.checkoutInProgress, true);
+  assert.equal(Object.prototype.hasOwnProperty.call(visible, "stripeCheckoutAttempt"), false);
+});
+test("Stripe Checkout validates the response and uses per-order idempotency", async () => {
   let request;
   const client = createStripeTestClient({ env: stripeEnv(), fetchImpl: async (url, options) => {
     request = { url, options };
@@ -168,7 +174,54 @@ test("orders and payment state survive a process restart", async () => withStore
   assert.equal(restarted.getOrder(order.id, "tg:18").status, "pending_payment");
   assert.equal(restarted.listProducts().find(p => p.sku === order.sku).stock, 3);
 }));
-test("ambiguous Checkout attempt locks cancellation and is reconciled by a signed paid webhook", async () => withStore(async ({ store, dataDir, catalogFile }) => {\n  const order = await store.createOrder({ sku: "demo-digital-guide", quantity: 1, customerId: "tg:19" });\n  const first = await store.beginStripeCheckout(order.id, "tg:19");\n  const attempt = first.stripeCheckoutAttempt;\n  assert.match(attempt.idempotencyKey, new RegExp("^samurai-order-" + order.id + "-[a-f0-9]{24}$"));\n  const retry = await store.beginStripeCheckout(order.id, "tg:19");\n  assert.equal(retry.stripeCheckoutAttempt.idempotencyKey, attempt.idempotencyKey);\n  await assert.rejects(store.cancelOrder(order.id, "tg:19"), e => e.code === "STRIPE_CHECKOUT_ACTIVE");\n  await assert.rejects(store.simulatePayment(order.id, "tg:19"), e => e.code === "STRIPE_CHECKOUT_ACTIVE");\n  const expiry = Math.floor(Date.parse(attempt.expiresAt) / 1000);\n  const result = await store.markStripePaid({ orderId: order.id, sessionId: "cs_test_recovered123", eventId: "evt_recoveredpaid", metadataOrderId: order.id, metadataCustomerId: "tg:19", clientReferenceId: order.id, amountTotal: 199000, currency: "KZT", paymentStatus: "paid", livemode: false, sessionExpiresAt: expiry });\n  assert.equal(result.order.status, "fulfilled");\n  assert.equal(result.order.stripeCheckout.url, null);\n  assert.equal(result.order.stripeCheckoutAttempt, undefined);\n  const restarted = await new CommerceStore({ dataDir, catalogFile, mode: "test" }).init();\n  assert.equal(restarted.getOrder(order.id, "tg:19").status, "fulfilled");\n}));\n\ntest("expired Checkout webhook reconciles an attempt whose session-create response was lost", async () => withStore(async ({ store, dataDir, catalogFile }) => {\n  const order = await store.createOrder({ sku: "demo-physical-box", quantity: 1, customerId: "tg:20" });\n  const attemptOrder = await store.beginStripeCheckout(order.id, "tg:20");\n  const expiry = Math.floor(Date.parse(attemptOrder.stripeCheckoutAttempt.expiresAt) / 1000);\n  const result = await store.cancelStripeCheckout({ orderId: order.id, sessionId: "cs_test_expiredrecovered", eventId: "evt_expiredrecovered", metadataOrderId: order.id, metadataCustomerId: "tg:20", livemode: false, sessionExpiresAt: expiry, reason: "checkout_expired" });\n  assert.equal(result.order.status, "cancelled");\n  assert.equal(result.order.stripeCheckout.url, null);\n  assert.equal(store.listProducts().find(p => p.sku === order.sku).stock, 2);\n  const restarted = await new CommerceStore({ dataDir, catalogFile, mode: "test" }).init();\n  assert.equal(restarted.getOrder(order.id, "tg:20").status, "cancelled");\n}));\n\ntest("Stripe Checkout persists retry expiry and refuses retries too close to expiry", async () => {\n  let request;\n  const client = createStripeTestClient({ env: stripeEnv(), fetchImpl: async (_url, options) => {\n    request = options;\n    const expiresAt = Number(new URLSearchParams(options.body).get("expires_at"));\n    return { ok: true, status: 200, json: async () => ({ ...checkoutSession(), expires_at: expiresAt, livemode: false }) };\n  } });\n  const id = "ord_0123456789abcdef01234567";\n  const expiresAt = Math.floor(Date.now() / 1000) + 22 * 60 * 60;\n  const order = { id, customerId: "tg:457", currency: "KZT", quantity: 1, unitPriceMinor: 1990, totalMinor: 1990, productType: "digital", productName: "Demo guide", stripeCheckoutAttempt: { idempotencyKey: "samurai-order-" + id + "-0123456789abcdef01234567", createdAt: new Date().toISOString(), expiresAt: new Date(expiresAt * 1000).toISOString() } };\n  const session = await client.createCheckoutSession(order);\n  assert.equal(session.expires_at, expiresAt);\n  assert.equal(new URLSearchParams(request.body).get("expires_at"), String(expiresAt));\n  assert.equal(request.headers["Idempotency-Key"], order.stripeCheckoutAttempt.idempotencyKey);\n  const expired = { ...order, stripeCheckoutAttempt: { ...order.stripeCheckoutAttempt, expiresAt: new Date((Math.floor(Date.now() / 1000) + 60) * 1000).toISOString() } };\n  await assert.rejects(client.createCheckoutSession(expired), e => e.code === "STRIPE_CHECKOUT_RECONCILIATION_REQUIRED");\n});\ntest("Stripe webhook and Commerce routes are unique and versioned", () => {
+test("ambiguous Checkout attempt locks cancellation and is reconciled by a signed paid webhook", async () => withStore(async ({ store, dataDir, catalogFile }) => {
+  const order = await store.createOrder({ sku: "demo-digital-guide", quantity: 1, customerId: "tg:19" });
+  const first = await store.beginStripeCheckout(order.id, "tg:19");
+  const attempt = first.stripeCheckoutAttempt;
+  assert.match(attempt.idempotencyKey, new RegExp("^samurai-order-" + order.id + "-[a-f0-9]{24}$"));
+  const retry = await store.beginStripeCheckout(order.id, "tg:19");
+  assert.equal(retry.stripeCheckoutAttempt.idempotencyKey, attempt.idempotencyKey);
+  await assert.rejects(store.cancelOrder(order.id, "tg:19"), e => e.code === "STRIPE_CHECKOUT_ACTIVE");
+  await assert.rejects(store.simulatePayment(order.id, "tg:19"), e => e.code === "STRIPE_CHECKOUT_ACTIVE");
+  const expiry = Math.floor(Date.parse(attempt.expiresAt) / 1000);
+  const result = await store.markStripePaid({ orderId: order.id, sessionId: "cs_test_recovered123", eventId: "evt_recoveredpaid", metadataOrderId: order.id, metadataCustomerId: "tg:19", clientReferenceId: order.id, amountTotal: 199000, currency: "KZT", paymentStatus: "paid", livemode: false, sessionExpiresAt: expiry });
+  assert.equal(result.order.status, "fulfilled");
+  assert.equal(result.order.stripeCheckout.url, null);
+  assert.equal(result.order.stripeCheckoutAttempt, undefined);
+  const restarted = await new CommerceStore({ dataDir, catalogFile, mode: "test" }).init();
+  assert.equal(restarted.getOrder(order.id, "tg:19").status, "fulfilled");
+}));
+
+test("expired Checkout webhook reconciles an attempt whose session-create response was lost", async () => withStore(async ({ store, dataDir, catalogFile }) => {
+  const order = await store.createOrder({ sku: "demo-physical-box", quantity: 1, customerId: "tg:20" });
+  const attemptOrder = await store.beginStripeCheckout(order.id, "tg:20");
+  const expiry = Math.floor(Date.parse(attemptOrder.stripeCheckoutAttempt.expiresAt) / 1000);
+  const result = await store.cancelStripeCheckout({ orderId: order.id, sessionId: "cs_test_expiredrecovered", eventId: "evt_expiredrecovered", metadataOrderId: order.id, metadataCustomerId: "tg:20", livemode: false, sessionExpiresAt: expiry, reason: "checkout_expired" });
+  assert.equal(result.order.status, "cancelled");
+  assert.equal(result.order.stripeCheckout.url, null);
+  assert.equal(store.listProducts().find(p => p.sku === order.sku).stock, 2);
+  const restarted = await new CommerceStore({ dataDir, catalogFile, mode: "test" }).init();
+  assert.equal(restarted.getOrder(order.id, "tg:20").status, "cancelled");
+}));
+
+test("Stripe Checkout persists retry expiry and refuses retries too close to expiry", async () => {
+  let request;
+  const client = createStripeTestClient({ env: stripeEnv(), fetchImpl: async (_url, options) => {
+    request = options;
+    const expiresAt = Number(new URLSearchParams(options.body).get("expires_at"));
+    return { ok: true, status: 200, json: async () => ({ ...checkoutSession(), expires_at: expiresAt, livemode: false }) };
+  } });
+  const id = "ord_0123456789abcdef01234567";
+  const expiresAt = Math.floor(Date.now() / 1000) + 22 * 60 * 60;
+  const order = { id, customerId: "tg:457", currency: "KZT", quantity: 1, unitPriceMinor: 1990, totalMinor: 1990, productType: "digital", productName: "Demo guide", stripeCheckoutAttempt: { idempotencyKey: "samurai-order-" + id + "-0123456789abcdef01234567", createdAt: new Date().toISOString(), expiresAt: new Date(expiresAt * 1000).toISOString() } };
+  const session = await client.createCheckoutSession(order);
+  assert.equal(session.expires_at, expiresAt);
+  assert.equal(new URLSearchParams(request.body).get("expires_at"), String(expiresAt));
+  assert.equal(request.headers["Idempotency-Key"], order.stripeCheckoutAttempt.idempotencyKey);
+  const expired = { ...order, stripeCheckoutAttempt: { ...order.stripeCheckoutAttempt, expiresAt: new Date((Math.floor(Date.now() / 1000) + 60) * 1000).toISOString() } };
+  await assert.rejects(client.createCheckoutSession(expired), e => e.code === "STRIPE_CHECKOUT_RECONCILIATION_REQUIRED");
+});
+test("Stripe webhook and Commerce routes are unique and versioned", () => {
   const routes = [];
   const app = { get: (p, ...h) => routes.push({ method: "GET", path: p, handlers: h }), post: (p, ...h) => routes.push({ method: "POST", path: p, handlers: h }) };
   const env = stripeEnv({ COMMERCE_TEST_PAYMENTS_ENABLED: "false" });
