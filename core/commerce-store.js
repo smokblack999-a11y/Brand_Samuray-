@@ -117,6 +117,7 @@ class CommerceStore {
       if (!o) throw new Error("ORDER_NOT_FOUND");
       if (o.paymentStatus === "paid") return this.publicOrder(o);
       if (o.status !== "awaiting_test_payment") throw new Error("ORDER_NOT_PAYABLE");
+      const previous = structuredClone(o);
       o.paymentStatus = "paid";
       o.status = "paid_test";
       o.paidAt = new Date().toISOString();
@@ -127,7 +128,7 @@ class CommerceStore {
         : { kind: "physical_test", instructions: p.physicalInstructions || "Demo delivery request only.", note: "DEMO ONLY — no shipment created." };
       o.fulfilledAt = new Date().toISOString();
       o.status = "fulfilled_test";
-      await this.save();
+      try { await this.save(); } catch (error) { this.orders.set(id, previous); throw error; }
       return this.publicOrder(o);
     });
   }
@@ -138,11 +139,17 @@ class CommerceStore {
       if (!o || o.customerId !== customerId) throw new Error("ORDER_NOT_FOUND");
       if (o.paymentStatus === "paid" || o.fulfilledAt) throw new Error("PAID_ORDER_CANNOT_BE_CANCELLED");
       if (o.status === "cancelled") return this.publicOrder(o);
+      const previousOrder = structuredClone(o);
       const p = this.products.get(o.sku);
+      const previousStock = p ? p.stock : null;
       if (p) p.stock += o.quantity;
       o.status = "cancelled";
       o.cancelledAt = new Date().toISOString();
-      await this.save();
+      try { await this.save(); } catch (error) {
+        this.orders.set(id, previousOrder);
+        if (p) p.stock = previousStock;
+        throw error;
+      }
       return this.publicOrder(o);
     });
   }
