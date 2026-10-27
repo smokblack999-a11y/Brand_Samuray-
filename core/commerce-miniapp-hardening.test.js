@@ -2,7 +2,7 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { createMiniAppCommerceHandlers } = require("./commerce-miniapp");
+const { createMiniAppCommerceHandlers, registerCommerceMiniAppRoutes } = require("./commerce-miniapp");
 
 function response() {
   return {
@@ -109,5 +109,27 @@ test("test-only Mini App Commerce stays disabled in production even with explici
       if (env[key] === undefined) delete process.env[key];
       else process.env[key] = env[key];
     }
+  }
+});
+
+
+test("all Mini App Commerce routes register Telegram auth before the feature gate", () => {
+  const routes = [];
+  const requireAuth = function requireWebAppAuth() {};
+  const app = {
+    get(path, ...handlers) { routes.push({ method: "GET", path, handlers }); },
+    post(path, ...handlers) { routes.push({ method: "POST", path, handlers }); }
+  };
+  registerCommerceMiniAppRoutes(app, { commerce: {}, requireWebAppAuth: requireAuth });
+  assert.deepEqual(routes.map(route => route.method + " " + route.path), [
+    "GET /v1/commerce/catalog",
+    "POST /v1/commerce/orders",
+    "GET /v1/commerce/orders/:id",
+    "POST /v1/commerce/orders/:id/checkout"
+  ]);
+  for (const route of routes) {
+    assert.equal(route.handlers[0], requireAuth, route.method + " " + route.path + " must require Telegram auth first");
+    assert.equal(typeof route.handlers[1], "function", "feature gate must follow auth");
+    assert.equal(typeof route.handlers[2], "function", "route handler must be present");
   }
 });
