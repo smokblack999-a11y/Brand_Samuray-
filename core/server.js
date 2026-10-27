@@ -13,6 +13,7 @@ const { createRateLimiter } = require("./rate-limit");
 const dualAI = require("./dual-ai/engine");
 const agentControl = require("./agent-control");
 const agentControlGithub = require("./agent-control-github");
+const { auditRevenueLeakage, parseCsvLeads } = require("./revenue-recovery/audit");
 
 const app = express();
 const PORT = Number(process.env.PORT || 8787);
@@ -98,6 +99,22 @@ app.get("/health/openai", requireApiKey, async (req, res) => {
 });
 app.get("/api/leads", requireApiKey, (req, res) => res.json({ ok: true, leads: listLeads(req.query.limit), requestId: req.requestId }));
 app.get("/api/stats", requireApiKey, (req, res) => res.json({ ok: true, stats: stats(), requestId: req.requestId }));
+
+app.post("/api/revenue-recovery/audit", requireApiKey, leadRateLimit, (req, res) => {
+  try {
+    const body = req.body || {};
+    const payload = typeof body.csv === "string"
+      ? { ...body, leads: parseCsvLeads(body.csv) }
+      : body;
+    const report = auditRevenueLeakage(payload);
+    return res.json({ ok: true, report, requestId: req.requestId });
+  } catch (error) {
+    const status = Number.isInteger(error.statusCode) ? error.statusCode : 400;
+    const code = error.code || "REVENUE_RECOVERY_AUDIT_FAILED";
+    const message = status >= 500 ? "Revenue recovery audit failed" : error.message;
+    return res.status(status).json(errorBody(code, message, req.requestId));
+  }
+});
 
 app.get("/api/agent-control/health", requireApiKey, (_req, res) => res.json(agentControl.health()));
 
