@@ -83,3 +83,31 @@ test("checkout adapter refuses a non-Stripe or non-HTTPS URL", async () => {
   assert.equal(res.body.error.code, "STRIPE_SESSION_INVALID");
   assert.equal(res.body.session, undefined);
 });
+
+
+test("test-only Mini App Commerce stays disabled in production even with explicit flags", () => {
+  const env = {
+    NODE_ENV: process.env.NODE_ENV,
+    COMMERCE_MINIAPP_ENABLED: process.env.COMMERCE_MINIAPP_ENABLED,
+    COMMERCE_MODE: process.env.COMMERCE_MODE
+  };
+  try {
+    process.env.NODE_ENV = "production";
+    process.env.COMMERCE_MINIAPP_ENABLED = "true";
+    process.env.COMMERCE_MODE = "test";
+    const handlers = createMiniAppCommerceHandlers({
+      commerce: { getCatalog() { return []; } }
+    });
+    const res = response();
+    let nextCalled = false;
+    handlers.featureEnabled(request(), res, () => { nextCalled = true; });
+    assert.equal(res.statusCode, 404);
+    assert.equal(res.body.error.code, "COMMERCE_MINIAPP_DISABLED");
+    assert.equal(nextCalled, false);
+  } finally {
+    for (const key of Object.keys(env)) {
+      if (env[key] === undefined) delete process.env[key];
+      else process.env[key] = env[key];
+    }
+  }
+});
