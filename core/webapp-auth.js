@@ -2,7 +2,14 @@
 
 const crypto = require("node:crypto");
 
-const MAX_AGE_SECONDS = Math.max(60, Number(process.env.TELEGRAM_WEBAPP_AUTH_MAX_AGE_SECONDS || 86400));
+const DEFAULT_MAX_AGE_SECONDS = 86400;
+const configuredMaxAge = Number(process.env.TELEGRAM_WEBAPP_AUTH_MAX_AGE_SECONDS || DEFAULT_MAX_AGE_SECONDS);
+// Invalid/non-integer configuration must not turn freshness checks into NaN comparisons.
+// Keep the configured window within 60 seconds and 24 hours.
+const MAX_AGE_SECONDS = Number.isSafeInteger(configuredMaxAge) &&
+  configuredMaxAge >= 60 && configuredMaxAge <= DEFAULT_MAX_AGE_SECONDS
+  ? configuredMaxAge
+  : DEFAULT_MAX_AGE_SECONDS;
 
 function parseInitData(initData) {
   const params = new URLSearchParams(String(initData || ""));
@@ -36,7 +43,9 @@ function validateInitData(initData) {
 
   const authDate = Number(data.auth_date || 0);
   if (!Number.isInteger(authDate) || authDate <= 0) throw new Error("Telegram WebApp auth_date missing");
-  if (Math.floor(Date.now() / 1000) - authDate > MAX_AGE_SECONDS) throw new Error("Telegram WebApp initData expired");
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  if (authDate > nowSeconds + 300) throw new Error("Telegram WebApp auth_date is in the future");
+  if (nowSeconds - authDate > MAX_AGE_SECONDS) throw new Error("Telegram WebApp initData expired");
 
   let user = null;
   if (data.user) {
