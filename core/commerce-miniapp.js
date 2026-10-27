@@ -3,6 +3,7 @@
 // Thin Telegram Mini App adapter. The Commerce domain + SQLite remain the only
 // order/payment source of truth. Never accept customerId or prices from the client.
 function createMiniAppCommerceHandlers({ commerce, enabled = () =>
+  process.env.NODE_ENV !== "production" &&
   process.env.COMMERCE_MINIAPP_ENABLED === "true" &&
   process.env.COMMERCE_MODE === "test"
 } = {}) {
