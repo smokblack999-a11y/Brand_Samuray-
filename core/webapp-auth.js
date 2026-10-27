@@ -3,12 +3,14 @@
 const crypto = require("node:crypto");
 
 const DEFAULT_MAX_AGE_SECONDS = 86400;
-const configuredMaxAge = Number(process.env.TELEGRAM_WEBAPP_AUTH_MAX_AGE_SECONDS || DEFAULT_MAX_AGE_SECONDS);
+const rawMaxAge = process.env.TELEGRAM_WEBAPP_AUTH_MAX_AGE_SECONDS;
+const configuredMaxAge = rawMaxAge == null || rawMaxAge.trim() === ""
+  ? DEFAULT_MAX_AGE_SECONDS
+  : Number(rawMaxAge);
 // Invalid/non-integer configuration must not turn freshness checks into NaN comparisons.
-// Keep the configured window within 60 seconds and 24 hours.
-const MAX_AGE_SECONDS = Number.isSafeInteger(configuredMaxAge) &&
-  configuredMaxAge >= 60 && configuredMaxAge <= DEFAULT_MAX_AGE_SECONDS
-  ? configuredMaxAge
+// Clamp numeric values to 60 seconds–24 hours; invalid values fall back to 24 hours.
+const MAX_AGE_SECONDS = Number.isSafeInteger(configuredMaxAge) && configuredMaxAge > 0
+  ? Math.min(DEFAULT_MAX_AGE_SECONDS, Math.max(60, configuredMaxAge))
   : DEFAULT_MAX_AGE_SECONDS;
 
 function parseInitData(initData) {
