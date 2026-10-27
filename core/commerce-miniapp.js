@@ -102,7 +102,12 @@ function createMiniAppCommerceHandlers({ commerce, enabled = () =>
   function getOrder(req, res) {
     const customerId = ownerId(req);
     if (!customerId) return error(res, req, 401, "INVALID_WEBAPP_IDENTITY", "Verified Telegram identity is required");
-    const order = commerce.getOrder(req.params.id);
+    let order;
+    try {
+      order = commerce.getOrder(req.params.id);
+    } catch (err) {
+      return error(res, req, 503, "COMMERCE_STORAGE_UNAVAILABLE", "Order lookup is unavailable");
+    }
     if (!order || order.customerId !== customerId) {
       // Use the same response for missing and foreign orders to avoid ID probing.
       return error(res, req, 404, "ORDER_NOT_FOUND", "Order not found");
@@ -113,7 +118,12 @@ function createMiniAppCommerceHandlers({ commerce, enabled = () =>
   async function checkout(req, res) {
     const customerId = ownerId(req);
     if (!customerId) return error(res, req, 401, "INVALID_WEBAPP_IDENTITY", "Verified Telegram identity is required");
-    const order = commerce.getOrder(req.params.id);
+    let order;
+    try {
+      order = commerce.getOrder(req.params.id);
+    } catch (err) {
+      return error(res, req, 503, "COMMERCE_STORAGE_UNAVAILABLE", "Order lookup is unavailable");
+    }
     if (!order || order.customerId !== customerId) {
       return error(res, req, 404, "ORDER_NOT_FOUND", "Order not found");
     }
