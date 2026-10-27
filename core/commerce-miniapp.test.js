@@ -158,3 +158,17 @@ test("browser Mini App JavaScript parses under Node syntax checker", () => {
   const checked = spawnSync(process.execPath, ["--check", script], { encoding: "utf8" });
   assert.equal(checked.status, 0, checked.stderr || checked.stdout || "Mini App syntax check failed");
 });
+
+
+test("missing idempotency key is rejected before order creation", () => {
+  const { commerce, calls } = fixture();
+  const handlers = createMiniAppCommerceHandlers({ commerce, enabled: () => true });
+  const req = request({
+    body: { productId: "tea", quantity: 1, fulfillment: "pickup" }
+  });
+  const res = response();
+  handlers.createOrder(req, res);
+  assert.equal(res.statusCode, 400);
+  assert.equal(res.body.error.code, "IDEMPOTENCY_KEY_REQUIRED");
+  assert.equal(calls.length, 0);
+});
