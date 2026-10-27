@@ -254,6 +254,16 @@ def self_test() -> bool:
             add_lead(self.db, "Audit test")
             self.assertGreater(self.db.execute("SELECT COUNT(*) FROM audit_log").fetchone()[0], 0)
 
+        def test_mutation_rolls_back_if_audit_fails(self):
+            self.db.execute("""
+                CREATE TRIGGER fail_audit BEFORE INSERT ON audit_log
+                BEGIN SELECT RAISE(ABORT, 'audit blocked'); END;
+            """)
+            self.db.commit()
+            with self.assertRaises(sqlite3.Error):
+                add_lead(self.db, "Must roll back")
+            self.assertEqual(self.db.execute("SELECT COUNT(*) FROM leads").fetchone()[0], 0)
+
     suite = unittest.defaultTestLoader.loadTestsFromTestCase(CoreTests)
     result = unittest.TextTestRunner(verbosity=2).run(suite)
     return result.wasSuccessful()
