@@ -45,6 +45,7 @@ These are incompatible contracts, not a simple file copy. A direct merge would r
 - Catalog and total are sourced from the domain; provider metadata/internal fields are omitted from public order DTOs.
 - Checkout requires a `cs_test_...` session identifier and a trusted Stripe HTTPS hostname; storage errors return bounded responses.
 - An integration test uses real Commerce-domain methods and an in-memory SQLite database while stubbing the outbound Stripe session-creation response. It verifies idempotent order creation, persisted session/payment-attempt state, TEST event application, and duplicate event replay.
+- Telegram WebApp auth tests verify HMAC tamper rejection, future `auth_date` rejection, and safe expiry fallback when the configured maximum age is invalid. Numeric age values are clamped to 60 seconds–24 hours.
 - CI has passed for Core tests/Docker, Core X22, and APK build at the commit above. Check later commits' checks separately.
 
 ## Remaining release gates
