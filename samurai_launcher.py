@@ -80,7 +80,6 @@ def initialize(db: sqlite3.Connection) -> None:
 def audit(db: sqlite3.Connection, action: str, details: dict) -> None:
     db.execute("INSERT INTO audit_log(action,details,created_at) VALUES(?,?,?)",
                (action, json.dumps(details, ensure_ascii=False, sort_keys=True), utc_now()))
-    db.commit()
 
 
 def add_lead(db: sqlite3.Connection, name: str, company: str = "",
@@ -93,9 +92,13 @@ def add_lead(db: sqlite3.Connection, name: str, company: str = "",
     cur = db.execute(
         "INSERT INTO leads(name,company,contact,expected_kzt,notes,created_at) VALUES(?,?,?,?,?,?)",
         (name, company.strip(), contact.strip(), expected_kzt, notes.strip(), utc_now()))
-    db.commit()
     lead_id = int(cur.lastrowid)
-    audit(db, "lead.created", {"id": lead_id, "name": name, "expected_kzt": expected_kzt})
+    try:
+        audit(db, "lead.created", {"id": lead_id, "name": name, "expected_kzt": expected_kzt})
+        db.commit()
+    except sqlite3.Error:
+        db.rollback()
+        raise
     return lead_id
 
 
@@ -107,8 +110,12 @@ def set_lead_status(db: sqlite3.Connection, lead_id: int, status: str) -> None:
     if cur.rowcount != 1:
         db.rollback()
         raise ValueError(f"Лид #{lead_id} не найден.")
-    db.commit()
-    audit(db, "lead.status_changed", {"id": lead_id, "status": status})
+    try:
+        audit(db, "lead.status_changed", {"id": lead_id, "status": status})
+        db.commit()
+    except sqlite3.Error:
+        db.rollback()
+        raise
 
 
 def add_revenue_entry(db: sqlite3.Connection, kind: str, amount_kzt: int,
@@ -123,10 +130,14 @@ def add_revenue_entry(db: sqlite3.Connection, kind: str, amount_kzt: int,
     cur = db.execute(
         "INSERT INTO revenue_entries(kind,amount_kzt,category,note,created_at) VALUES(?,?,?,?,?)",
         (kind, amount_kzt, category, note.strip(), utc_now()))
-    db.commit()
     entry_id = int(cur.lastrowid)
-    audit(db, "revenue.recorded", {"id": entry_id, "kind": kind,
-                                   "amount_kzt": amount_kzt, "category": category})
+    try:
+        audit(db, "revenue.recorded", {"id": entry_id, "kind": kind,
+                                       "amount_kzt": amount_kzt, "category": category})
+        db.commit()
+    except sqlite3.Error:
+        db.rollback()
+        raise
     return entry_id
 
 
@@ -196,7 +207,12 @@ def backup_db(db: sqlite3.Connection, home: Path = DEFAULT_HOME) -> Path:
     target = backup_dir / f"samurai-wisdom-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}.sqlite3"
     with sqlite3.connect(str(target)) as dst:
         db.backup(dst)
-    audit(db, "backup.created", {"path": str(target)})
+    try:
+        audit(db, "backup.created", {"path": str(target)})
+        db.commit()
+    except sqlite3.Error:
+        db.rollback()
+        raise
     return target
 
 
