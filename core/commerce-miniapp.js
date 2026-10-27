@@ -132,8 +132,15 @@ function createMiniAppCommerceHandlers({ commerce, enabled = () =>
       if (result.alreadyPaid) {
         return res.status(409).json({ ok: false, error: { code: "ORDER_ALREADY_PAID", message: "Order is already paid", requestId: req.requestId } });
       }
-      if (!result.url || !/^cs_test_[A-Za-z0-9]+$/.test(String(result.sessionId || ""))) {
-        return error(res, req, 409, "STRIPE_SESSION_INVALID", "No new test Checkout URL is available");
+      let checkoutUrl;
+      try {
+        checkoutUrl = new URL(String(result.url || ""));
+      } catch {
+        return error(res, req, 409, "STRIPE_SESSION_INVALID", "No valid test Checkout URL is available");
+      }
+      if (!/^cs_test_[A-Za-z0-9]+$/.test(String(result.sessionId || "")) ||
+          checkoutUrl.protocol !== "https:" || checkoutUrl.hostname !== "checkout.stripe.com") {
+        return error(res, req, 409, "STRIPE_SESSION_INVALID", "No valid test Checkout URL is available");
       }
       return res.json({
         ok: true,
