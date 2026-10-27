@@ -149,7 +149,7 @@ function createMiniAppCommerceHandlers({ commerce, enabled = () =>
       return res.json({
         ok: true,
         mode: "stripe_test",
-        session: { id: result.sessionId, url: result.url, livemode: false },
+        session: { id: result.sessionId, url: checkoutUrl.toString(), livemode: false },
         order: publicOrder(result.order),
         requestId: req.requestId
       });
