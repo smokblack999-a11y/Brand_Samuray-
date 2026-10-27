@@ -71,10 +71,13 @@ function createMiniAppCommerceHandlers({ commerce, enabled = () =>
 
     const body = req.body && typeof req.body === "object" && !Array.isArray(req.body) ? req.body : {};
     const rawKey = String(req.get("Idempotency-Key") || "").trim();
-    if (rawKey && !/^[A-Za-z0-9._:-]{8,128}$/.test(rawKey)) {
+    if (!rawKey) {
+      return error(res, req, 400, "IDEMPOTENCY_KEY_REQUIRED", "Idempotency-Key is required for Mini App order creation");
+    }
+    if (!/^[A-Za-z0-9._:-]{8,128}$/.test(rawKey)) {
       return error(res, req, 400, "INVALID_IDEMPOTENCY_KEY", "Idempotency-Key must be 8–128 safe characters");
     }
-    const idempotencyKey = rawKey ? "miniapp:" + customerId + ":" + rawKey : undefined;
+    const idempotencyKey = "miniapp:" + customerId + ":" + rawKey;
 
     try {
       const order = commerce.createOrder({
