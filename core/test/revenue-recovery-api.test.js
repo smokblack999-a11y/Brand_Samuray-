@@ -112,5 +112,5 @@ test("revenue recovery audit endpoint rejects invalid CSV safely", async () => {
   const body = await response.json();
   assert.equal(body.ok, false);
   assert.equal(body.error.code, "INVALID_CSV");
-  assert.ok(body.requestId);
+  assert.ok(body.error.requestId);
 });
