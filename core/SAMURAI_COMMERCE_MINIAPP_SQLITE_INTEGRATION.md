@@ -1,6 +1,6 @@
 # SAMURAI Commerce Mini App → SQLite integration contract
 
-Status: engineering contract / integration branch. This document does not claim the Mini App is integrated or that any payment flow is operational.
+Status: adapter implementation and regression tests are present in PR #118. Core CI, Core X22 CI, and Android APK build passed on commit `c9bf34ac7466e7c39cc6eb4ce25f1382b106f6af`. Automated tests use the real Commerce domain and in-memory SQLite, but stub Stripe's outbound API response; they do not establish deployed HTTPS or signed-webhook end-to-end readiness.
 
 ## Source of truth
 
@@ -31,24 +31,26 @@ These are incompatible contracts, not a simple file copy. A direct merge would r
    - `GET /v1/commerce/catalog`: map the server-side KZT catalog into a documented UI DTO.
    - `POST /v1/commerce/orders`: accept `productId`, `quantity`, `fulfillment`, and, for delivery, `address` + `deliveryZone`; use server prices and an idempotency key.
    - `GET /v1/commerce/orders/:id`: verify the order belongs to the authenticated Telegram user before returning a sanitized DTO.
-   - `POST /v1/commerce/orders/:id/cancel`: only map to a domain-supported cancellation transition; never silently cancel an order with an uncertain Checkout attempt.
-5. Do not expose a Checkout button until a compatible Stripe TEST session-creation path exists in the domain branch and its session ID is registered on the order before webhook processing. Do not introduce the second Stripe store to make the UI appear functional.
+   - No customer cancellation endpoint is exposed. Keep cancellation unavailable until a safe domain transition handles pending or uncertain Checkout attempts.
+5. Checkout now calls the existing domain's Stripe TEST session-creation method; the returned session ID is attached to the SQLite-backed order/payment attempt before webhook processing. The adapter rejects non-test session IDs and non-HTTPS/non-`checkout.stripe.com` URLs. Do not introduce a second Stripe store.
 6. Webhook handling must use one signature-verification implementation and one domain payment transition. The event must match the saved order, session, amount, currency, and test-mode flag.
 7. Adapt the UI to the actual order IDs/statuses. Do not change the domain schema merely to mimic the Mini App demo schema.
 
-## Required automated tests before enabling the UI
+## Automated coverage in PR #118
 
-- Missing/invalid/expired Telegram initData is rejected.
-- Client-supplied customer ID cannot create or access another customer's order.
-- Catalog and order totals come only from server configuration.
-- Idempotent retries return the same order and conflicting reuse is rejected.
-- Checkout failure/timeout does not create duplicate orders or mark payment as paid.
-- Invalid signature, replay, wrong session, amount, currency, and live-mode webhook are rejected.
-- A verified test payment transitions the same SQLite order exactly once.
-- Restart/retry paths preserve order and payment-attempt state.
-- Feature is off by default and unavailable in production.
-- Existing Telegram bot and courier workflow tests remain green.
+- Feature gate is closed by default and is also fail-closed when `NODE_ENV=production`, even if the test flags are set.
+- Customer identity is derived from the verified Telegram WebApp middleware value; client-supplied customer IDs are ignored.
+- Missing/malformed idempotency keys are rejected, same-key retries return the same domain order, and domain conflict logic remains the source of truth.
+- Customer order lookup and checkout are owner-scoped; missing and foreign orders share the same 404 response.
+- Catalog and total are sourced from the domain; provider metadata/internal fields are omitted from public order DTOs.
+- Checkout requires a `cs_test_...` session identifier and a trusted Stripe HTTPS hostname; storage errors return bounded responses.
+- An integration test uses real Commerce-domain methods and an in-memory SQLite database while stubbing the outbound Stripe session-creation response. It verifies idempotent order creation, persisted session/payment-attempt state, TEST event application, and duplicate event replay.
+- CI has passed for Core tests/Docker, Core X22, and APK build at the commit above. Check later commits' checks separately.
 
-## Release gate
+## Remaining release gates
 
-This branch is not a release candidate. Keep all PRs draft/unmerged until the adapter and tests above exist, CI passes at the final head, and the complete Telegram Mini App → test Checkout → signed webhook flow is exercised against a real Stripe test account on deployed HTTPS. Physical-device and courier-delivery tests remain separate gates.
+- Test a real signed Telegram `initData` request through the actual deployed HTTPS API.
+- Complete a Stripe TEST checkout against an actual test account; deliver its signed webhook to the deployed Core and verify order/session/amount/currency matching, retries, and restart recovery.
+- Test the Mini App on a physical Android phone, and run the courier workflow separately.
+- Verify production secrets, persistent volume and SQLite backup/restore before any public deployment.
+- Do not enable the feature flag or merge this PR until these external release gates pass. No live payments, crypto settlement, real bank API, public deployment, or physical-device end-to-end test is claimed.
