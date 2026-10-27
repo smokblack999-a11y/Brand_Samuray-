@@ -133,3 +133,24 @@ test("all Mini App Commerce routes register Telegram auth before the feature gat
     assert.equal(typeof route.handlers[2], "function", "route handler must be present");
   }
 });
+
+test("checkout response returns the canonical validated Stripe URL", async () => {
+  const handlers = createMiniAppCommerceHandlers({
+    commerce: {
+      getOrder() { return ownedOrder(); },
+      async createCheckoutSession() {
+        return {
+          order: ownedOrder(),
+          sessionId: "cs_test_abc123",
+          url: "https://CHECKOUT.STRIPE.COM/c/pay/test"
+        };
+      }
+    },
+    enabled: () => true
+  });
+  const res = response();
+  await handlers.checkout(request(), res);
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body.session.url, "https://checkout.stripe.com/c/pay/test");
+});
+
