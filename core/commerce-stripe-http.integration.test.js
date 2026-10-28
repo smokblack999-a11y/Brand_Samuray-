@@ -154,7 +154,6 @@ test("actual Core HTTP Stripe webhook verifies signature, deduplicates, and surv
   const created = await core.ready;
   assert.ok(created.orderId);
   assert.equal(created.sessionId, "cs_test_http_integration");
-  const base = "http://127.0.0.1:" + port;
   const event = {
     id: "evt_http_integration_001",
     type: "checkout.session.completed",
