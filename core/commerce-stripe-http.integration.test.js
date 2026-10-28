@@ -147,8 +147,11 @@ test("actual Core HTTP Stripe webhook verifies signature, deduplicates, and surv
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "samurai-stripe-http-"));
   const port = await freePort();
   let core = startCore({ port, dataDir, bootstrap: true });
-  t.after(() => {
-    try { core.child.kill("SIGTERM"); } catch {}
+  t.after(async () => {
+    if (core.child.exitCode == null) {
+      core.child.kill("SIGTERM");
+      await new Promise(resolve => core.child.once("exit", resolve));
+    }
     fs.rmSync(dataDir, { recursive: true, force: true });
   });
 
@@ -178,13 +181,15 @@ test("actual Core HTTP Stripe webhook verifies signature, deduplicates, and surv
   assert.equal(invalid.status, 400, "tampered body must be rejected");
 
   const first = await sendEvent(port, raw, validHeader);
-  assert.equal(first.status, 200, await first.text());
-  assert.equal((await first.json()).processed, true);
+  const firstText = await first.text();
+  assert.equal(first.status, 200, firstText);
+  assert.equal(JSON.parse(firstText).processed, true);
   assert.equal((await readOrder(port, created.orderId)).paymentStatus, "PAID");
 
   const replay = await sendEvent(port, raw, validHeader);
-  assert.equal(replay.status, 200, await replay.text());
-  assert.equal((await replay.json()).duplicate, true);
+  const replayText = await replay.text();
+  assert.equal(replay.status, 200, replayText);
+  assert.equal(JSON.parse(replayText).duplicate, true);
   assert.equal((await readOrder(port, created.orderId)).paymentStatus, "PAID");
 
   core.child.kill("SIGTERM");
