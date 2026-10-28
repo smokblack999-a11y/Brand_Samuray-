@@ -43,8 +43,8 @@ const BOOTSTRAP = String.raw`
   };
   const core = require("./server");
   const commerce = require("./commerce");
-  if (!core.server.listening) await new Promise(resolve => core.server.once("listening", resolve));
   (async () => {
+    if (!core.server.listening) await new Promise(resolve => core.server.once("listening", resolve));
     let data = {};
     if (process.env.BOOTSTRAP_COMMERCE === "true") {
       const order = commerce.createOrder({
