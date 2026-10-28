@@ -59,9 +59,9 @@ const BOOTSTRAP = String.raw`
         amountMinor: commerce.getOrder(order.id).totalKzt * 100
       };
     }
-    process.stdout.write("READY:" + JSON.stringify(data) + "\\n");
+    process.stdout.write("READY:" + JSON.stringify(data) + "\n");
   })().catch(error => {
-    process.stderr.write(String(error.stack || error) + "\\n");
+    process.stderr.write(String(error.stack || error) + "\n");
     process.exit(1);
   });
 `;
