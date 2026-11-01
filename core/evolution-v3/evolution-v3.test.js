@@ -115,7 +115,7 @@ test("Checkout is fail-closed until test prices and HTTPS app URL are configured
     plan: "starter", workspaceId: "workspace-1", customerEmail: "buyer@example.com",
     idempotencyKey: "idempotency-key-123456"
   }), /stripe_price_not_configured_for_plan/);
-  assert.throws(() => billing.createCheckoutSession({
+  await assert.rejects(() => billing.createCheckoutSession({
     plan: "enterprise", workspaceId: "workspace-1", customerEmail: "buyer@example.com",
     idempotencyKey: "idempotency-key-123456"
   }), /unsupported_plan/);
