@@ -90,7 +90,7 @@ function listReviewItems(replayStoreDir, limit = 50) {
   if (!replayStoreDir || !fs.existsSync(replayStoreDir)) return [];
   const n = Math.min(Math.max(Number(limit) || 50, 1), 200);
   return fs.readdirSync(replayStoreDir)
-    .filter(name => /^[a-f0-9]{64}\\.json$/.test(name))
+    .filter(name => /^[a-f0-9]{64}\.json$/.test(name))
     .map(name => {
       try {
         const record = JSON.parse(fs.readFileSync(path.join(replayStoreDir, name), "utf8"));
