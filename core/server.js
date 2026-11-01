@@ -13,6 +13,7 @@ const { createRateLimiter } = require("./rate-limit");
 const dualAI = require("./dual-ai/engine");
 const agentControl = require("./agent-control");
 const agentControlGithub = require("./agent-control-github");
+const covenantAicp = require("./covenant-interop/aicp-gateway");
 
 const app = express();
 const PORT = Number(process.env.PORT || 8787);
@@ -364,6 +365,21 @@ app.post("/api/telegram/webhook", requireWebhookSecret, async (req, res) => {
   } catch (error) {
     console.error(JSON.stringify({ event: "business_webhook_error", requestId: req.requestId, error: error.message }));
   }
+});
+
+app.post("/api/covenant/aicp/validate", requireApiKey, dualRateLimit, (req, res) => {
+  if (String(process.env.COVENANT_AICP_ENABLED).toLowerCase() !== "true") {
+    return res.status(503).json(errorBody("COVENANT_AICP_DISABLED", "Covenant AICP gateway is disabled", req.requestId));
+  }
+  const allowedSenders = covenantAicp.configuredAllowedSenders();
+  if (allowedSenders.length === 0) {
+    return res.status(503).json(errorBody("COVENANT_AICP_ALLOWLIST_EMPTY", "No Covenant AICP senders are allowlisted", req.requestId));
+  }
+  const result = covenantAicp.validateAICPMessage(req.body || {}, { allowedSenders });
+  if (!result.valid) {
+    return res.status(400).json({ ...errorBody("COVENANT_AICP_REJECTED", "AICP message rejected", req.requestId), details: result.errors });
+  }
+  return res.status(202).json({ ok: true, result, requestId: req.requestId });
 });
 
 app.use((req, res) => res.status(404).json(errorBody("NOT_FOUND", "Endpoint not found", req.requestId)));
