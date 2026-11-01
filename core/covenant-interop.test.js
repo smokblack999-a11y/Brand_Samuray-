@@ -25,7 +25,7 @@ function validEnvelope(overrides = {}) {
     performative: "inform",
     payload: { result: "pass", source_sha: "abc123" },
     ...overrides
-  }, { now: NOW });
+  }, { secret: SECRET, now: NOW });
 }
 
 function tempStore(t) {
@@ -36,7 +36,7 @@ function tempStore(t) {
 
 test("creates and verifies a signed AICP-shaped envelope", () => {
   const envelope = validEnvelope();
-  const result = verifyEnvelope(envelope, { now: NOW });
+  const result = verifyEnvelope(envelope, { secret: SECRET, now: NOW });
   assert.equal(result.messageId, "test-message-001");
   assert.equal(result.intent, "agent.audit.receipt");
   assert.match(result.bodySha256, /^[a-f0-9]{64}$/);
@@ -45,7 +45,7 @@ test("creates and verifies a signed AICP-shaped envelope", () => {
 test("rejects a modified payload after signing", () => {
   const envelope = { ...validEnvelope(), payload: { result: "fail" } };
   assert.throws(
-    () => verifyEnvelope(envelope, { now: NOW }),
+    () => verifyEnvelope(envelope, { secret: SECRET, now: NOW }),
     error => error.code === "COVENANT_SIGNATURE_INVALID"
   );
 });
@@ -75,7 +75,7 @@ test("rejects weak shared secrets", () => {
 test("rejects unsigned fields such as the reference repo's proof_of_work marker", () => {
   const envelope = { ...validEnvelope(), proof_of_work: "pow-1" };
   assert.throws(
-    () => verifyEnvelope(envelope, { now: NOW }),
+    () => verifyEnvelope(envelope, { secret: SECRET, now: NOW }),
     error => error.code === "COVENANT_ENVELOPE_UNSUPPORTED_FIELD"
   );
 });
