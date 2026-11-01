@@ -75,8 +75,9 @@ if (String(process.env.EVOLUTION_ENABLED || "").toLowerCase() === "true") {
   try { ({ Pool } = require("pg")); } catch { throw new Error("EVOLUTION_ENABLED requires pg; run npm install pg in core before enabling"); }
   const { createPostgresStore } = require("./evolution-v3/postgres-store");
   const { createEvolutionRouter } = require("./evolution-v3/http");
+  const evolutionAuthRateLimit = createRateLimiter({ windowMs: 60000, max: 8 });
   const evolutionPool = new Pool({ connectionString: databaseUrl, max: 5, connectionTimeoutMillis: 5000 });
-  app.use("/api/evolution", createEvolutionRouter({ store: createPostgresStore(evolutionPool), sessionSecret }));
+  app.use("/api/evolution", createEvolutionRouter({ store: createPostgresStore(evolutionPool), sessionSecret, authRateLimit: evolutionAuthRateLimit }));
   app.locals.evolutionPool = evolutionPool;
   console.log(JSON.stringify({ event: "evolution_v3_routes_enabled", database: "configured", auth: "bearer-session" }));
 }
