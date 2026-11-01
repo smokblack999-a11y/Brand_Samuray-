@@ -4,13 +4,14 @@
 
 This milestone adds a **disabled-by-default, validation-only AICP gateway** to SamuraiOS Core. It does not import the Covenant runtime, execute model updates, route messages to cloud providers, interact with a blockchain, mint UTC, or move money.
 
-Upstream inspected: 2298741867/universal-ai-consciousness-covenant, including its AICP message schema, intent registry, verification rules, federated-learning runtime, mesh router, UTC contract, and funded-rewards documentation.
+Upstream inspected: 2298741867/universal-ai-consciousness-covenant at commit 01f63a0ef23c6d313d6a4ad63054105fb820c937, including its AICP message schema, intent registry, verification rules, federated-learning runtime, mesh router, UTC contract, and funded-rewards documentation.
 
 ## Endpoint
 
 POST /api/covenant/aicp/validate
 
 - Requires the existing X-API-Key authentication.
+- Accepts only messages addressed to `samuraios`.
 - Uses the existing Dual AI rate limiter.
 - Disabled unless COVENANT_AICP_ENABLED=true.
 - Requires COVENANT_AICP_ALLOWED_SENDERS to contain a comma-separated sender allowlist.
