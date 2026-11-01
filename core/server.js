@@ -29,7 +29,8 @@ function getCovenantEventStore() {
   if (!covenantEventStore) {
     const dataDir = process.env.DATA_DIR || path.join(__dirname, "data");
     covenantEventStore = new covenantInterop.CovenantEventStore(
-      path.join(dataDir, "covenant-interop-events.jsonl")
+      path.join(dataDir, "covenant-interop-events.jsonl"),
+      { secret: COVENANT_INTEROP_SECRET }
     );
   }
   return covenantEventStore;
