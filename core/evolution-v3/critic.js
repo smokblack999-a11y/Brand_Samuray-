@@ -5,9 +5,9 @@ const crypto = require("node:crypto");
 const RULES = [
   ["empty_output", value => !value.trim()],
   ["oversized_output", value => value.length > 50000],
-  ["script_tag", value => /<\\s*script\\b/i.test(value)],
-  ["javascript_url", value => /javascript\\s*:/i.test(value)],
-  ["inline_event_handler", value => /\\bon[a-z]+\\s*=\\s*["']/i.test(value)],
+  ["script_tag", value => /<\s*script\b/i.test(value)],
+  ["javascript_url", value => /javascript\s*:/i.test(value)],
+  ["inline_event_handler", value => /\bon[a-z]+\s*=\s*["']/i.test(value)],
   ["credential_pattern", value => /(?:sk-(?:live|test|proj)-[A-Za-z0-9_-]{16,}|-----BEGIN (?:RSA |EC )?PRIVATE KEY-----)/.test(value)]
 ];
 
