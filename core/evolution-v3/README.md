@@ -11,10 +11,19 @@ Status: isolated implementation on feat/evolution-v3-server-foundation. It is no
 - Deterministic Kill Critic checks, human-approval-only repair proposals, evidence-first SEO records, HTML escaping.
 - Stripe signature verification and guarded test-mode Checkout/Portal client primitives.
 
+## Conditional HTTP integration
+
+- Express routes are mounted at /api/evolution only when EVOLUTION_ENABLED=true.
+- Registration/login use scrypt password hashes, short-lived signed Bearer tokens, persisted session hashes, and server-side revocation checks.
+- Account, workspace, membership, and initial session creation are transactional.
+- Site onboarding requires a DNS TXT ownership proof before a single-page audit is permitted.
+- The audit stores bounded crawler evidence and deterministic title/meta-description/H1 findings; no overall SEO score, rankings, or traffic are fabricated.
+- This feature remains disabled by default. Install pg with npm install pg in core, provision a dedicated database, apply schema.sql manually, then configure EVOLUTION_DATABASE_URL, EVOLUTION_SESSION_SECRET (32+ chars), EVOLUTION_SCHEMA_READY=true, and EVOLUTION_ENABLED=true.
+
 ## Still not implemented or verified
 
-- No PostgreSQL driver is installed in core/package.json; caller must provide a compatible Pool. No database has been provisioned and schema.sql has not been applied.
-- No auth, site, audit, or billing routes are mounted into core/server.js. Session token primitives still require a server-side session lookup/revocation flow and secure cookie/CSRF policy.
+- The pg driver is not installed in core/package.json. No database has been provisioned and schema.sql has not been applied.
+- Routes are conditionally mounted, but no live PostgreSQL database has been provisioned or tested. Email verification, password reset, MFA, account recovery, and billing routes remain unimplemented.
 - Crawler has unit tests with mocked DNS/network. No live crawling, site ownership verification, robots policy, crawl queue, Search Console OAuth, rank/traffic source, or SEO scoring model.
 - No real Stripe API round-trip, configured test Price IDs, webhook route, subscription reconciliation implementation, or entitlement activation.
 - Repair proposals are not executed; no isolated patch sandbox, CI repair loop, or deploy approval integration is wired.
