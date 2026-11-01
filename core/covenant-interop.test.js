@@ -25,7 +25,7 @@ function validEnvelope(overrides = {}) {
     performative: "inform",
     payload: { result: "pass", source_sha: "abc123" },
     ...overrides
-  }, { secret: SECRET, now: NOW });
+  }, { now: NOW });
 }
 
 function tempStore(t) {
@@ -36,7 +36,7 @@ function tempStore(t) {
 
 test("creates and verifies a signed AICP-shaped envelope", () => {
   const envelope = validEnvelope();
-  const result = verifyEnvelope(envelope, { secret: SECRET, now: NOW });
+  const result = verifyEnvelope(envelope, { now: NOW });
   assert.equal(result.messageId, "test-message-001");
   assert.equal(result.intent, "agent.audit.receipt");
   assert.match(result.bodySha256, /^[a-f0-9]{64}$/);
@@ -45,7 +45,7 @@ test("creates and verifies a signed AICP-shaped envelope", () => {
 test("rejects a modified payload after signing", () => {
   const envelope = { ...validEnvelope(), payload: { result: "fail" } };
   assert.throws(
-    () => verifyEnvelope(envelope, { secret: SECRET, now: NOW }),
+    () => verifyEnvelope(envelope, { now: NOW }),
     error => error.code === "COVENANT_SIGNATURE_INVALID"
   );
 });
@@ -75,17 +75,17 @@ test("rejects weak shared secrets", () => {
 test("rejects unsigned fields such as the reference repo's proof_of_work marker", () => {
   const envelope = { ...validEnvelope(), proof_of_work: "pow-1" };
   assert.throws(
-    () => verifyEnvelope(envelope, { secret: SECRET, now: NOW }),
+    () => verifyEnvelope(envelope, { now: NOW }),
     error => error.code === "COVENANT_ENVELOPE_UNSUPPORTED_FIELD"
   );
 });
 
 test("persists accepted events and deduplicates exact retries", t => {
   const storePath = tempStore(t);
-  const store = new CovenantEventStore(storePath);
+  const store = new CovenantEventStore(storePath, { secret: SECRET });
   const envelope = validEnvelope();
-  const first = store.accept(envelope, { secret: SECRET, now: NOW });
-  const duplicate = store.accept(envelope, { secret: SECRET, now: NOW });
+  const first = store.accept(envelope, { now: NOW });
+  const duplicate = store.accept(envelope, { now: NOW });
 
   assert.equal(first.accepted, true);
   assert.equal(first.duplicate, false);
@@ -93,20 +93,35 @@ test("persists accepted events and deduplicates exact retries", t => {
   assert.equal(duplicate.duplicate, true);
   assert.equal(store.health().storedEvents, 1);
 
-  const reloaded = new CovenantEventStore(storePath);
+  const reloaded = new CovenantEventStore(storePath, { secret: SECRET });
   assert.equal(reloaded.health().storedEvents, 1);
   assert.equal(reloaded.list(10).length, 1);
   assert.equal(Object.hasOwn(reloaded.list(1)[0], "payload"), false);
 });
 
 test("rejects reuse of a message id for different signed content", t => {
-  const store = new CovenantEventStore(tempStore(t));
-  store.accept(validEnvelope(), { secret: SECRET, now: NOW });
+  const store = new CovenantEventStore(tempStore(t), { secret: SECRET });
+  store.accept(validEnvelope(), { now: NOW });
   const conflicting = validEnvelope({ payload: { result: "different" } });
 
   assert.throws(
-    () => store.accept(conflicting, { secret: SECRET, now: NOW }),
+    () => store.accept(conflicting, { now: NOW }),
     error => error.code === "COVENANT_MESSAGE_ID_CONFLICT"
+  );
+});
+
+test("rejects journal records whose signed message payload was altered at rest", t => {
+  const storePath = tempStore(t);
+  const store = new CovenantEventStore(storePath, { secret: SECRET });
+  store.accept(validEnvelope(), { now: NOW });
+  const records = fs.readFileSync(storePath, "utf8").trim().split("\n");
+  const record = JSON.parse(records[0]);
+  record.message.payload.result = "altered-on-disk";
+  fs.writeFileSync(storePath, JSON.stringify(record) + "\n", { mode: 0o600 });
+
+  assert.throws(
+    () => new CovenantEventStore(storePath, { secret: SECRET }),
+    error => error.code === "COVENANT_STORE_CORRUPT"
   );
 });
 
@@ -115,18 +130,18 @@ test("fails closed when the event journal is corrupted", t => {
   fs.writeFileSync(storePath, "{broken-json}\n", { mode: 0o600 });
 
   assert.throws(
-    () => new CovenantEventStore(storePath),
+    () => new CovenantEventStore(storePath, { secret: SECRET }),
     error => error.code === "COVENANT_STORE_CORRUPT"
   );
 });
 
 test("caps event listing and never exposes message payloads", t => {
-  const store = new CovenantEventStore(tempStore(t));
+  const store = new CovenantEventStore(tempStore(t), { secret: SECRET });
   for (let index = 0; index < 3; index += 1) {
     store.accept(validEnvelope({
       message_id: "message-" + index,
       payload: { private_note: "must not appear in list API" }
-    }), { secret: SECRET, now: NOW });
+    }), { now: NOW });
   }
   const rows = store.list(1000);
   assert.equal(rows.length, 3);
