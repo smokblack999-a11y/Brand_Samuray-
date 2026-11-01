@@ -58,11 +58,22 @@ CREATE TABLE IF NOT EXISTS ev3_repair_proposals (
   applied_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+CREATE TABLE IF NOT EXISTS ev3_sessions (
+  id UUID PRIMARY KEY,
+  user_id UUID NOT NULL REFERENCES ev3_users(id) ON DELETE CASCADE,
+  workspace_id UUID NOT NULL REFERENCES ev3_workspaces(id) ON DELETE CASCADE,
+  token_hash TEXT NOT NULL UNIQUE,
+  expires_at TIMESTAMPTZ NOT NULL,
+  revoked_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS ev3_sessions_user_active_idx ON ev3_sessions(user_id, expires_at DESC) WHERE revoked_at IS NULL;
 CREATE TABLE IF NOT EXISTS ev3_stripe_events (
   event_id TEXT PRIMARY KEY,
   event_type TEXT NOT NULL,
   status TEXT NOT NULL CHECK (status IN ('processing','completed','failed')),
   attempts INTEGER NOT NULL DEFAULT 1,
+  lease_until TIMESTAMPTZ,
   last_error TEXT,
   received_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   completed_at TIMESTAMPTZ
