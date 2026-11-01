@@ -392,6 +392,50 @@ app.post("/api/covenant/aicp/validate", requireApiKey, dualRateLimit, (req, res)
   return res.status(202).json({ ok: true, result, requestId: req.requestId });
 });
 
+function covenantReviewStoreDir() {
+  const dataDir = process.env.DATA_DIR || path.join(__dirname, "data");
+  return path.join(dataDir, "covenant-aicp", "replay");
+}
+
+app.get("/api/covenant/aicp/reviews", requireApiKey, dualRateLimit, (req, res) => {
+  const items = covenantAicp.listReviewItems(covenantReviewStoreDir(), req.query.limit);
+  return res.json({
+    ok: true,
+    reviews: items,
+    counts: {
+      pending: items.filter(item => item.reviewStatus === "PENDING_HUMAN_REVIEW").length,
+      approvedForManualHandoff: items.filter(item => item.reviewStatus === "APPROVED_FOR_MANUAL_HANDOFF").length,
+      rejected: items.filter(item => item.reviewStatus === "REJECTED").length
+    },
+    requestId: req.requestId
+  });
+});
+
+app.post("/api/covenant/aicp/reviews/decision", requireApiKey, dualRateLimit, (req, res) => {
+  const sender = String(req.body?.sender || "").trim();
+  const messageId = String(req.body?.messageId || "").trim();
+  const decision = String(req.body?.decision || "").trim().toLowerCase();
+  const reason = String(req.body?.reason || "").trim();
+  if (!sender || !messageId || !["approve", "reject"].includes(decision)) {
+    return res.status(400).json(errorBody("INVALID_REVIEW_DECISION", "sender, messageId and approve/reject decision are required", req.requestId));
+  }
+  const result = covenantAicp.decideReviewItem(
+    covenantReviewStoreDir(), sender, messageId, decision, reason
+  );
+  if (!result.ok) {
+    const status = result.code === "REVIEW_ITEM_NOT_FOUND" ? 404
+      : result.code === "REVIEW_ALREADY_DECIDED" ? 409
+      : result.code === "REVIEW_STORE_UNAVAILABLE" ? 503 : 400;
+    return res.status(status).json({ ...errorBody(result.code, "Review decision was not recorded", req.requestId) });
+  }
+  return res.json({
+    ok: true,
+    reviewStatus: result.reviewStatus,
+    executionAuthorized: false,
+    requestId: req.requestId
+  });
+});
+
 app.use((req, res) => res.status(404).json(errorBody("NOT_FOUND", "Endpoint not found", req.requestId)));
 
 const server = app.listen(PORT, "0.0.0.0", () => console.log(`SamuraiOS Core 2.7.0 listening on :${PORT}`));
