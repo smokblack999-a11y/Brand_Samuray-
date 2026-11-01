@@ -56,6 +56,8 @@ import kotlin.concurrent.thread
 class MainActivity : ComponentActivity() {
     @Volatile private var coreUrl: String = ""
     private lateinit var coreUrlInput: EditText
+    private lateinit var coreApiKeyInput: EditText
+    @Volatile private var coreApiKey: String = ""
     private val permissionRequest = 100
     private lateinit var previewView: PreviewView
     private lateinit var statusText: TextView
@@ -114,6 +116,14 @@ class MainActivity : ComponentActivity() {
             setText(coreUrl)
         }
         root.addView(coreUrlInput, LinearLayout.LayoutParams(-1, -2))
+        coreApiKeyInput = EditText(this).apply {
+            hint = "CORE_API_KEY (не сохраняется на устройстве)"
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+            setSingleLine(true)
+            setTextColor(Color.WHITE)
+            setHintTextColor(Color.GRAY)
+        }
+        root.addView(coreApiKeyInput, LinearLayout.LayoutParams(-1, -2))
         root.addView(TextView(this).apply {
             text = "Удалённый сервер: только HTTPS. HTTP разрешён только для localhost, 127.0.0.1 или Android Emulator 10.0.2.2."
             textSize = 12f
@@ -344,6 +354,7 @@ class MainActivity : ComponentActivity() {
             return
         }
         coreUrl = validated
+        coreApiKey = coreApiKeyInput.text.toString().trim()
         getSharedPreferences("samurai_settings", MODE_PRIVATE)
             .edit()
             .putString("core_base_url", validated)
@@ -406,6 +417,7 @@ class MainActivity : ComponentActivity() {
                 connection = (URL(baseUrl + path).openConnection() as HttpURLConnection).apply {
                     requestMethod = "GET"; connectTimeout = 5000; readTimeout = 10000; useCaches = false
                     setRequestProperty("Accept", "application/json")
+                    if (coreApiKey.isNotBlank()) setRequestProperty("X-API-Key", coreApiKey)
                     setRequestProperty("X-Request-ID", UUID.randomUUID().toString())
                 }
                 val code = connection.responseCode; val stream = if (code in 200..299) connection.inputStream else connection.errorStream; val body = stream?.bufferedReader()?.use { it.readText() } ?: ""
@@ -426,6 +438,7 @@ class MainActivity : ComponentActivity() {
                 connection = (URL(baseUrl + path).openConnection() as HttpURLConnection).apply {
                     requestMethod = "POST"; connectTimeout = 5000; readTimeout = 30000; useCaches = false; doOutput = true
                     setRequestProperty("Content-Type", "application/json; charset=UTF-8"); setRequestProperty("Accept", "application/json")
+                    if (coreApiKey.isNotBlank()) setRequestProperty("X-API-Key", coreApiKey)
                     setRequestProperty("X-Request-ID", UUID.randomUUID().toString())
                 }
                 connection.outputStream.use { output: OutputStream -> output.write(json.toByteArray(Charsets.UTF_8)); output.flush() }
