@@ -53,7 +53,7 @@ async function handleStripeWebhook({ rawBody, signature, secret, eventStore, rec
   if (classification === "IGNORED") return { status: 200, body: { received: true, ignored: true } };
   if (!eventStore || typeof eventStore.claim !== "function") throw new Error("durable_event_store_required");
   if (typeof reconcileSubscription !== "function") throw new Error("subscription_reconciler_required");
-  const claim = await eventStore.claim(event.id);
+  const claim = await eventStore.claim(event.id, event.type);
   if (!claim || claim.claimed !== true) return { status: 200, body: { received: true, duplicate: true } };
   try {
     await reconcileSubscription(event);
