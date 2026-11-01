@@ -76,6 +76,8 @@ test.afterEach(() => {
 test("accepts a valid Ed25519-signed envelope for review only", () => {
   const result = validateAICPMessage(validMessage(), makeOptions());
   assert.equal(result.valid, true);
+  assert.equal(result.protocolProfile, "SAMURAI_AICP_ED25519_V1");
+  assert.equal(result.upstreamCompatible, false);
   assert.equal(result.trust, "SIGNATURE_VERIFIED_REVIEW_ONLY");
   assert.equal(result.acceptedFor, "HUMAN_REVIEW_ONLY");
   assert.equal(result.verified.cryptographicSignature, true);
