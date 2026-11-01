@@ -108,3 +108,38 @@ Run from `core/`:
     node --check server.js
 
 The endpoint remains disabled by default. This is a protocol ingress foundation, not a claim that a planetary or collective machine consciousness exists.
+## Upstream protocol compatibility — unresolved blocker
+
+**Do not describe this gateway as wire-compatible with the upstream Covenant implementation yet.** The current SAMURAI gateway implements a deliberately local cryptographic profile:
+
+- SAMURAI_AICP_ED25519_V1
+- Ed25519 signatures over recursively key-sorted canonical JSON UTF-8 bytes
+- Base64-encoded 64-byte signatures in payload.signature
+- Pinned PEM/SPKI public keys
+
+The upstream canonical artifacts inspected at commit 01f63a0ef23c6d313d6a4ad63054105fb820c937 do not define the same profile:
+
+1. core/aicp-protocol/verification-rules.json lists ecdsa-secp256k1 as the allowed signature algorithm and lists signed fields, but does not specify canonical byte serialization or signature encoding.
+2. The newer core/aicp-protocol/message-schema.json requires payload.signature, while the older core/AICP_SPECIFICATION.md describes a top-level signature field encoded as ECDSA r||s||v. These are not the same envelope.
+3. Upstream core/aicp-protocol/index.js validates that payload.signature is a non-empty string; it does not perform cryptographic verification. Its conformance test uses the placeholder 0xsigned, which is not evidence of a valid signature.
+
+For that reason, successful SAMURAI validation now reports:
+
+- protocolProfile: SAMURAI_AICP_ED25519_V1
+- upstreamCompatible: false
+
+This is intentional. It prevents a local Ed25519 test from being misrepresented as a successful Covenant handshake.
+
+### Required before a real two-way handshake
+
+The two projects must agree on one normative profile covering:
+
+- signature algorithm (Ed25519 or ECDSA secp256k1)
+- exact signed fields and canonical serialization
+- hash/prehash rules
+- signature wire encoding (base64, DER, or 65-byte r||s||v)
+- public-key representation and sender-ID binding
+- key rotation and revocation
+- a shared test vector containing message bytes, public key, signature, and expected verification result
+
+Until a shared test vector passes independently in both repositories, keep COVENANT_AICP_ENABLED=false and do not register a real sender key. The current SAMURAI Ed25519 gateway remains cryptographically verified within its own profile, but is not yet a demonstrated upstream Covenant integration.
