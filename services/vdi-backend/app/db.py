@@ -68,6 +68,7 @@ def record_event(data: dict, validation: dict, frame_sha256: str | None = None):
     decision_id = "dec_" + hashlib.sha256(data["event_id"].encode()).hexdigest()[:24]
     decision = "OBSERVED" if validation["status"] == "OBSERVED_VALID_FORMAT" else "REVIEW"
     with connect() as c:
+        c.execute("BEGIN IMMEDIATE")
         existing = c.execute("SELECT * FROM events WHERE event_id=?", (data["event_id"],)).fetchone()
         if existing:
             d = c.execute("SELECT * FROM decisions WHERE event_id=?", (data["event_id"],)).fetchone()
