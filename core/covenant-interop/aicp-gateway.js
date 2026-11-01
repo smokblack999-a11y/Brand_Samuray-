@@ -248,6 +248,8 @@ function validateAICPMessage(message, options = {}) {
 
   return {
     valid: true,
+    protocolProfile: "SAMURAI_AICP_ED25519_V1",
+    upstreamCompatible: false,
     digest,
     normalizedIntent: message.intent,
     messageId: message.message_id,
