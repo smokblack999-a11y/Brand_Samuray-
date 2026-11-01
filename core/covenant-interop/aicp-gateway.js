@@ -1,6 +1,8 @@
 "use strict";
 
 const crypto = require("node:crypto");
+const fs = require("node:fs");
+const path = require("node:path");
 
 const MAX_MESSAGE_BYTES = 32 * 1024;
 const MAX_CLOCK_SKEW_SECONDS = 300;
@@ -25,12 +27,66 @@ function canonicalize(value) {
       JSON.stringify(key) + ":" + canonicalize(value[key])
     ).join(",") + "}";
   }
-  return JSON.stringify(value);
+  const encoded = JSON.stringify(value);
+  if (encoded === undefined) throw new TypeError("Unsupported value in signed message");
+  return encoded;
+}
+
+function signaturePayload(message) {
+  const unsigned = { ...message, payload: { ...message.payload } };
+  delete unsigned.payload.signature;
+  return Buffer.from(canonicalize(unsigned), "utf8");
+}
+
+function configuredAllowedSenders(value = process.env.COVENANT_AICP_ALLOWED_SENDERS || "") {
+  return String(value).split(",").map(item => item.trim()).filter(Boolean);
+}
+
+function configuredPublicKeys(value = process.env.COVENANT_AICP_PUBLIC_KEYS_JSON || "{}") {
+  try {
+    const parsed = JSON.parse(String(value));
+    if (!isRecord(parsed)) return {};
+    return Object.fromEntries(Object.entries(parsed).filter(([sender, pem]) =>
+      sender.trim() && typeof pem === "string" && pem.includes("BEGIN PUBLIC KEY")
+    ));
+  } catch {
+    return {};
+  }
+}
+
+function reserveMessage(replayStoreDir, sender, messageId, record) {
+  if (!replayStoreDir) return { ok: false, code: "REPLAY_STORE_NOT_CONFIGURED" };
+  const key = crypto.createHash("sha256").update(sender + "\0" + messageId).digest("hex");
+  let fd;
+  try {
+    fs.mkdirSync(replayStoreDir, { recursive: true, mode: 0o700 });
+    const file = path.join(replayStoreDir, key + ".json");
+    fd = fs.openSync(file, "wx", 0o600);
+    fs.writeFileSync(fd, JSON.stringify(record) + "\n", "utf8");
+    fs.fsyncSync(fd);
+    fs.closeSync(fd);
+    fd = undefined;
+    try {
+      const dirFd = fs.openSync(replayStoreDir, "r");
+      fs.fsyncSync(dirFd);
+      fs.closeSync(dirFd);
+    } catch {
+      // The exclusive file creation is already durable on filesystems that do not fsync directories.
+    }
+    return { ok: true };
+  } catch (error) {
+    if (fd !== undefined) {
+      try { fs.closeSync(fd); } catch {}
+    }
+    if (error.code === "EEXIST") return { ok: false, code: "REPLAY_DETECTED" };
+    return { ok: false, code: "REPLAY_STORE_UNAVAILABLE" };
+  }
 }
 
 function validateAICPMessage(message, options = {}) {
   const now = Number.isInteger(options.now) ? options.now : Math.floor(Date.now() / 1000);
   const allowedSenders = new Set(Array.isArray(options.allowedSenders) ? options.allowedSenders : []);
+  const publicKeys = isRecord(options.publicKeys) ? options.publicKeys : {};
   const errors = [];
 
   if (!isRecord(message)) return { valid: false, errors: ["MESSAGE_OBJECT_REQUIRED"] };
@@ -48,7 +104,7 @@ function validateAICPMessage(message, options = {}) {
   if (!Number.isInteger(message.timestamp) || Math.abs(now - message.timestamp) > MAX_CLOCK_SKEW_SECONDS) {
     errors.push("TIMESTAMP_OUT_OF_WINDOW");
   }
-  if (typeof message.message_id === "string" && message.message_id.length > 128) errors.push("MESSAGE_ID_TOO_LONG");
+  if (typeof message.message_id === "string" && (message.message_id.length > 128 || !message.message_id.trim())) errors.push("INVALID_MESSAGE_ID");
   if (typeof message.from_ai === "string" && !allowedSenders.has(message.from_ai)) errors.push("SENDER_NOT_ALLOWLISTED");
   if (message.to_ai !== (options.target || "samuraios")) errors.push("RECIPIENT_NOT_SAMURAI");
   if (!isRecord(message.payload)) errors.push("PAYLOAD_OBJECT_REQUIRED");
@@ -77,36 +133,65 @@ function validateAICPMessage(message, options = {}) {
 
   if (errors.length) return { valid: false, errors: [...new Set(errors)] };
 
+  const publicKeyPem = publicKeys[message.from_ai];
+  if (typeof publicKeyPem !== "string" || !publicKeyPem.trim()) {
+    return { valid: false, errors: ["SIGNATURE_KEY_NOT_CONFIGURED"] };
+  }
+
+  let signature;
+  let signatureValid = false;
+  try {
+    const raw = message.payload.signature;
+    if (!/^[A-Za-z0-9+/]+={0,2}$/.test(raw)) throw new Error("Invalid base64");
+    signature = Buffer.from(raw, "base64");
+    if (signature.length !== 64 || signature.toString("base64") !== raw) throw new Error("Invalid Ed25519 signature length or encoding");
+    const publicKey = crypto.createPublicKey(publicKeyPem);
+    if (publicKey.asymmetricKeyType !== "ed25519") throw new Error("Expected Ed25519 public key");
+    signatureValid = crypto.verify(null, signaturePayload(message), publicKey, signature);
+  } catch {
+    return { valid: false, errors: ["SIGNATURE_INVALID"] };
+  }
+  if (!signatureValid) return { valid: false, errors: ["SIGNATURE_INVALID"] };
+
   const digest = crypto.createHash("sha256").update(encoded).digest("hex");
+  const replay = reserveMessage(options.replayStoreDir, message.from_ai, message.message_id, {
+    sender: message.from_ai,
+    messageId: message.message_id,
+    digest,
+    receivedAt: new Date(now * 1000).toISOString(),
+    outcome: "SIGNATURE_VERIFIED_REVIEW_ONLY"
+  });
+  if (!replay.ok) return { valid: false, errors: [replay.code] };
+
   return {
     valid: true,
     digest,
     normalizedIntent: message.intent,
     messageId: message.message_id,
     sender: message.from_ai,
-    trust: "UNVERIFIED_EXTERNAL_INPUT",
+    trust: "SIGNATURE_VERIFIED_REVIEW_ONLY",
     acceptedFor: "HUMAN_REVIEW_ONLY",
     verified: {
       envelopeShape: true,
       senderAllowlist: true,
       timestampWindow: true,
       contentDigest: true,
-      cryptographicSignature: false,
+      cryptographicSignature: true,
+      signatureAlgorithm: "Ed25519",
       proofOfWork: false,
       privacyClaim: false,
       modelUpdate: false,
-      blockchainAction: false
+      blockchainAction: false,
+      replayProtection: true
     }
   };
-}
-
-function configuredAllowedSenders(value = process.env.COVENANT_AICP_ALLOWED_SENDERS || "") {
-  return String(value).split(",").map(item => item.trim()).filter(Boolean);
 }
 
 module.exports = {
   MAX_MESSAGE_BYTES,
   MAX_CLOCK_SKEW_SECONDS,
   configuredAllowedSenders,
+  configuredPublicKeys,
+  canonicalize,
   validateAICPMessage
 };
