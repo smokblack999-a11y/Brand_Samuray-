@@ -74,10 +74,12 @@ test("proof ledger is append-only by event id, hash chained and tamper evident",
     const firstDecision = vdi.evaluateEvent(event(), { nowMs: NOW, sourceAuthenticated: true, matchedSession: true });
     assert.equal(ledger.append(firstDecision).appended, true);
     assert.equal(ledger.append(firstDecision).duplicate, true);
+    const sameIdOtherSource = vdi.evaluateEvent(event({ source_id: "camera-gate-b" }), { nowMs: NOW, sourceAuthenticated: true, matchedSession: true });
+    assert.equal(ledger.append(sameIdOtherSource).appended, true);
     const secondDecision = vdi.evaluateEvent(event({ event_id: "evt-002", occurred_at: "2026-11-01T09:58:00.000Z" }), { nowMs: NOW, sourceAuthenticated: true, matchedSession: true });
     assert.equal(ledger.append(secondDecision).appended, true);
     assert.equal(ledger.verify().valid, true);
-    assert.equal(ledger.verify().records, 2);
+    assert.equal(ledger.verify().records, 3);
     const tampered = ledger.records();
     tampered[0].event_id = "tampered";
     fs.writeFileSync(file, tampered.map(record => JSON.stringify(record)).join("\n") + "\n");
