@@ -20,7 +20,7 @@ This is not production-ready and is not mounted into core/server.js.
 - No auth routes or integration with existing SAMURAI session handling.
 - No crawler, Google Search Console integration, keyword/rank tracking, or real SEO score.
 - No autonomous patch application, repository write, deploy, or website publishing.
-- No Stripe Products/Prices/Checkout Session creation, no Customer Portal, no live webhook endpoint, and no subscription entitlement activation.
+- No Stripe Products/Prices configured, no Checkout/Customer Portal route wired into Express, no API round-trip verified, no live webhook endpoint, and no subscription entitlement activation. Guarded test-mode-only Checkout/Portal client functions and webhook signature verification primitives exist in billing.js.
 - No HubSpot records/properties/pipeline changes.
 - No Gmail draft creation or email sending.
 - No Figma file creation; connected account was read-only.
