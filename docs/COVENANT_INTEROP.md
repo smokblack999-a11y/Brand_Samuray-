@@ -55,7 +55,7 @@ After successful envelope and signature validation, the gateway creates an exclu
 
 The filename is a SHA-256 hash of sender ID plus message ID. Exclusive file creation makes concurrent duplicate reservations fail closed on the same filesystem. The record stores only sender, message ID, content digest, receive timestamp, and outcome; it does not store the message payload or signature. Reservations are retained indefinitely by default so a previously accepted message cannot become replayable after a routine restart.
 
-**Deployment constraint:** this protection depends on durable storage that supports atomic exclusive file creation. Use a persistent volume and a single active Core instance. Do not run multiple hosts with separate local disks and assume they share replay state. A horizontally scaled deployment needs a shared transactional datastore with a unique constraint before it can safely accept AICP traffic. Back up the replay directory and monitor disk usage; do not delete reservations casually.
+**Deployment constraint:** this protection depends on durable storage that supports atomic exclusive file creation and directory metadata fsync. The gateway fails closed if it cannot fsync the replay directory. Use a persistent volume and a single active Core instance. Do not run multiple hosts with separate local disks and assume they share replay state. A horizontally scaled deployment needs a shared transactional datastore with a unique constraint before it can safely accept AICP traffic. Back up the replay directory and monitor disk usage; do not delete reservations casually.
 
 ## Trust boundary — important
 
