@@ -66,4 +66,80 @@ async function handleStripeWebhook({ rawBody, signature, secret, eventStore, rec
     throw error;
   }
 }
-module.exports = { verifyStripeSignature, classifyStripeEvent, handleStripeWebhook };
+
+function publicAppUrl() {
+  const value = String(process.env.EVOLUTION_PUBLIC_URL || "");
+  let url;
+  try { url = new URL(value); } catch { throw new Error("EVOLUTION_PUBLIC_URL_must_be_configured"); }
+  if (url.protocol !== "https:") throw new Error("EVOLUTION_PUBLIC_URL_must_use_https");
+  return url.origin;
+}
+function stripeSecret() {
+  const key = String(process.env.STRIPE_SECRET_KEY || "");
+  if (!/^sk_(test|live)_[A-Za-z0-9]+$/.test(key)) throw new Error("STRIPE_SECRET_KEY_not_configured");
+  return key;
+}
+async function stripePost(path, fields, idempotencyKey) {
+  const key = stripeSecret();
+  if (typeof idempotencyKey !== "string" || idempotencyKey.length < 16 || idempotencyKey.length > 255) {
+    throw new Error("stable_idempotency_key_required");
+  }
+  const response = await fetch("https://api.stripe.com/v1/" + path, {
+    method: "POST",
+    headers: {
+      "Authorization": "Bearer " + key,
+      "Content-Type": "application/x-www-form-urlencoded",
+      "Idempotency-Key": idempotencyKey
+    },
+    body: new URLSearchParams(fields),
+    signal: AbortSignal.timeout(15000)
+  });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const error = new Error("stripe_api_request_failed");
+    error.code = body?.error?.code || "STRIPE_API_ERROR";
+    error.status = response.status;
+    throw error;
+  }
+  return body;
+}
+async function createCheckoutSession({ plan, workspaceId, customerId, customerEmail, idempotencyKey }) {
+  const allowedPlans = new Set(["starter", "pro", "agency"]);
+  if (!allowedPlans.has(plan)) throw new Error("unsupported_plan");
+  if (typeof workspaceId !== "string" || !/^[A-Za-z0-9_-]{3,128}$/.test(workspaceId)) throw new Error("valid_workspace_id_required");
+  const priceId = String(process.env["STRIPE_PRICE_" + plan.toUpperCase()] || "");
+  if (!/^price_[A-Za-z0-9]+$/.test(priceId)) throw new Error("stripe_price_not_configured_for_plan");
+  if (!customerId && (!customerEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(customerEmail))) {
+    throw new Error("valid_customer_identity_required");
+  }
+  const origin = publicAppUrl();
+  const fields = {
+    mode: "subscription",
+    "line_items[0][price]": priceId,
+    "line_items[0][quantity]": "1",
+    success_url: origin + "/billing/success?session_id={CHECKOUT_SESSION_ID}",
+    cancel_url: origin + "/billing/cancel",
+    client_reference_id: workspaceId,
+    "metadata[workspace_id]": workspaceId,
+    "metadata[plan]": plan,
+    "subscription_data[metadata][workspace_id]": workspaceId,
+    "subscription_data[metadata][plan]": plan
+  };
+  if (customerId) fields.customer = customerId;
+  else fields.customer_email = customerEmail;
+  const session = await stripePost("checkout/sessions", fields, idempotencyKey);
+  if (!session || typeof session.id !== "string" || typeof session.url !== "string") throw new Error("stripe_checkout_session_response_invalid");
+  return { id: session.id, url: session.url, status: session.status || "open" };
+}
+async function createCustomerPortalSession({ customerId, idempotencyKey }) {
+  if (typeof customerId !== "string" || !/^cus_[A-Za-z0-9]+$/.test(customerId)) throw new Error("valid_stripe_customer_id_required");
+  const origin = publicAppUrl();
+  const session = await stripePost("billing_portal/sessions", {
+    customer: customerId,
+    return_url: origin + "/settings/billing"
+  }, idempotencyKey);
+  if (!session || typeof session.url !== "string") throw new Error("stripe_portal_session_response_invalid");
+  return { url: session.url };
+}
+
+module.exports = { verifyStripeSignature, classifyStripeEvent, handleStripeWebhook, createCheckoutSession, createCustomerPortalSession };
