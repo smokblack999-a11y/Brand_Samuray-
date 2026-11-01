@@ -155,8 +155,10 @@ function verifyEnvelope(envelope, { secret, now = Date.now(), maxClockSkewSecond
 }
 
 class CovenantEventStore {
-  constructor(filePath) {
+  constructor(filePath, { secret } = {}) {
     if (typeof filePath !== "string" || !filePath.trim()) fail("COVENANT_STORE_PATH_REQUIRED");
+    requireSecret(secret);
+    this.secret = secret;
     this.filePath = path.resolve(filePath);
     fs.mkdirSync(path.dirname(this.filePath), { recursive: true, mode: 0o700 });
     try {
@@ -192,13 +194,23 @@ class CovenantEventStore {
       ) {
         fail("COVENANT_STORE_CORRUPT");
       }
+      let verified;
+      try {
+        verified = verifyEnvelope(record.message, {
+          secret: this.secret,
+          maxClockSkewSeconds: Number.MAX_SAFE_INTEGER
+        });
+      } catch (_error) {
+        fail("COVENANT_STORE_CORRUPT");
+      }
+      if (verified.bodySha256 !== record.body_sha256) fail("COVENANT_STORE_CORRUPT");
       this.events.push(record);
       this.byMessageId.set(record.message.message_id, record);
     }
   }
 
-  accept(envelope, { secret, now = Date.now(), maxClockSkewSeconds = MAX_CLOCK_SKEW_SECONDS } = {}) {
-    const verified = verifyEnvelope(envelope, { secret, now, maxClockSkewSeconds });
+  accept(envelope, { now = Date.now(), maxClockSkewSeconds = MAX_CLOCK_SKEW_SECONDS } = {}) {
+    const verified = verifyEnvelope(envelope, { secret: this.secret, now, maxClockSkewSeconds });
     const existing = this.byMessageId.get(verified.messageId);
     if (existing) {
       if (existing.body_sha256 !== verified.bodySha256) fail("COVENANT_MESSAGE_ID_CONFLICT");
