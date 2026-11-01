@@ -50,6 +50,7 @@ function validateAICPMessage(message, options = {}) {
   }
   if (typeof message.message_id === "string" && message.message_id.length > 128) errors.push("MESSAGE_ID_TOO_LONG");
   if (typeof message.from_ai === "string" && !allowedSenders.has(message.from_ai)) errors.push("SENDER_NOT_ALLOWLISTED");
+  if (message.to_ai !== (options.target || "samuraios")) errors.push("RECIPIENT_NOT_SAMURAI");
   if (!isRecord(message.payload)) errors.push("PAYLOAD_OBJECT_REQUIRED");
 
   const definition = INTENTS[message.intent];
