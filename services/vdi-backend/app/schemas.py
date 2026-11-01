@@ -8,7 +8,7 @@ class EventIn(BaseModel):
     occurred_at: datetime
     plate_text: str = Field(min_length=1, max_length=32)
     ocr_confidence: float = Field(ge=0.0, le=1.0)
-    frame_sha256: str | None = Field(default=None, pattern=r"^[a-fA-F0-9]{64}$")
+    crop_sha256: str | None = Field(default=None, pattern=r"^[a-fA-F0-9]{64}$")
 
     @field_validator("occurred_at")
     @classmethod
