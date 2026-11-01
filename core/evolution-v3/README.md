@@ -1,73 +1,39 @@
 # EVOLUTION V3 — SAMURAI OS module
 
-Status: isolated implementation scaffold on feat/evolution-v3-integration-audit.
-This is not production-ready and is not mounted into core/server.js.
+Status: isolated implementation on feat/evolution-v3-integration-audit. It is not mounted into core/server.js and is not production-ready.
 
-## Implemented in this branch
+## Implemented primitives
 
-- Password hashing and verification with Node.js scrypt.
-- Short-lived HMAC-signed session tokens with issuer and expiry checks.
-- Deterministic Kill Critic checks for unsafe HTML, credential patterns, missing evidence, and malformed tasks.
-- Repair proposals that remain non-applied and require human approval.
-- SEO audit records that explicitly do not invent rankings, traffic, or scores.
-- HTML escaping helper for plain text output.
-- Stripe webhook signature verification over the raw request body, timestamp tolerance, event classification, and injected durable idempotency/reconciliation interfaces.
-- PostgreSQL schema proposal for users, workspaces, memberships, sites, audits, evidence, repair proposals, Stripe events, subscriptions, and audit log.
+- scrypt password hashing and HMAC session-token primitives.
+- PostgreSQL adapter using an injected pg Pool: transactions, workspace membership checks, tenant-scoped site access, revocable persisted sessions, and leased/idempotent Stripe event claims.
+- PostgreSQL schema for users, workspaces, memberships, sites, audits, evidence, repair proposals, sessions, Stripe events, subscriptions, and audit log.
+- SSRF-resistant public-page fetcher: HTTP/HTTPS only, no IP literals or local/reserved hostnames, DNS validation on every redirect, rejection if any DNS answer is non-public, pinned DNS address for the request, bounded redirects/timeouts/response size, and HTML-only response handling.
+- Deterministic Kill Critic checks, human-approval-only repair proposals, evidence-first SEO records, HTML escaping.
+- Stripe signature verification and guarded test-mode Checkout/Portal client primitives.
 
-## Explicitly not implemented / not verified
+## Still not implemented or verified
 
-- No database connection, migration runner, backup/restore, or tenant isolation middleware.
-- No auth routes or integration with existing SAMURAI session handling.
-- No crawler, Google Search Console integration, keyword/rank tracking, or real SEO score.
-- No autonomous patch application, repository write, deploy, or website publishing.
-- No Stripe Products/Prices configured, no Checkout/Customer Portal route wired into Express, no API round-trip verified, no live webhook endpoint, and no subscription entitlement activation. Guarded test-mode-only Checkout/Portal client functions and webhook signature verification primitives exist in billing.js.
-- No HubSpot records/properties/pipeline changes.
-- No Gmail draft creation or email sending.
-- No Figma file creation; connected account was read-only.
-- No Product Design visual audit with captured screens.
-- No production deployment.
+- No PostgreSQL driver is installed in core/package.json; caller must provide a compatible Pool. No database has been provisioned and schema.sql has not been applied.
+- No auth, site, audit, or billing routes are mounted into core/server.js. Session token primitives still require a server-side session lookup/revocation flow and secure cookie/CSRF policy.
+- Crawler has unit tests with mocked DNS/network. No live crawling, site ownership verification, robots policy, crawl queue, Search Console OAuth, rank/traffic source, or SEO scoring model.
+- No real Stripe API round-trip, configured test Price IDs, webhook route, subscription reconciliation implementation, or entitlement activation.
+- Repair proposals are not executed; no isolated patch sandbox, CI repair loop, or deploy approval integration is wired.
+- No HubSpot changes, Figma artifact, production deployment, or customer pilot.
+- Product Design review is source-level only, not captured-screen usability testing.
 
-## Required integration design
+## Important security boundaries
 
-1. Keep this module isolated until the API contract, persistence adapter, and auth ownership are agreed.
-2. Provision a dedicated PostgreSQL database and apply schema.sql only after review.
-3. Implement repository interfaces with transactions, unique Stripe event IDs, workspace scoping, and audit logging.
-4. Add Express routes using the existing request ID and rate-limit middleware. Preserve raw request bytes for Stripe signature verification.
-5. Integrate auth middleware only after confirming whether SAMURAI Core or EVOLUTION owns identity and session revocation.
-6. Connect SEO sources (verified crawler + Search Console OAuth) and store provenance for every metric.
-7. Implement repair as proposal → Kill Critic → human approval → isolated sandbox → CI → explicit deploy approval.
-8. Configure Stripe only after seller-country eligibility and account ownership are confirmed.
+- The crawler rejects a hostname if any resolved address is private/reserved and pins the selected validated address for the request. Network-level egress restrictions are still recommended.
+- DNS is re-resolved and checked for each redirect. Redirects are manual and capped at three.
+- PostgreSQL access methods require workspace and user identity for site reads/writes. Do not expose the adapter directly to untrusted clients.
+- Stripe event claims use leases; production must monitor expired processing leases and failed-event retries.
+- Apply schema only to a dedicated reviewed database. No migration is run automatically.
+- Never publish crawler output, AI output, or repair proposals without evidence and explicit human approval.
 
 ## Commercial pilot
 
-Target: one SEO agency, one verified domain, five pages, 30 days.
-Measure baseline and post-pilot operator minutes per page, accepted suggestions, rejected suggestions, defect rate, AI cost, gross margin, and renewal intent.
-Do not claim traffic or ranking lift without Search Console/analytics evidence and an adequate measurement window.
+One agency, one verified domain, five pages, 30 days. Measure operator minutes per page, accepted/rejected findings, rework rate, AI cost, gross margin, and renewal intent. Do not promise ranking lift without independent Search Console/analytics evidence and an adequate measurement window.
 
-## Proposed design-system / screens
+## External integrations
 
-- Overview: active sites, audit status, unresolved critical issues, verified monthly spend.
-- SEO Intelligence: evidence-backed technical/content findings and Search Console metrics.
-- AI Repair Agent: proposed changes, evidence, risk, approval state, sandbox/CI state.
-- Kill Critic: verdict, rule IDs, evidence gaps, fingerprints, audit history.
-- Revenue Monitor: subscription status, invoices, AI usage cost, gross margin; distinguish estimates from settled payments.
-- Settings: workspace roles, integrations, API credentials, retention, audit export.
-
-Visual identity: SAMURAI graphite surfaces; violet for AI; green only for verified pass; amber for warnings; red for blocked findings; Inter for UI and JetBrains Mono for diagnostics.
-
-## CRM field proposal (not created)
-
-Website Domain, Audit Status, SEO Score, Score Evidence URL, Critical Issues, Last Audit Date, Search Console Connected, Pilot Start Date, Baseline Minutes/Page, Current Minutes/Page, Renewal Intent.
-
-## Pricing hypotheses only
-
-Starter $29/mo, Pro $79/mo, Agency $199/mo were present in V2. These have not been validated with customers and are not configured in Stripe.
-
-## Security notes
-
-- Use TLS, secure HttpOnly SameSite cookies, CSRF protection for cookie-authenticated mutations, rate limits, login throttling, password reset, session revocation, and MFA for workspace admins.
-- Never expose provider or Stripe secret keys to browser code.
-- Treat all crawled page content and AI output as untrusted.
-- Prevent SSRF in crawlers: resolve and block private, loopback, link-local, metadata, and reserved IP ranges on every redirect and DNS re-resolution.
-- Restrict repair tools to allowlisted repositories/paths and require approval for high-risk changes.
-- Stripe webhook processing must be transactional and idempotent. Reconcile subscription state from Stripe rather than trusting the event payload as a direct entitlement grant.
+HubSpot pipeline/properties remain proposals only. Gmail draft remains unsent. Figma requires Editor access. Stripe remains test-mode-only in code and has not been connected or tested end-to-end.
