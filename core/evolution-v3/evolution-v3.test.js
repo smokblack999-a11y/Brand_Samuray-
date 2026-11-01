@@ -103,3 +103,23 @@ test("Stripe event handler requires durable idempotency and reconciliation", asy
     reconcileSubscription: async () => {}
   }), /durable_event_store_required/);
 });
+
+test("Checkout is fail-closed until test prices and HTTPS app URL are configured", async () => {
+  const previousPrice = process.env.STRIPE_PRICE_STARTER;
+  const previousSecret = process.env.STRIPE_SECRET_KEY;
+  const previousUrl = process.env.EVOLUTION_PUBLIC_URL;
+  delete process.env.STRIPE_PRICE_STARTER;
+  delete process.env.STRIPE_SECRET_KEY;
+  delete process.env.EVOLUTION_PUBLIC_URL;
+  await assert.rejects(() => billing.createCheckoutSession({
+    plan: "starter", workspaceId: "workspace-1", customerEmail: "buyer@example.com",
+    idempotencyKey: "idempotency-key-123456"
+  }), /stripe_price_not_configured_for_plan/);
+  assert.throws(() => billing.createCheckoutSession({
+    plan: "enterprise", workspaceId: "workspace-1", customerEmail: "buyer@example.com",
+    idempotencyKey: "idempotency-key-123456"
+  }), /unsupported_plan/);
+  if (previousPrice === undefined) delete process.env.STRIPE_PRICE_STARTER; else process.env.STRIPE_PRICE_STARTER = previousPrice;
+  if (previousSecret === undefined) delete process.env.STRIPE_SECRET_KEY; else process.env.STRIPE_SECRET_KEY = previousSecret;
+  if (previousUrl === undefined) delete process.env.EVOLUTION_PUBLIC_URL; else process.env.EVOLUTION_PUBLIC_URL = previousUrl;
+});
