@@ -78,7 +78,9 @@ test("proof ledger is append-only by event id, hash chained and tamper evident",
     assert.equal(ledger.append(secondDecision).appended, true);
     assert.equal(ledger.verify().valid, true);
     assert.equal(ledger.verify().records, 2);
-    fs.appendFileSync(file, "{\"event_id\":\"tampered\"}\n");
+    const tampered = ledger.records();
+    tampered[0].event_id = "tampered";
+    fs.writeFileSync(file, tampered.map(record => JSON.stringify(record)).join("\n") + "\n");
     assert.equal(ledger.verify().valid, false);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
