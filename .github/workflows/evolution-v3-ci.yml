@@ -45,5 +45,6 @@ jobs:
           node --check evolution-v3/index.js
           node --check evolution-v3/crawler.js
           node --check evolution-v3/postgres-store.js
+          node --check evolution-v3/http.js
       - name: Full Core and EVOLUTION V3 unit tests
         run: npm test
