@@ -65,7 +65,8 @@ CREATE TABLE IF NOT EXISTS ev3_sessions (
   token_hash TEXT NOT NULL UNIQUE,
   expires_at TIMESTAMPTZ NOT NULL,
   revoked_at TIMESTAMPTZ,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  FOREIGN KEY (workspace_id, user_id) REFERENCES ev3_memberships(workspace_id, user_id) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS ev3_sessions_user_active_idx ON ev3_sessions(user_id, expires_at DESC) WHERE revoked_at IS NULL;
 CREATE TABLE IF NOT EXISTS ev3_stripe_events (
