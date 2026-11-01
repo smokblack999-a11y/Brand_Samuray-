@@ -54,21 +54,30 @@ class VisionPipeline:
             outputs.append({"event":saved,"decision":decision,"duplicate":duplicate})
         return outputs
 
-def run_rtsp(stop_event):
+def run_rtsp(stop_event, ready_event=None):
     if not settings.rtsp_url:
         raise RuntimeError("RTSP_URL is not configured")
     pipeline=VisionPipeline()
     cap=cv2.VideoCapture(settings.rtsp_url, cv2.CAP_FFMPEG)
     if not cap.isOpened():
+        cap.release()
         raise RuntimeError("Unable to open RTSP stream")
+    if ready_event is not None:
+        ready_event.set()
     last=0.0
     try:
         while not stop_event.is_set():
             ok, frame=cap.read()
             if not ok:
+                if ready_event is not None:
+                    ready_event.clear()
                 cap.release()
                 time.sleep(2)
+                if stop_event.is_set():
+                    break
                 cap=cv2.VideoCapture(settings.rtsp_url, cv2.CAP_FFMPEG)
+                if cap.isOpened() and ready_event is not None:
+                    ready_event.set()
                 continue
             now=time.monotonic()
             if now-last >= settings.frame_interval_seconds:
