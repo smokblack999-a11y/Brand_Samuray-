@@ -66,12 +66,11 @@ function reserveMessage(replayStoreDir, sender, messageId, record) {
     fs.fsyncSync(fd);
     fs.closeSync(fd);
     fd = undefined;
+    const dirFd = fs.openSync(replayStoreDir, "r");
     try {
-      const dirFd = fs.openSync(replayStoreDir, "r");
       fs.fsyncSync(dirFd);
+    } finally {
       fs.closeSync(dirFd);
-    } catch {
-      // The exclusive file creation is already durable on filesystems that do not fsync directories.
     }
     return { ok: true };
   } catch (error) {
