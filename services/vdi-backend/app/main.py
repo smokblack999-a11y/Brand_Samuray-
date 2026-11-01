@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Header, HTTPException, Query
 from fastapi.responses import JSONResponse
 from .config import settings
-from .db import init_db, record_event, list_events, get_event, get_proof, metrics
+from .db import init_db, record_event, list_events, get_event, get_proof, metrics, verify_proof_chain
 from .kz_validator import validate_kz_plate
 from .schemas import EventIn
 
@@ -59,7 +59,7 @@ def ingest_event(payload: EventIn, x_api_key: str | None = Header(default=None))
     data=payload.model_dump()
     data["occurred_at"]=payload.occurred_at.isoformat()
     validation=validate_kz_plate(payload.plate_text, payload.ocr_confidence, settings.min_ocr_confidence)
-    event,decision,proof,duplicate=record_event(data,validation,payload.frame_sha256)
+    event,decision,proof,duplicate=record_event(data,validation,payload.crop_sha256)
     return {"ok":True,"duplicate":duplicate,"event":event,"decision":decision,"proof_hash":proof["receipt_hash"] if proof else None}
 
 @app.get("/v1/events")
@@ -82,6 +82,12 @@ def decision_detail(decision_id: str, x_api_key: str | None=Header(default=None)
         row=c.execute("SELECT * FROM decisions WHERE decision_id=?",(decision_id,)).fetchone()
     if not row: raise HTTPException(404,"Decision not found")
     return {"ok":True,"decision":dict(row)}
+
+@app.get("/v1/proof-chain/verify")
+def proof_chain_verify(x_api_key: str | None = Header(default=None)):
+    auth(x_api_key)
+    result = verify_proof_chain()
+    return JSONResponse(status_code=200 if result["ok"] else 409, content=result)
 
 @app.get("/v1/proofs/{event_id}")
 def proof_detail(event_id: str, x_api_key: str | None=Header(default=None)):
