@@ -186,7 +186,7 @@ function isAllowedByRobots(robotsText, targetUrl, userAgent = "SAMURAI-EVOLUTION
   const matched = rules.filter(rule => {
     const anchored = rule.value.endsWith("$");
     const rawPattern = anchored ? rule.value.slice(0, -1) : rule.value;
-    const pattern = [...rawPattern].map(char => char === "*" ? ".*" : ".+?^$()|[]\\".includes(char) ? "\\" + char : char).join("");
+    const pattern = [...rawPattern].map(char => char === "*" ? ".*" : ".+?^$()|[]{}\\".includes(char) ? "\\" + char : char).join("");
     return new RegExp("^" + pattern + (anchored ? "$" : ".*")).test(path);
   }).sort((a, b) => b.value.length - a.value.length || Number(b.allow) - Number(a.allow))[0];
   return !matched || matched.allow;
