@@ -60,7 +60,7 @@ docker compose up --build
 - `FRAME_INTERVAL_SECONDS`: default 1.0.
 - `CAMERA_ID`: source id for RTSP events.
 
-## API
+- `GET /v1/proof-chain/verify` — verifies every local proof-chain link and receipt hash.\n\n## API
 - `GET /health` — liveness.
 - `GET /ready` — DB/config/model readiness.
 - `POST /v1/events` — authenticated manual/vendor event intake.
