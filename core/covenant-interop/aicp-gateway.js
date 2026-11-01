@@ -82,6 +82,74 @@ function reserveMessage(replayStoreDir, sender, messageId, record) {
   }
 }
 
+function listReviewItems(replayStoreDir, limit = 50) {
+  if (!replayStoreDir || !fs.existsSync(replayStoreDir)) return [];
+  const n = Math.min(Math.max(Number(limit) || 50, 1), 200);
+  return fs.readdirSync(replayStoreDir)
+    .filter(name => /^[a-f0-9]{64}\\.json$/.test(name))
+    .map(name => {
+      try {
+        const record = JSON.parse(fs.readFileSync(path.join(replayStoreDir, name), "utf8"));
+        let decision = null;
+        const decisionPath = path.join(replayStoreDir, name.replace(/\\.json$/, ".decision.json"));
+        if (fs.existsSync(decisionPath)) decision = JSON.parse(fs.readFileSync(decisionPath, "utf8"));
+        return {
+          sender: record.sender,
+          messageId: record.messageId,
+          digest: record.digest,
+          intent: record.intent || null,
+          receivedAt: record.receivedAt,
+          reviewStatus: decision
+            ? (decision.decision === "approve" ? "APPROVED_FOR_MANUAL_HANDOFF" : "REJECTED")
+            : "PENDING_HUMAN_REVIEW",
+          decision: decision ? {
+            decision: decision.decision,
+            reason: decision.reason,
+            reviewedAt: decision.reviewedAt
+          } : null,
+          killCritic: record.killCritic || null
+        };
+      } catch {
+        return null;
+      }
+    })
+    .filter(Boolean)
+    .sort((a, b) => String(b.receivedAt).localeCompare(String(a.receivedAt)))
+    .slice(0, n);
+}
+
+function decideReviewItem(replayStoreDir, sender, messageId, decision, reason = "") {
+  if (!replayStoreDir) return { ok: false, code: "REVIEW_STORE_NOT_CONFIGURED" };
+  if (!["approve", "reject"].includes(decision)) return { ok: false, code: "INVALID_REVIEW_DECISION" };
+  const key = reviewKey(sender, messageId);
+  const recordPath = path.join(replayStoreDir, key + ".json");
+  if (!fs.existsSync(recordPath)) return { ok: false, code: "REVIEW_ITEM_NOT_FOUND" };
+  const decisionPath = path.join(replayStoreDir, key + ".decision.json");
+  const record = JSON.parse(fs.readFileSync(recordPath, "utf8"));
+  let fd;
+  try {
+    fd = fs.openSync(decisionPath, "wx", 0o600);
+    fs.writeFileSync(fd, JSON.stringify({
+      sender,
+      messageId,
+      digest: record.digest,
+      decision,
+      reason: String(reason).trim().slice(0, 500),
+      reviewedAt: new Date().toISOString(),
+      executionAuthorized: false
+    }) + "\\n", "utf8");
+    fs.fsyncSync(fd);
+    fs.closeSync(fd);
+    fd = undefined;
+    const dirFd = fs.openSync(replayStoreDir, "r");
+    try { fs.fsyncSync(dirFd); } finally { fs.closeSync(dirFd); }
+    return { ok: true, reviewStatus: decision === "approve" ? "APPROVED_FOR_MANUAL_HANDOFF" : "REJECTED" };
+  } catch (error) {
+    if (fd !== undefined) { try { fs.closeSync(fd); } catch {} }
+    return { ok: false, code: error.code === "EEXIST" ? "REVIEW_ALREADY_DECIDED" : "REVIEW_STORE_UNAVAILABLE" };
+  }
+}
+
 function validateAICPMessage(message, options = {}) {
   const now = Number.isInteger(options.now) ? options.now : Math.floor(Date.now() / 1000);
   const allowedSenders = new Set(Array.isArray(options.allowedSenders) ? options.allowedSenders : []);
@@ -158,7 +226,20 @@ function validateAICPMessage(message, options = {}) {
     messageId: message.message_id,
     digest,
     receivedAt: new Date(now * 1000).toISOString(),
-    outcome: "SIGNATURE_VERIFIED_REVIEW_ONLY"
+    intent: message.intent,
+    receivedAt: new Date(now * 1000).toISOString(),
+    outcome: "SIGNATURE_VERIFIED_REVIEW_ONLY",
+    reviewStatus: "PENDING_HUMAN_REVIEW",
+    killCritic: {
+      decision: "PASS_TO_HUMAN_REVIEW",
+      signatureVerified: true,
+      senderAllowlisted: true,
+      intentAllowlisted: true,
+      replayProtected: true,
+      privacyClaimVerified: false,
+      proofOfWorkVerified: false,
+      executionAuthorized: false
+    }
   });
   if (!replay.ok) return { valid: false, errors: [replay.code] };
 
@@ -192,5 +273,7 @@ module.exports = {
   configuredAllowedSenders,
   configuredPublicKeys,
   canonicalize,
-  validateAICPMessage
+  validateAICPMessage,
+  listReviewItems,
+  decideReviewItem
 };
