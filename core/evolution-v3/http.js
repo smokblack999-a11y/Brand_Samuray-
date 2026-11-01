@@ -130,6 +130,8 @@ function createEvolutionRouter({ store, sessionSecret, sessionTtlSeconds = 3600,
       const site = await store.getSite({ id: req.params.id, workspaceId: s.workspace_id, userId: s.user_id });
       if (!site) return res.status(404).json({ ok: false, error: "SITE_NOT_FOUND", requestId: req.requestId });
       if (site.verification_status !== "verified") return res.status(409).json({ ok: false, error: "SITE_OWNERSHIP_NOT_VERIFIED", requestId: req.requestId });
+      const robots = await crawler.fetchRobotsPolicy(site.origin);
+      if (robots.statusCode === 401 || robots.statusCode === 403 || !crawler.isAllowedByRobots(robots.text, site.origin)) return res.status(403).json({ ok: false, error: "ROBOTS_DISALLOWED", requestId: req.requestId });
       const page = await crawler.fetchPublicPage(site.origin);
       const title = /<title\b[^>]*>([\s\S]*?)<\/title\s*>/i.exec(page.body);
       const description = /<meta\b(?=[^>]*\bname\s*=\s*["']description["'])(?=[^>]*\bcontent\s*=\s*["']([^"']*)["'])[^>]*>/i.exec(page.body);
