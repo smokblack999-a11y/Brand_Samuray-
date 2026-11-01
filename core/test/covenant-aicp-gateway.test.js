@@ -43,6 +43,11 @@ test("fails closed when sender allowlist is empty or sender is unknown", () => {
   assert.ok(validateAICPMessage({ ...validMessage(), from_ai: "attacker" }, options).errors.includes("SENDER_NOT_ALLOWLISTED"));
 });
 
+test("rejects messages addressed to another recipient", () => {
+  const message = { ...validMessage(), to_ai: "another-agent" };
+  assert.ok(validateAICPMessage(message, options).errors.includes("RECIPIENT_NOT_SAMURAI"));
+});
+
 test("rejects stale messages", () => {
   const message = validMessage(options.now - 301);
   assert.ok(validateAICPMessage(message, options).errors.includes("TIMESTAMP_OUT_OF_WINDOW"));
