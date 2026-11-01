@@ -8,7 +8,7 @@ const { auth, seo, crawler } = require("./index");
 function tokenHash(token) {
   return crypto.createHash("sha256").update(token).digest("hex");
 }
-function createEvolutionRouter({ store, sessionSecret, sessionTtlSeconds = 3600, now = () => Math.floor(Date.now() / 1000) }) {
+function createEvolutionRouter({ store, sessionSecret, sessionTtlSeconds = 3600, authRateLimit = (_req, _res, next) => next(), now = () => Math.floor(Date.now() / 1000) }) {
   if (!store || typeof store.createAccount !== "function" || typeof store.getActiveSession !== "function") throw new Error("evolution_store_contract_invalid");
   if (typeof sessionSecret !== "string" || sessionSecret.length < 32) throw new Error("evolution_session_secret_must_be_at_least_32_chars");
   const router = express.Router();
@@ -27,7 +27,7 @@ function createEvolutionRouter({ store, sessionSecret, sessionTtlSeconds = 3600,
     } catch (error) { return next(error); }
   }
 
-  router.post("/auth/register", async (req, res, next) => {
+  router.post("/auth/register", authRateLimit, async (req, res, next) => {
     try {
       const email = String(req.body?.email || "").trim().toLowerCase();
       const password = req.body?.password;
@@ -49,7 +49,7 @@ function createEvolutionRouter({ store, sessionSecret, sessionTtlSeconds = 3600,
     }
   });
 
-  router.post("/auth/login", async (req, res, next) => {
+  router.post("/auth/login", authRateLimit, async (req, res, next) => {
     try {
       const email = String(req.body?.email || "").trim().toLowerCase(), password = req.body?.password;
       if (!email || typeof password !== "string") return res.status(400).json({ ok: false, error: "CREDENTIALS_REQUIRED", requestId: req.requestId });
