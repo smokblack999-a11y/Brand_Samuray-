@@ -30,6 +30,8 @@ test("Kill Critic blocks unsafe HTML and actions without evidence", () => {
   const unsafe = critic.reviewCandidate({ task: "audit", candidate: "<script>alert(1)</script>" });
   assert.equal(unsafe.verdict, "FAIL");
   assert.ok(unsafe.issues.includes("script_tag"));
+  const jsUrl = critic.reviewCandidate({ task: "audit", candidate: "See javascript:alert(1) for details." });
+  assert.ok(jsUrl.issues.includes("javascript_url"));
   const unsupported = critic.reviewCandidate({
     task: "repair",
     candidate: "A proposed safe change with sufficient descriptive detail.",
@@ -56,6 +58,8 @@ test("SEO audit requires valid public HTTP(S) origin and never invents a score",
   assert.equal(seo.normalizeWebsite("https://example.com/path"), "https://example.com");
   assert.throws(() => seo.normalizeWebsite("file:///etc/passwd"));
   assert.throws(() => seo.normalizeWebsite("http://localhost:8080"));
+  assert.throws(() => seo.normalizeWebsite("http://127.0.0.1"));
+  assert.throws(() => seo.normalizeWebsite("http://[::1]"));
   const audit = seo.createAuditRecord({ website: "https://example.com" });
   assert.equal(audit.score, null);
   assert.equal(audit.scoreStatus, "NOT_COMPUTED");
