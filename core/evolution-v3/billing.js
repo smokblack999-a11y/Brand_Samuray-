@@ -23,6 +23,7 @@ function verifyStripeSignature(rawBody, signatureHeader, secret, { now = Math.fl
   const signedPayload = String(timestamp) + "." + rawBody.toString("utf8");
   const expected = crypto.createHmac("sha256", secret).update(signedPayload).digest("hex");
   return parsed.v1.some(candidate => {
+    if (!/^[a-f0-9]{64}$/i.test(candidate)) return false;
     const a = Buffer.from(expected, "hex");
     const b = Buffer.from(candidate, "hex");
     return a.length === b.length && crypto.timingSafeEqual(a, b);
@@ -54,8 +55,15 @@ async function handleStripeWebhook({ rawBody, signature, secret, eventStore, rec
   if (typeof reconcileSubscription !== "function") throw new Error("subscription_reconciler_required");
   const claim = await eventStore.claim(event.id);
   if (!claim || claim.claimed !== true) return { status: 200, body: { received: true, duplicate: true } };
-  await reconcileSubscription(event);
-  if (typeof eventStore.complete === "function") await eventStore.complete(event.id);
-  return { status: 200, body: { received: true, reconciled: true } };
+  try {
+    await reconcileSubscription(event);
+    if (typeof eventStore.complete === "function") await eventStore.complete(event.id);
+    return { status: 200, body: { received: true, reconciled: true } };
+  } catch (error) {
+    if (typeof eventStore.fail === "function") {
+      await eventStore.fail(event.id, String(error && error.message || "reconciliation_failed").slice(0, 500));
+    }
+    throw error;
+  }
 }
 module.exports = { verifyStripeSignature, classifyStripeEvent, handleStripeWebhook };
