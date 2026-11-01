@@ -2,7 +2,7 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { isPublicAddress, validateTarget, resolvePublic, fetchPublicPage } = require("./crawler");
+const { isPublicAddress, validateTarget, resolvePublic, fetchPublicPage, fetchRobotsPolicy, isAllowedByRobots } = require("./crawler");
 
 test("blocks private, loopback, link-local and reserved IPv4 targets", () => {
   for (const ip of ["127.0.0.1", "10.1.2.3", "172.16.0.1", "192.168.1.2", "169.254.169.254", "100.64.0.1", "224.0.0.1"]) {
@@ -54,4 +54,30 @@ test("returns bounded HTML only", async () => {
   });
   assert.equal(result.body, "<title>ok</title>");
   assert.equal(result.bytes, 17);
+});
+
+
+test("robots policy blocks disallowed paths and honors the most specific allow rule", () => {
+  const policy = "User-agent: *\nDisallow: /private\nAllow: /private/public\n";
+  assert.equal(isAllowedByRobots(policy, "https://example.com/private/report"), false);
+  assert.equal(isAllowedByRobots(policy, "https://example.com/private/public/report"), true);
+  assert.equal(isAllowedByRobots(policy, "https://example.com/about"), true);
+});
+
+test("robots wildcard and end anchor are applied", () => {
+  const policy = "User-agent: SAMURAI-EVOLUTION\nDisallow: /*?draft=true$\n";
+  assert.equal(isAllowedByRobots(policy, "https://example.com/page?draft=true"), false);
+  assert.equal(isAllowedByRobots(policy, "https://example.com/page?draft=true&x=1"), true);
+});
+
+test("robots policy fetch fails closed for 403 and permits a missing robots.txt", async () => {
+  const lookup = async () => [{ address: "8.8.8.8", family: 4 }];
+  const forbidden = await fetchRobotsPolicy("https://public.example", {
+    lookup, request: async () => ({ statusCode: 403, headers: {}, body: Buffer.alloc(0) })
+  });
+  assert.equal(isAllowedByRobots(forbidden.text, "https://public.example/"), false);
+  const missing = await fetchRobotsPolicy("https://public.example", {
+    lookup, request: async () => ({ statusCode: 404, headers: {}, body: Buffer.alloc(0) })
+  });
+  assert.equal(isAllowedByRobots(missing.text, "https://public.example/"), true);
 });
