@@ -54,9 +54,13 @@ function configuredPublicKeys(value = process.env.COVENANT_AICP_PUBLIC_KEYS_JSON
   }
 }
 
+function reviewKey(sender, messageId) {
+  return crypto.createHash("sha256").update(sender + "\0" + messageId).digest("hex");
+}
+
 function reserveMessage(replayStoreDir, sender, messageId, record) {
   if (!replayStoreDir) return { ok: false, code: "REPLAY_STORE_NOT_CONFIGURED" };
-  const key = crypto.createHash("sha256").update(sender + "\0" + messageId).digest("hex");
+  const key = reviewKey(sender, messageId);
   let fd;
   try {
     fs.mkdirSync(replayStoreDir, { recursive: true, mode: 0o700 });
@@ -91,7 +95,7 @@ function listReviewItems(replayStoreDir, limit = 50) {
       try {
         const record = JSON.parse(fs.readFileSync(path.join(replayStoreDir, name), "utf8"));
         let decision = null;
-        const decisionPath = path.join(replayStoreDir, name.replace(/\\.json$/, ".decision.json"));
+        const decisionPath = path.join(replayStoreDir, name.replace(/\.json$/, ".decision.json"));
         if (fs.existsSync(decisionPath)) decision = JSON.parse(fs.readFileSync(decisionPath, "utf8"));
         return {
           sender: record.sender,
@@ -137,7 +141,7 @@ function decideReviewItem(replayStoreDir, sender, messageId, decision, reason = 
       reason: String(reason).trim().slice(0, 500),
       reviewedAt: new Date().toISOString(),
       executionAuthorized: false
-    }) + "\\n", "utf8");
+    }) + "\n", "utf8");
     fs.fsyncSync(fd);
     fs.closeSync(fd);
     fd = undefined;
@@ -227,7 +231,6 @@ function validateAICPMessage(message, options = {}) {
     digest,
     receivedAt: new Date(now * 1000).toISOString(),
     intent: message.intent,
-    receivedAt: new Date(now * 1000).toISOString(),
     outcome: "SIGNATURE_VERIFIED_REVIEW_ONLY",
     reviewStatus: "PENDING_HUMAN_REVIEW",
     killCritic: {
