@@ -26,6 +26,8 @@ CREATE TABLE IF NOT EXISTS ev3_sites (
   workspace_id UUID NOT NULL REFERENCES ev3_workspaces(id) ON DELETE CASCADE,
   origin TEXT NOT NULL,
   verification_status TEXT NOT NULL DEFAULT 'pending',
+  verification_token TEXT UNIQUE,
+  verified_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE (workspace_id, origin)
 );
@@ -102,3 +104,8 @@ CREATE TABLE IF NOT EXISTS ev3_audit_log (
 CREATE INDEX IF NOT EXISTS ev3_audits_site_created_idx ON ev3_audits(site_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS ev3_evidence_audit_idx ON ev3_evidence(audit_id);
 CREATE INDEX IF NOT EXISTS ev3_audit_log_workspace_created_idx ON ev3_audit_log(workspace_id, created_at DESC);
+
+-- Upgrade existing installations without overwriting verification state.
+ALTER TABLE ev3_sites ADD COLUMN IF NOT EXISTS verification_token TEXT;
+ALTER TABLE ev3_sites ADD COLUMN IF NOT EXISTS verified_at TIMESTAMPTZ;
+CREATE UNIQUE INDEX IF NOT EXISTS ev3_sites_verification_token_idx ON ev3_sites(verification_token) WHERE verification_token IS NOT NULL;
