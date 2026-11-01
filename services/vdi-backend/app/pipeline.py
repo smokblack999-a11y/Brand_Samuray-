@@ -41,16 +41,16 @@ class VisionPipeline:
             text=str(best[1])
             confidence=float(best[2])
             validation=validate_kz_plate(text, confidence, settings.min_ocr_confidence)
-            frame_hash=hashlib.sha256(crop.tobytes()).hexdigest()
+            crop_hash=hashlib.sha256(crop.tobytes()).hexdigest()
             now_mono=time.monotonic()
-            if now_mono - self.last_emitted.get(frame_hash, 0.0) < 15.0:
+            if now_mono - self.last_emitted.get(crop_hash, 0.0) < 15.0:
                 continue
-            self.last_emitted[frame_hash]=now_mono
+            self.last_emitted[crop_hash]=now_mono
             event_id=f"{source_id}:{uuid.uuid4().hex}"
             event={"source_id":source_id,"event_id":event_id,"event_type":"plate_observed",
                    "occurred_at":__import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat(),
                    "ocr_confidence":confidence}
-            saved, decision, proof, duplicate=record_event(event, validation, frame_hash)
+            saved, decision, proof, duplicate=record_event(event, validation, crop_hash)
             outputs.append({"event":saved,"decision":decision,"duplicate":duplicate})
         return outputs
 
