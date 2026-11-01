@@ -6,7 +6,11 @@ const crypto = require("node:crypto");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
-const { validateAICPMessage } = require("../covenant-interop/aicp-gateway");
+const {
+  validateAICPMessage,
+  listReviewItems,
+  decideReviewItem
+} = require("../covenant-interop/aicp-gateway");
 
 const keys = crypto.generateKeyPairSync("ed25519");
 const publicKeyPem = keys.publicKey.export({ type: "spki", format: "pem" });
@@ -174,4 +178,51 @@ test("replay reservation survives a new gateway instance using the same durable 
 test("fails closed when durable replay storage is unavailable", () => {
   const result = validateAICPMessage(validMessage(), makeOptions({ replayStoreDir: null }));
   assert.ok(result.errors.includes("REPLAY_STORE_NOT_CONFIGURED"));
+});
+
+
+test("accepted message enters a durable metadata-only human review queue", () => {
+  const options = makeOptions();
+  const message = validMessage();
+  assert.equal(validateAICPMessage(message, options).valid, true);
+  const items = listReviewItems(options.replayStoreDir);
+  assert.equal(items.length, 1);
+  assert.equal(items[0].sender, "covenant-agent-1");
+  assert.equal(items[0].messageId, "msg-001");
+  assert.equal(items[0].reviewStatus, "PENDING_HUMAN_REVIEW");
+  assert.equal(items[0].killCritic.decision, "PASS_TO_HUMAN_REVIEW");
+  assert.equal(items[0].killCritic.executionAuthorized, false);
+  assert.equal(Object.prototype.hasOwnProperty.call(items[0], "payload"), false);
+});
+
+test("human approval permits manual handoff only and cannot be repeated", () => {
+  const options = makeOptions();
+  assert.equal(validateAICPMessage(validMessage(), options).valid, true);
+  const decision = decideReviewItem(
+    options.replayStoreDir, "covenant-agent-1", "msg-001", "approve", "Reviewed by operator"
+  );
+  assert.equal(decision.ok, true);
+  assert.equal(decision.reviewStatus, "APPROVED_FOR_MANUAL_HANDOFF");
+  const items = listReviewItems(options.replayStoreDir);
+  assert.equal(items[0].reviewStatus, "APPROVED_FOR_MANUAL_HANDOFF");
+  const duplicate = decideReviewItem(
+    options.replayStoreDir, "covenant-agent-1", "msg-001", "reject", "second decision"
+  );
+  assert.equal(duplicate.ok, false);
+  assert.equal(duplicate.code, "REVIEW_ALREADY_DECIDED");
+});
+
+test("human rejection is durable and unknown review items cannot be decided", () => {
+  const options = makeOptions();
+  assert.equal(validateAICPMessage(validMessage(), options).valid, true);
+  const decision = decideReviewItem(
+    options.replayStoreDir, "covenant-agent-1", "msg-001", "reject", "Untrusted request"
+  );
+  assert.equal(decision.ok, true);
+  assert.equal(decision.reviewStatus, "REJECTED");
+  const missing = decideReviewItem(
+    options.replayStoreDir, "covenant-agent-1", "missing", "approve"
+  );
+  assert.equal(missing.ok, false);
+  assert.equal(missing.code, "REVIEW_ITEM_NOT_FOUND");
 });
