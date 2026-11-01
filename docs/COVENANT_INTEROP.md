@@ -57,6 +57,22 @@ The filename is a SHA-256 hash of sender ID plus message ID. Exclusive file crea
 
 **Deployment constraint:** this protection depends on durable storage that supports atomic exclusive file creation and directory metadata fsync. The gateway fails closed if it cannot fsync the replay directory. Use a persistent volume and a single active Core instance. Do not run multiple hosts with separate local disks and assume they share replay state. A horizontally scaled deployment needs a shared transactional datastore with a unique constraint before it can safely accept AICP traffic. Back up the replay directory and monitor disk usage; do not delete reservations casually.
 
+
+## Human review queue and Kill Critic
+
+Every accepted signed message creates a metadata-only review item in the same durable replay directory. The queue stores sender ID, message ID, intent, digest, receive time, validation outcome, and explicit trust-boundary flags. It does not store the signed payload or signature.
+
+Authenticated operator endpoints:
+
+- `GET /api/covenant/aicp/reviews` — list recent review items (maximum 200).
+- `POST /api/covenant/aicp/reviews/decision` — body: `{"sender":"...","messageId":"...","decision":"approve|reject","reason":"..."}`.
+
+A decision is immutable: the first decision wins; later attempts receive a conflict. The decision record is fsynced and the directory is fsynced before success is returned.
+
+Kill Critic currently acts as a **protocol trust-boundary gate**, not a semantic AI judge. It records that sender allowlisting, intent allowlisting, Ed25519 signature, timestamp and replay protection passed, while privacy and proof-of-work claims remain unverified. It never grants execution authority.
+
+An `approve` result means only `APPROVED_FOR_MANUAL_HANDOFF`: an operator may inspect the request and decide what to do outside this endpoint. It does not execute an agent action, approve a model update, call a blockchain, create a GitHub change, or authorize money movement. The API key authenticates access to these endpoints; it does not provide individual operator identity or non-repudiation.
+
 ## Trust boundary — important
 
 The gateway now verifies the Ed25519 signature against the sender's pinned public key, as well as envelope shape, fixed intent allowlist, sender allowlist, timestamp window, content digest, and durable replay reservation.
