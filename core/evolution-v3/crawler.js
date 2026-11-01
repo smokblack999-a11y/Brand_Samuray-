@@ -127,4 +127,69 @@ async function fetchPublicPage(input, options = {}) {
   throw Object.assign(new Error("redirect_limit_exceeded"), { code: "REDIRECT_LIMIT" });
 }
 
-module.exports = { isPublicAddress, validateTarget, resolvePublic, fetchPublicPage };
+
+async function fetchRobotsPolicy(origin, options = {}) {
+  const lookup = options.lookup || dns.lookup;
+  const request = options.request || requestPinned;
+  const timeoutMs = Math.max(1000, Math.min(Number(options.timeoutMs || 10000), 30000));
+  const maxBytes = Math.max(1024, Math.min(Number(options.maxBytes || 256 * 1024), 512 * 1024));
+  let url = validateTarget(new URL("/robots.txt", origin).toString());
+  for (let redirects = 0; redirects <= MAX_REDIRECTS; redirects += 1) {
+    const addresses = await resolvePublic(url.hostname, lookup);
+    const response = await request(url, addresses, { timeoutMs, maxBytes });
+    if (REDIRECT_CODES.has(response.statusCode)) {
+      if (redirects === MAX_REDIRECTS) throw Object.assign(new Error("robots_redirect_limit_exceeded"), { code: "ROBOTS_REDIRECT_LIMIT" });
+      const location = response.headers && response.headers.location;
+      if (!location) throw Object.assign(new Error("robots_redirect_location_missing"), { code: "ROBOTS_REDIRECT_INVALID" });
+      url = validateTarget(new URL(location, url).toString());
+      continue;
+    }
+    if (response.statusCode === 404) return { statusCode: 404, text: "" };
+    if (response.statusCode === 401 || response.statusCode === 403) return { statusCode: response.statusCode, text: "User-agent: *\nDisallow: /" };
+    if (response.statusCode < 200 || response.statusCode >= 300) throw Object.assign(new Error("robots_http_error"), { code: "ROBOTS_HTTP_ERROR", statusCode: response.statusCode });
+    const contentType = String(response.headers && response.headers["content-type"] || "").toLowerCase();
+    if (!contentType.includes("text/plain")) throw Object.assign(new Error("robots_text_required"), { code: "ROBOTS_CONTENT_TYPE_BLOCKED" });
+    return { statusCode: response.statusCode, text: response.body.toString("utf8") };
+  }
+  throw Object.assign(new Error("robots_redirect_limit_exceeded"), { code: "ROBOTS_REDIRECT_LIMIT" });
+}
+
+function isAllowedByRobots(robotsText, targetUrl, userAgent = "SAMURAI-EVOLUTION") {
+  const groups = [];
+  let group = { agents: [], rules: [] };
+  for (const raw of String(robotsText || "").split(/\r?\n/)) {
+    const line = raw.split("#", 1)[0].trim();
+    if (!line) continue;
+    const colon = line.indexOf(":");
+    if (colon < 1) continue;
+    const key = line.slice(0, colon).trim().toLowerCase();
+    const value = line.slice(colon + 1).trim();
+    if (key === "user-agent") {
+      if (group.agents.length && group.rules.length) {
+        groups.push(group);
+        group = { agents: [], rules: [] };
+      }
+      group.agents.push(value.toLowerCase());
+    } else if ((key === "allow" || key === "disallow") && group.agents.length && value) {
+      group.rules.push({ allow: key === "allow", value });
+    }
+  }
+  if (group.agents.length) groups.push(group);
+  const agent = String(userAgent).toLowerCase();
+  const matching = groups.filter(item => item.agents.some(name => name === "*" || (name && agent.startsWith(name))));
+  if (!matching.length) return true;
+  const score = name => name === "*" ? 0 : name.length;
+  const specificity = Math.max(...matching.flatMap(item => item.agents.filter(name => name === "*" || agent.startsWith(name)).map(score)));
+  const rules = matching.filter(item => item.agents.some(name => score(name) === specificity)).flatMap(item => item.rules);
+  const target = new URL(targetUrl);
+  const path = target.pathname + target.search;
+  const matched = rules.filter(rule => {
+    const anchored = rule.value.endsWith("$");
+    const rawPattern = anchored ? rule.value.slice(0, -1) : rule.value;
+    const pattern = rawPattern.replace(/\*/g, "\u0000").replace(/[.+?^$()|[\]\\]/g, "\\module.exports = { isPublicAddress, validateTarget, resolvePublic, fetchPublicPage };").replace(/\u0000/g, ".*");
+    return new RegExp("^" + pattern + (anchored ? "$" : ".*")).test(path);
+  }).sort((a, b) => b.value.length - a.value.length || Number(b.allow) - Number(a.allow))[0];
+  return !matched || matched.allow;
+}
+
+module.exports = { isPublicAddress, validateTarget, resolvePublic, fetchPublicPage, fetchRobotsPolicy, isAllowedByRobots };
