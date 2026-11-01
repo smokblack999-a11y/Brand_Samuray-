@@ -67,6 +67,8 @@ function evaluateEvent(event, options = {}) {
   return {
     schema_version: SCHEMA_VERSION, policy_version: POLICY_VERSION,
     event_id: typeof event?.event_id === "string" ? event.event_id : null,
+    source_id: typeof event?.source_id === "string" ? event.source_id : null,
+    site_id: typeof event?.site_id === "string" ? event.site_id : null,
     decision, reason_codes: [...new Set(reasonCodes)],
     evaluated_at: new Date(options.nowMs ?? Date.now()).toISOString(),
     evidence_hash: sha256(stableJson(event)),
@@ -79,6 +81,7 @@ function createProofReceipt(decision, previousReceiptHash = null) {
   if (previousReceiptHash !== null && !/^[a-f0-9]{64}$/i.test(previousReceiptHash)) throw new Error("previous_receipt_hash_invalid");
   const receipt = {
     receipt_version: "samurai.vdi.proof.v1", event_id: decision.event_id,
+    source_id: decision.source_id, site_id: decision.site_id,
     decision: decision.decision, reason_codes: decision.reason_codes,
     policy_version: decision.policy_version, evaluated_at: decision.evaluated_at,
     evidence_hash: decision.evidence_hash, previous_receipt_hash: previousReceiptHash,
@@ -100,7 +103,7 @@ class ProofLedger {
   }
   append(decision) {
     const records = this.records();
-    const existing = records.find(record => record.event_id === decision.event_id);
+    const existing = records.find(record => record.event_id === decision.event_id && record.source_id === decision.source_id && record.site_id === decision.site_id);
     if (existing) return { appended: false, duplicate: true, receipt: existing };
     const previous = records.length ? records[records.length - 1].receipt_hash : null;
     const receipt = createProofReceipt(decision, previous);
