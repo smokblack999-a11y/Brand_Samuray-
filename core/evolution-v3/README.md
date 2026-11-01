@@ -1,6 +1,6 @@
 # EVOLUTION V3 — SAMURAI OS module
 
-Status: isolated implementation on feat/evolution-v3-integration-audit. It is not mounted into core/server.js and is not production-ready.
+Status: isolated implementation on feat/evolution-v3-server-foundation. It is not mounted into core/server.js and is not production-ready.
 
 ## Implemented primitives
 
