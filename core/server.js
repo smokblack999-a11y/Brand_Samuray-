@@ -13,6 +13,7 @@ const { createRateLimiter } = require("./rate-limit");
 const dualAI = require("./dual-ai/engine");
 const agentControl = require("./agent-control");
 const agentControlGithub = require("./agent-control-github");
+const covenantInterop = require("./covenant-interop");
 
 const app = express();
 const PORT = Number(process.env.PORT || 8787);
@@ -20,6 +21,19 @@ const API_KEY = String(process.env.CORE_API_KEY || "").trim();
 const WEBHOOK_SECRET = String(process.env.TELEGRAM_WEBHOOK_SECRET || "").trim();
 const MAX_MESSAGE_CHARS = Math.max(100, Math.min(Number(process.env.MAX_MESSAGE_CHARS || 4000), 10000));
 const CORS_ORIGIN = String(process.env.CORS_ORIGIN || "").trim();
+const COVENANT_INTEROP_ENABLED = String(process.env.COVENANT_INTEROP_ENABLED || "false").toLowerCase() === "true";
+const COVENANT_INTEROP_SECRET = String(process.env.COVENANT_INTEROP_SECRET || "").trim();
+let covenantEventStore = null;
+
+function getCovenantEventStore() {
+  if (!covenantEventStore) {
+    const dataDir = process.env.DATA_DIR || path.join(__dirname, "data");
+    covenantEventStore = new covenantInterop.CovenantEventStore(
+      path.join(dataDir, "covenant-interop-events.jsonl")
+    );
+  }
+  return covenantEventStore;
+}
 const REQUEST_TIMEOUT_MS = Math.max(5000, Number(process.env.REQUEST_TIMEOUT_MS || 30000));
 const LEAD_RATE_LIMIT_WINDOW_MS = Math.max(1000, Number(process.env.LEAD_RATE_LIMIT_WINDOW_MS || 60000));
 const LEAD_RATE_LIMIT_MAX = Math.max(1, Number(process.env.LEAD_RATE_LIMIT_MAX || 20));
@@ -29,6 +43,10 @@ if (process.env.NODE_ENV === "production") {
   if (!API_KEY) missing.push("CORE_API_KEY");
   if (!WEBHOOK_SECRET) missing.push("TELEGRAM_WEBHOOK_SECRET");
   if (missing.length) throw new Error(`Production startup blocked: missing ${missing.join(", ")}`);
+}
+
+if (COVENANT_INTEROP_ENABLED && Buffer.byteLength(COVENANT_INTEROP_SECRET, "utf8") < 32) {
+  throw new Error("COVENANT_INTEROP_ENABLED requires COVENANT_INTEROP_SECRET with at least 32 UTF-8 bytes");
 }
 
 app.disable("x-powered-by");
@@ -74,6 +92,10 @@ app.use((req, res, next) => {
 
 const leadRateLimit = createRateLimiter({ windowMs: LEAD_RATE_LIMIT_WINDOW_MS, max: LEAD_RATE_LIMIT_MAX });
 const dualRateLimit = createRateLimiter({ windowMs: Math.max(1000, Number(process.env.DUAL_AI_RATE_LIMIT_WINDOW_MS || 60000)), max: Math.max(1, Number(process.env.DUAL_AI_RATE_LIMIT_MAX || 10)) });
+const covenantRateLimit = createRateLimiter({
+  windowMs: Math.max(1000, Number(process.env.COVENANT_RATE_LIMIT_WINDOW_MS || 60000)),
+  max: Math.max(1, Number(process.env.COVENANT_RATE_LIMIT_MAX || 30))
+});
 app.use("/dual-ai", express.static(path.join(__dirname, "dual-ai", "public"), { index: "index.html" }));
 
 app.get("/health", (_req, res) => res.json({ ok: true, service: "SamuraiOS Core", version: "2.7.0" }));
@@ -363,6 +385,66 @@ app.post("/api/telegram/webhook", requireWebhookSecret, async (req, res) => {
     }
   } catch (error) {
     console.error(JSON.stringify({ event: "business_webhook_error", requestId: req.requestId, error: error.message }));
+  }
+});
+
+
+app.get("/api/covenant/health", requireApiKey, (req, res) => {
+  const secretConfigured = Buffer.byteLength(COVENANT_INTEROP_SECRET, "utf8") >= 32;
+  let journal = null;
+  if (COVENANT_INTEROP_ENABLED && secretConfigured) journal = getCovenantEventStore().health();
+  const ready = !COVENANT_INTEROP_ENABLED || secretConfigured;
+  return res.status(ready ? 200 : 503).json({
+    ok: ready,
+    enabled: COVENANT_INTEROP_ENABLED,
+    secretConfigured,
+    mode: "passive_signed_event_ingest",
+    journal,
+    requestId: req.requestId
+  });
+});
+
+app.post("/api/covenant/aicp", covenantRateLimit, (req, res) => {
+  if (!COVENANT_INTEROP_ENABLED) {
+    return res.status(404).json(errorBody("COVENANT_INTEROP_DISABLED", "Covenant interoperability is disabled", req.requestId));
+  }
+  try {
+    const result = getCovenantEventStore().accept(req.body || {}, {
+      secret: COVENANT_INTEROP_SECRET
+    });
+    return res.status(result.duplicate ? 200 : 202).json({
+      ok: true,
+      accepted: result.accepted,
+      duplicate: result.duplicate,
+      event: result.event,
+      executed: false,
+      requestId: req.requestId
+    });
+  } catch (error) {
+    const code = error.code || "COVENANT_INGEST_FAILED";
+    const status = code === "COVENANT_SIGNATURE_INVALID" ? 401
+      : code === "COVENANT_TIMESTAMP_OUT_OF_RANGE" ? 401
+      : code === "COVENANT_MESSAGE_ID_CONFLICT" ? 409
+      : code === "COVENANT_STORE_WRITE_FAILED" ? 503
+      : code === "COVENANT_SECRET_TOO_SHORT" ? 503
+      : 400;
+    return res.status(status).json(errorBody(code, status >= 500 ? "Covenant bridge is unavailable" : code, req.requestId));
+  }
+});
+
+app.get("/api/covenant/events", requireApiKey, (req, res) => {
+  if (!COVENANT_INTEROP_ENABLED) {
+    return res.status(404).json(errorBody("COVENANT_INTEROP_DISABLED", "Covenant interoperability is disabled", req.requestId));
+  }
+  try {
+    return res.json({
+      ok: true,
+      events: getCovenantEventStore().list(req.query.limit),
+      requestId: req.requestId
+    });
+  } catch (error) {
+    console.error(JSON.stringify({ event: "covenant_event_list_failed", requestId: req.requestId, code: error.code || "INTERNAL_ERROR" }));
+    return res.status(503).json(errorBody("COVENANT_JOURNAL_UNAVAILABLE", "Covenant journal is unavailable", req.requestId));
   }
 });
 
