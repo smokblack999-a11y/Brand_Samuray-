@@ -43,7 +43,7 @@ The gateway pins one PEM-encoded Ed25519 SPKI public key per sender in `COVENANT
 Example shape (replace the placeholder with a real PEM public key; this is not a usable key):
 
     COVENANT_AICP_ALLOWED_SENDERS=covenant-agent-1
-    COVENANT_AICP_PUBLIC_KEYS_JSON={"covenant-agent-1":"-----BEGIN PUBLIC KEY-----\\nREPLACE_WITH_REAL_BASE64_DER\\n-----END PUBLIC KEY-----"}
+    COVENANT_AICP_PUBLIC_KEYS_JSON={"covenant-agent-1":"-----BEGIN PUBLIC KEY-----\nREPLACE_WITH_REAL_BASE64_DER\n-----END PUBLIC KEY-----"}
 
 Key rotation/revocation requires updating the pinned public-key map through a reviewed deployment. A sender without a configured key is rejected.
 
