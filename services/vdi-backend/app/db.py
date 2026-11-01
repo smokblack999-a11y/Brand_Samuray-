@@ -30,7 +30,7 @@ def init_db():
           ocr_confidence REAL,
           validation_status TEXT NOT NULL,
           reason_code TEXT NOT NULL,
-          frame_sha256 TEXT
+          crop_sha256 TEXT
         );
         CREATE INDEX IF NOT EXISTS idx_events_received ON events(received_at DESC);
         CREATE TABLE IF NOT EXISTS decisions (
@@ -60,7 +60,7 @@ def mask_plate(plate: str) -> str:
         return "*" * len(plate)
     return plate[:3] + "*" * max(0, len(plate)-5) + plate[-2:]
 
-def record_event(data: dict, validation: dict, frame_sha256: str | None = None):
+def record_event(data: dict, validation: dict, crop_sha256: str | None = None):
     now = datetime.now(timezone.utc).isoformat()
     plate = validation.get("normalized", "")
     token = plate_token(plate) if plate else None
@@ -74,9 +74,9 @@ def record_event(data: dict, validation: dict, frame_sha256: str | None = None):
             d = c.execute("SELECT * FROM decisions WHERE event_id=?", (data["event_id"],)).fetchone()
             p = c.execute("SELECT * FROM proofs WHERE event_id=?", (data["event_id"],)).fetchone()
             return dict(existing), dict(d) if d else None, dict(p) if p else None, True
-        c.execute("""INSERT INTO events(event_id,source_id,event_type,occurred_at,received_at,plate_token,plate_masked,ocr_confidence,validation_status,reason_code,frame_sha256)
+        c.execute("""INSERT INTO events(event_id,source_id,event_type,occurred_at,received_at,plate_token,plate_masked,ocr_confidence,validation_status,reason_code,crop_sha256)
         VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
-        (data["event_id"], data["source_id"], data.get("event_type","plate_observed"), data["occurred_at"], now, token, masked, data.get("ocr_confidence"), validation["status"], validation["reason_code"], frame_sha256))
+        (data["event_id"], data["source_id"], data.get("event_type","plate_observed"), data["occurred_at"], now, token, masked, data.get("ocr_confidence"), validation["status"], validation["reason_code"], crop_sha256))
         c.execute("INSERT INTO decisions VALUES(?,?,?,?,?,?)",
         (decision_id, data["event_id"], decision, validation["reason_code"], "kz-format-v1", now))
         previous = c.execute("SELECT receipt_hash FROM proofs ORDER BY id DESC LIMIT 1").fetchone()
@@ -113,6 +113,27 @@ def get_proof(event_id):
     with connect() as c:
         r=c.execute("SELECT * FROM proofs WHERE event_id=?", (event_id,)).fetchone()
         return dict(r) if r else None
+
+def verify_proof_chain():
+    """Verify every local receipt link and its canonical JSON hash."""
+    checked = 0
+    expected_previous = "GENESIS"
+    with connect() as c:
+        rows = c.execute("SELECT event_id, previous_hash, receipt_json, receipt_hash FROM proofs ORDER BY id ASC").fetchall()
+    for row in rows:
+        if row["previous_hash"] != expected_previous:
+            return {"ok": False, "checked": checked, "broken_event_id": row["event_id"], "reason": "PREVIOUS_HASH_MISMATCH"}
+        try:
+            receipt = json.loads(row["receipt_json"])
+            canonical = json.dumps(receipt, sort_keys=True, separators=(",",":"))
+        except (TypeError, ValueError):
+            return {"ok": False, "checked": checked, "broken_event_id": row["event_id"], "reason": "INVALID_RECEIPT_JSON"}
+        calculated = hashlib.sha256((expected_previous + canonical).encode()).hexdigest()
+        if not hmac.compare_digest(calculated, row["receipt_hash"]):
+            return {"ok": False, "checked": checked, "broken_event_id": row["event_id"], "reason": "RECEIPT_HASH_MISMATCH"}
+        expected_previous = row["receipt_hash"]
+        checked += 1
+    return {"ok": True, "checked": checked, "broken_event_id": None, "reason": "CHAIN_VALID"}
 
 def metrics():
     with connect() as c:
