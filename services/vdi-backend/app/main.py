@@ -10,10 +10,14 @@ from .schemas import EventIn
 stop_event=threading.Event()
 worker_thread=None
 worker_error=None
+worker_ready=threading.Event()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global worker_thread
+    global worker_thread, worker_error
+    stop_event.clear()
+    worker_ready.clear()
+    worker_error=None
     init_db()
     if settings.enable_rtsp:
         if not settings.rtsp_url:
@@ -22,7 +26,7 @@ async def lifespan(app: FastAPI):
             global worker_error
             try:
                 from .pipeline import run_rtsp
-                run_rtsp(stop_event)
+                run_rtsp(stop_event, worker_ready)
             except Exception as exc:
                 worker_error=str(exc)
     if settings.enable_rtsp:
@@ -50,8 +54,9 @@ def ready():
     import os
     db_ok=os.path.exists(settings.database_path)
     model_ok=(not settings.enable_rtsp) or os.path.isfile(settings.yolo_model_path)
-    ok=bool(settings.api_key and settings.token_secret and db_ok and model_ok and not worker_error)
-    return JSONResponse(status_code=200 if ok else 503, content={"ok":ok,"database":db_ok,"rtsp_enabled":settings.enable_rtsp,"model_available":model_ok,"worker_error":worker_error})
+    worker_ok=(not settings.enable_rtsp) or worker_ready.is_set()
+    ok=bool(settings.api_key and settings.token_secret and db_ok and model_ok and worker_ok and not worker_error)
+    return JSONResponse(status_code=200 if ok else 503, content={"ok":ok,"database":db_ok,"rtsp_enabled":settings.enable_rtsp,"model_available":model_ok,"worker_connected":worker_ready.is_set() if settings.enable_rtsp else None,"worker_error":worker_error})
 
 @app.post("/v1/events")
 def ingest_event(payload: EventIn, x_api_key: str | None = Header(default=None)):
