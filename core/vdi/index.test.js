@@ -39,6 +39,11 @@ test("allows only validated authenticated event with configured checks passing",
   assert.equal(result.mode, "SHADOW_ONLY");
   assert.equal(result.physical_action_performed, false);
 });
+test("missing session-match evidence cannot produce ALLOW", () => {
+  const result = vdi.evaluateEvent(event(), { nowMs: NOW, sourceAuthenticated: true });
+  assert.equal(result.decision, "REVIEW");
+  assert.ok(result.reason_codes.includes("parking_session_check_missing"));
+});
 test("unauthenticated, duplicate, conflicting and impossible events go to REVIEW", () => {
   const cases = [
     [{ sourceAuthenticated: false }, "source_not_authenticated"],
