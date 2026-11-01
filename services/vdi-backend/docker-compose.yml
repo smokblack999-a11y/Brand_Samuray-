@@ -1,0 +1,10 @@
+services:
+  vdi-backend:
+    build: .
+    env_file: .env
+    ports:
+      - "8090:8090"
+    volumes:
+      - ./data:/app/data
+      - ./weights:/models:ro
+    restart: unless-stopped
