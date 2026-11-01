@@ -62,7 +62,7 @@ function evaluateEvent(event, options = {}) {
   else if (event.ocr_confidence !== undefined && event.ocr_confidence < (options.minOcrConfidence ?? 0.85)) { decision = "REVIEW"; reasonCodes.push("ocr_confidence_below_threshold"); }
   else if (options.conflictingReads === true) { decision = "REVIEW"; reasonCodes.push("conflicting_vehicle_reads"); }
   else if (options.impossibleSequence === true) { decision = "REVIEW"; reasonCodes.push("impossible_event_sequence"); }
-  else if (options.matchedSession === false) { decision = "REVIEW"; reasonCodes.push("parking_session_not_matched"); }
+  else if (options.matchedSession !== true) { decision = "REVIEW"; reasonCodes.push(options.matchedSession === false ? "parking_session_not_matched" : "parking_session_check_missing"); }
   else { decision = "ALLOW"; reasonCodes.push("all_configured_shadow_checks_passed"); }
   return {
     schema_version: SCHEMA_VERSION, policy_version: POLICY_VERSION,
