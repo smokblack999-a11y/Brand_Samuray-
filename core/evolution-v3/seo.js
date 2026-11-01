@@ -1,15 +1,22 @@
 "use strict";
 
 const { URL } = require("node:url");
+const net = require("node:net");
 
 function normalizeWebsite(input) {
   let url;
   try { url = new URL(String(input || "")); } catch { throw new Error("valid_website_url_required"); }
   if (!["http:", "https:"].includes(url.protocol)) throw new Error("http_or_https_required");
   if (url.username || url.password) throw new Error("url_credentials_not_allowed");
-  if (url.hostname === "localhost" || url.hostname.endsWith(".localhost") || url.hostname.endsWith(".local")) {
-    throw new Error("local_hosts_not_allowed");
-  }
+  const hostname = url.hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  if (net.isIP(hostname)) throw new Error("ip_literal_targets_not_allowed");
+  if (
+    hostname === "localhost" ||
+    hostname.endsWith(".localhost") ||
+    hostname.endsWith(".local") ||
+    hostname.endsWith(".internal") ||
+    hostname.endsWith(".test")
+  ) throw new Error("local_hosts_not_allowed");
   return url.origin;
 }
 function createAuditRecord({ website, evidence = [], provider = "manual" }) {
