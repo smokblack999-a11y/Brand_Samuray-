@@ -37,7 +37,7 @@ function createVdiHandler(options = {}) {
     const validation = validateEvent(event, { nowMs });
     if (!validation.valid) return send(422, { ok: false, error: "INVALID_EVENT", validation });
 
-    let matchedSession = false;
+    let matchedSession;
     if (typeof sessionMatcher === "function") {
       try { matchedSession = (await sessionMatcher(event)) === true; }
       catch { matchedSession = false; }
