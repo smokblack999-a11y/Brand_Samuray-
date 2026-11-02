@@ -98,23 +98,32 @@ def reconcile_events(events: list[dict], stale_after_minutes: int = 120, now: da
                         "message": "An exit was recorded without a matching earlier entry in the same correlation group."
                     })
                 else:
+                    # Calculate against the tariff snapshot captured at entry. A
+                    # zero-charge grace session must not be flagged for no payment.
+                    tariff_id = open_entry.get("tariff_id")
+                    rule = open_entry.get("tariff_snapshot") or (tariffs.get(tariff_id) if tariff_id else None)
                     try:
                         exit_time = _parse_time(event["occurred_at"])
-                        paid = has_valid_payment_at(exit_time)
+                        expected = calculate_base_charge(open_entry["occurred_at"], event["occurred_at"], rule) if rule else None
+                        recorded, incomplete = paid_amount_at(exit_time, rule["currency"]) if rule else (0, False)
+                        paid = (recorded > 0) if rule and expected["base_charge_minor"] > 0 else (
+                            True if rule and expected["base_charge_minor"] == 0 else has_valid_payment_at(exit_time)
+                        )
                     except (TypeError, ValueError, KeyError):
                         exit_time = None
+                        expected = None
+                        recorded = 0
+                        incomplete = True
                         paid = False
                     if not paid:
                         findings.append({
                             "type": "EXIT_WITHOUT_RECORDED_SUCCESSFUL_PAYMENT", "severity": "review",
                             "event_id": event["event_id"], "related_event_id": open_entry["event_id"],
                             "plate_masked": event.get("plate_masked"), "occurred_at": event["occurred_at"],
-                            "message": "No transaction currently has a successful, non-reversed payment state. This does not establish unpaid debt or financial loss."
+                            "message": "No successful, non-reversed payment amount was recorded for a chargeable session. This does not establish unpaid debt or financial loss."
                         })
                     # Financial comparison is enabled only when the entry references
                     # an operator-configured, immutable tariff rule.
-                    tariff_id = open_entry.get("tariff_id")
-                    rule = open_entry.get("tariff_snapshot") or (tariffs.get(tariff_id) if tariff_id else None)
                     if rule and exit_time is not None:
                         financial["sessions_evaluated"] += 1
                         bucket = financial["by_currency"].setdefault(rule["currency"], {
@@ -122,8 +131,6 @@ def reconcile_events(events: list[dict], stale_after_minutes: int = 120, now: da
                             "under_base_tariff": 0, "exact_base_tariff": 0, "over_base_tariff": 0
                         })
                         try:
-                            expected = calculate_base_charge(open_entry["occurred_at"], event["occurred_at"], rule)
-                            recorded, incomplete = paid_amount_at(exit_time, rule["currency"])
                             bucket["expected_total_minor"] += expected["base_charge_minor"]
                             bucket["recorded_paid_total_minor"] += recorded
                             if incomplete:
