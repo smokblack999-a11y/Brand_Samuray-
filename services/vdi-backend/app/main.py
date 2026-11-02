@@ -80,8 +80,10 @@ def tariffs(x_api_key: str | None = Header(default=None)):
 def ingest_event(payload: EventIn, x_api_key: str | None = Header(default=None)):
     auth(x_api_key)
     data=payload.model_dump()
-    if payload.tariff_id and not get_tariff(payload.tariff_id):
+    tariff_snapshot=get_tariff(payload.tariff_id) if payload.tariff_id else None
+    if payload.tariff_id and not tariff_snapshot:
         raise HTTPException(status_code=422, detail="Unknown tariff_id; configure the tariff before ingesting an entry")
+    data["tariff_snapshot"]=tariff_snapshot
     data["occurred_at"]=payload.occurred_at.astimezone(__import__("datetime").timezone.utc).isoformat()
     if payload.plate_text:
         validation=validate_kz_plate(payload.plate_text, payload.ocr_confidence, settings.min_ocr_confidence)
