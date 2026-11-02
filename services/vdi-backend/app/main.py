@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Header, HTTPException, Query
 from fastapi.responses import JSONResponse
 from .config import settings
-from .db import init_db, record_event, list_events, list_audit_events, get_event, get_proof, metrics, verify_proof_chain
+from .db import init_db, record_event, list_events, list_audit_events, get_event, get_proof, metrics, verify_proof_chain, EventConflict
 from .audit import reconcile_events
 from .kz_validator import validate_kz_plate
 from .schemas import EventIn
@@ -69,7 +69,10 @@ def ingest_event(payload: EventIn, x_api_key: str | None = Header(default=None))
     else:
         # Session-linked events do not need OCR; this does not verify a vehicle plate.
         validation={"status":"SESSION_LINKED","reason_code":"SESSION_ID_ONLY","normalized":""}
-    event,decision,proof,duplicate=record_event(data,validation,payload.crop_sha256)
+    try:
+        event,decision,proof,duplicate=record_event(data,validation,payload.crop_sha256)
+    except EventConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
     return {"ok":True,"duplicate":duplicate,"event":event,"decision":decision,"proof_hash":proof["receipt_hash"] if proof else None}
 
 @app.get("/v1/events")
