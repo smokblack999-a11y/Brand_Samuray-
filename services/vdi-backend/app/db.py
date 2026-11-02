@@ -88,7 +88,8 @@ def record_event(data: dict, validation: dict, crop_sha256: str | None = None):
     token = plate_token(plate) if plate else None
     masked = mask_plate(plate) if plate else None
     decision_id = "dec_" + hashlib.sha256(data["event_id"].encode()).hexdigest()[:24]
-    decision = "OBSERVED" if validation["status"] in ("OBSERVED_VALID_FORMAT", "SESSION_LINKED") else "REVIEW"
+    decision = "LINKED" if validation["status"] == "SESSION_LINKED" else ("OBSERVED" if validation["status"] == "OBSERVED_VALID_FORMAT" else "REVIEW")
+    policy_version = "session-link-v1" if validation["status"] == "SESSION_LINKED" else "kz-format-v1"
     amount_minor = data.get("amount_minor")
     currency = data.get("currency", "KZT")
     session_id = data.get("session_id")
@@ -113,7 +114,7 @@ def record_event(data: dict, validation: dict, crop_sha256: str | None = None):
          validation["status"], validation["reason_code"], crop_sha256, amount_minor, currency,
          session_id,ticket_id,provider_event_id,transaction_id,payment_status))
         c.execute("INSERT INTO decisions VALUES(?,?,?,?,?,?)",
-        (decision_id, data["event_id"], decision, validation["reason_code"], "kz-format-v1", now))
+        (decision_id, data["event_id"], decision, validation["reason_code"], policy_version, now))
         previous = c.execute("SELECT receipt_hash FROM proofs ORDER BY id DESC LIMIT 1").fetchone()
         previous_hash = previous["receipt_hash"] if previous else "GENESIS"
         receipt = {
@@ -124,7 +125,7 @@ def record_event(data: dict, validation: dict, crop_sha256: str | None = None):
             "reason_code":validation["reason_code"], "amount_minor":amount_minor,
             "currency":currency, "session_id":session_id, "ticket_id":ticket_id,
             "provider_event_id":provider_event_id, "transaction_id":transaction_id,
-            "payment_status":payment_status, "policy_version":"kz-format-v1", "previous_hash":previous_hash
+            "payment_status":payment_status, "policy_version":policy_version, "previous_hash":previous_hash
         }
         receipt_json = json.dumps(receipt, sort_keys=True, separators=(",",":"))
         receipt_hash = hashlib.sha256((previous_hash + receipt_json).encode()).hexdigest()
