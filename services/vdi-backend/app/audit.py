@@ -28,9 +28,9 @@ def reconcile_events(events: list[dict], stale_after_minutes: int = 120, now: da
                 return datetime.min.replace(tzinfo=timezone.utc)
 
         rows.sort(key=sort_key)
-        # Determine the latest known state for every transaction across the full
-        # session, including provider refund/void notifications received after exit.
-        transaction_states: dict[str, tuple[datetime, str | None, dict]] = {}
+        # Keep transaction history, not only its last state: a payment after exit
+        # cannot satisfy that exit, and a later refund must reverse an earlier success.
+        transaction_history: dict[str, list[tuple[datetime, str | None]]] = {}
         for event in rows:
             if event.get("event_type") != "payment":
                 continue
@@ -39,11 +39,19 @@ def reconcile_events(events: list[dict], stale_after_minutes: int = 120, now: da
             except (TypeError, ValueError, KeyError):
                 continue
             transaction_key = event.get("transaction_id") or event.get("provider_event_id") or event["event_id"]
-            previous = transaction_states.get(transaction_key)
-            if previous is None or when >= previous[0]:
-                transaction_states[transaction_key] = (when, event.get("payment_status"), event)
+            transaction_history.setdefault(transaction_key, []).append((when, event.get("payment_status")))
+        for history in transaction_history.values():
+            history.sort(key=lambda item: item[0])
 
-        has_final_success = any(status == "succeeded" for _, status, _ in transaction_states.values())
+        def has_valid_payment_at(exit_time: datetime) -> bool:
+            for history in transaction_history.values():
+                states_at_exit = [status for when, status in history if when <= exit_time]
+                if not states_at_exit or states_at_exit[-1] != "succeeded":
+                    continue
+                later_states = [status for when, status in history if when > exit_time]
+                if not any(status in ("refunded", "voided", "failed") for status in later_states):
+                    return True
+            return False
         open_entry = None
         for event in rows:
             kind = event.get("event_type", "plate_observed")
@@ -66,7 +74,12 @@ def reconcile_events(events: list[dict], stale_after_minutes: int = 120, now: da
                         "message": "An exit was recorded without a matching earlier entry in the same correlation group."
                     })
                 else:
-                    if not has_final_success:
+                    try:
+                        exit_time = _parse_time(event["occurred_at"])
+                        paid = has_valid_payment_at(exit_time)
+                    except (TypeError, ValueError, KeyError):
+                        paid = False
+                    if not paid:
                         findings.append({
                             "type": "EXIT_WITHOUT_RECORDED_SUCCESSFUL_PAYMENT", "severity": "review",
                             "event_id": event["event_id"], "related_event_id": open_entry["event_id"],
