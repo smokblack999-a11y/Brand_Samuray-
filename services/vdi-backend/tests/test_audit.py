@@ -78,3 +78,18 @@ def test_refund_after_exit_reverses_payment_finding():
     assert result["findings_total"] == 1
     assert result["findings"][0]["event_id"] == "exit-late-refund"
     assert result["findings"][0]["type"] == "EXIT_WITHOUT_RECORDED_SUCCESSFUL_PAYMENT"
+
+
+def test_payment_after_exit_does_not_retroactively_pay_session():
+    rows = [
+        {"event_id": "entry-before-pay", "event_type": "entry", "session_id": "session-late-pay",
+         "occurred_at": "2026-11-02T05:00:00+00:00"},
+        {"event_id": "exit-before-pay", "event_type": "exit", "session_id": "session-late-pay",
+         "occurred_at": "2026-11-02T06:00:00+00:00"},
+        {"event_id": "payment-after-exit", "event_type": "payment", "session_id": "session-late-pay",
+         "transaction_id": "txn-late-pay", "payment_status": "succeeded",
+         "occurred_at": "2026-11-02T06:05:00+00:00"},
+    ]
+    result = reconcile_events(rows)
+    assert result["findings_total"] == 1
+    assert result["findings"][0]["event_id"] == "exit-before-pay"
