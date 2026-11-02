@@ -1,11 +1,17 @@
-# SAMURAI VDI Backend — RTSP → YOLO → OCR → KZ Validator → SQLite → API
+# SAMURAI Kill Critic VDI — parking event audit backend
 
-**Status:** isolated runnable backend scaffold. No camera, weights, or customer feed are bundled. RTSP inference requires a compatible license-plate YOLO weights file supplied by the operator.
+**Status:** isolated backend and read-only reconciliation endpoint. The service can accept synthetic/vendor events and detect several event-sequence inconsistencies. No customer feed, camera, license-plate model weights, or paid pilot is connected.
 
-## Architecture
-RTSP/OpenCV worker → YOLO plate detector → EasyOCR → Kazakhstan standard plate-format validator → privacy-preserving event store → FastAPI.
+## What the product does
+The first commercial product is an independent audit layer for an existing parking/ANPR system. It does not replace cameras, OCR, payment terminals, access control, or barriers.
 
-The service validates plate *format only*. It does not establish vehicle identity, ownership, authorization, payment, or a right to enter. It never controls a barrier. OCR/format uncertainty is REVIEW.
+It accepts events from an existing system, pseudonymizes the plate with HMAC, stores a masked plate and event metadata, then checks for:
+- an exit without a previously recorded entry;
+- an entry that remains without an exit beyond a configurable threshold;
+- an entry/exit session with no recorded payment event;
+- a second entry before the previous entry has a matching exit.
+
+These are **review findings**, not proof of theft, fraud, non-payment, or a confirmed financial loss. Missing events in the feed can produce false alarms. A payment event means only that a payment event was recorded; the service does not verify settlement with a bank or payment provider.
 
 ## Run locally
 Python 3.11 recommended.
@@ -23,60 +29,51 @@ uvicorn app.main:app --host 0.0.0.0 --port 8090
 API docs: http://127.0.0.1:8090/docs
 Health: `GET /health`, readiness: `GET /ready`.
 
-## Test without a camera
+## API
+All endpoints except `/health` and `/ready` require `X-API-Key`.
+
+- `POST /v1/events` — ingest one event. Supported event_type: `plate_observed`, `entry`, `exit`, `payment`.
+- `GET /v1/events?limit=50` — recent privacy-minimized events.
+- `GET /v1/audit/reconcile?stale_after_minutes=120` — read-only event reconciliation.
+- `GET /v1/events/{event_id}` — event + observation decision.
+- `GET /v1/decisions/{decision_id}` — stored decision.
+- `GET /v1/proofs/{event_id}` — hash-chained proof receipt.
+- `GET /v1/proof-chain/verify` — verifies local receipt links and hashes.
+- `GET /v1/metrics` — event counters.
+
+## Synthetic event example
+Send a payment event with an ISO-8601 timezone-aware timestamp and amount in minor currency units (tiyn for KZT).
+
 ```bash
-export VDI_API_KEY=dev-change-me
-export PLATE_TOKEN_SECRET=dev-change-me-too
 curl -X POST http://127.0.0.1:8090/v1/events \
   -H 'Content-Type: application/json' -H 'X-API-Key: dev-change-me' \
-  -d '{"source_id":"manual-test","event_id":"evt-001","event_type":"plate_observed","occurred_at":"2026-11-01T12:00:00Z","plate_text":"123ABC01","ocr_confidence":0.98}'
-curl -H 'X-API-Key: dev-change-me' http://127.0.0.1:8090/v1/events
+  -d '{"source_id":"parking-demo","event_id":"demo-payment-1","event_type":"payment","occurred_at":"2026-11-02T10:30:00+05:00","plate_text":"123ABC01","ocr_confidence":0.99,"amount_minor":150000,"currency":"KZT"}'
+curl -H 'X-API-Key: dev-change-me' \
+  'http://127.0.0.1:8090/v1/audit/reconcile?stale_after_minutes=120'
 ```
 
-The sample plate is synthetic. Use UTC ISO-8601 timestamps.
+Use synthetic data only until a customer authorizes a real integration. `amount_minor` is recorded as supplied; it is not independently verified.
 
 ## RTSP mode
+RTSP is optional and disabled by default. To enable it:
 1. Obtain written permission to process the camera feed.
-2. Supply a YOLO model trained to detect license plates (not generic COCO `yolov8n.pt`). The model's detected class is configurable.
-3. Set `ENABLE_RTSP=true`, `RTSP_URL`, and `YOLO_MODEL_PATH=/models/license-plate.pt`.
-4. Mount weights into the container at that path. Keep RTSP credentials in secrets, never in Git.
-5. Start with a controlled test feed. RTSP processing is read-only; no actuator integration exists.
+2. Supply a YOLO model trained to detect license plates (not generic COCO weights).
+3. Set `ENABLE_RTSP=true`, `RTSP_URL`, and `YOLO_MODEL_PATH`.
+4. Keep RTSP credentials in secrets, never in Git.
+5. Start with a controlled test feed.
 
-Example:
-```bash
-docker compose up --build
-```
+The current RTSP worker emits `plate_observed` events. It does not infer entry/exit/payment events by itself. For the commercial audit, those event types must come from the existing parking/access/payment system or a separately validated direction/session adapter.
 
-## Environment
-- `VDI_API_KEY`: required API key; all write/read API routes require it.
-- `PLATE_TOKEN_SECRET`: required HMAC secret used to pseudonymize plate text.
-- `DATABASE_PATH`: SQLite path (default `./data/vdi.sqlite3`).
-- `ENABLE_RTSP`: default false.
-- `RTSP_URL`: camera stream URL (do not commit credentials).
-- `YOLO_MODEL_PATH`: custom license-plate detector weights.
-- `YOLO_CLASS_ID`: optional class id; unset accepts all model classes.
-- `OCR_LANGUAGES`: EasyOCR language list, default `en`.
-- `MIN_OCR_CONFIDENCE`: default 0.70.
-- `FRAME_INTERVAL_SECONDS`: default 1.0.
-- `CAMERA_ID`: source id for RTSP events.
-
-- `GET /v1/proof-chain/verify` — verifies every local proof-chain link and receipt hash.\n\n## API
-- `GET /health` — liveness.
-- `GET /ready` — DB/config/model readiness.
-- `POST /v1/events` — authenticated manual/vendor event intake.
-- `GET /v1/events?limit=50` — recent privacy-minimized events.
-- `GET /v1/events/{event_id}` — event + decision.
-- `GET /v1/decisions/{decision_id}` — decision.
-- `GET /v1/proofs/{event_id}` — hash-chained proof receipt.
-- `GET /v1/metrics` — basic counters.
-
-## Security and limits
+## Privacy and security
 - Raw plate text is not persisted or returned. A keyed HMAC token and masked value are stored.
-- API uses one shared key for this pilot scaffold; deploy behind TLS and a private network. Add per-camera credentials/RBAC before multi-customer use.
-- SQLite is suitable for a single-node pilot, not a multi-writer distributed deployment.
-- Proof hashes are tamper-evident within the local chain; they are not an external trusted timestamp or proof of camera authenticity.
-- No face recognition, watchlists, access decisions, payment decisions, barrier control, or automated denial.
-- Configure lawful purpose, notice, retention, access controls, and customer authorization before processing real plates.
+- HMAC tokens remain potentially linkable personal data; define a lawful purpose, notice, access controls, and retention before processing real plates.
+- One shared API key is used in this pilot scaffold. Production requires per-customer/per-source credentials, RBAC, TLS, rate limits, key rotation, and secret management.
+- SQLite is suitable for a single-node pilot, not distributed multi-writer production.
+- Proof hashes are tamper-evident within the local chain, not an external immutable ledger or trusted timestamp.
+- Configure retention/deletion and customer authorization before real deployment.
 
-## Model requirement
-A custom YOLO license-plate detection model is not included. Without weights, the API and manual event path work, but RTSP inference remains disabled/not ready. OCR is only attempted on detected plate crops.
+## Important limits
+- Kazakhstan plate validation currently covers only one standard private-vehicle pattern. It is not a complete legal plate registry.
+- Plate-format validity does not prove vehicle identity, ownership, authorization, payment, or a right to enter.
+- Findings are leads for human review. No automated barrier actuation, payment capture, access denial, or accusation is implemented.
+- No real camera/model/customer integration or paid pilot has been validated yet.
