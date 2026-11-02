@@ -29,7 +29,7 @@ def reconcile_events(events: list[dict], stale_after_minutes: int = 120, now: da
                 return datetime.min.replace(tzinfo=timezone.utc)
         rows.sort(key=sort_key)
         open_entry = None
-        successful_payments = []
+        payment_states = {}
         for event in rows:
             kind = event.get("event_type", "plate_observed")
             if kind == "entry":
@@ -42,11 +42,11 @@ def reconcile_events(events: list[dict], stale_after_minutes: int = 120, now: da
                     })
                 else:
                     open_entry = event
-                    successful_payments = []
+                    payment_states = {}
             elif kind == "payment" and open_entry is not None:
-                # Pending, failed, voided and refunded transactions are not settled payments.
-                if event.get("payment_status") == "succeeded":
-                    successful_payments.append(event)
+                # Track the latest status per transaction: a later refund/void cancels success.
+                transaction_key = event.get("transaction_id") or event.get("provider_event_id") or event["event_id"]
+                payment_states[transaction_key] = event.get("payment_status")
             elif kind == "exit":
                 if open_entry is None:
                     findings.append({
@@ -56,7 +56,7 @@ def reconcile_events(events: list[dict], stale_after_minutes: int = 120, now: da
                         "message": "An exit was recorded without a matching earlier entry in the same correlation group."
                     })
                 else:
-                    if not successful_payments:
+                    if "succeeded" not in payment_states.values():
                         findings.append({
                             "type": "EXIT_WITHOUT_RECORDED_SUCCESSFUL_PAYMENT", "severity": "review",
                             "event_id": event["event_id"], "related_event_id": open_entry["event_id"],
@@ -64,7 +64,7 @@ def reconcile_events(events: list[dict], stale_after_minutes: int = 120, now: da
                             "message": "No successful payment event was received for this session. This does not establish unpaid debt or financial loss."
                         })
                     open_entry = None
-                    successful_payments = []
+                    payment_states = {}
 
         if open_entry is not None:
             try:
