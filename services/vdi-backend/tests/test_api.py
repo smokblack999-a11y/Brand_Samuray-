@@ -203,3 +203,30 @@ def test_tariff_api_reconciles_recorded_payment_against_configured_rule(tmp_path
         assert financial["by_currency"]["KZT"]["recorded_paid_total_minor"] == 25000
         assert financial["by_currency"]["KZT"]["under_base_tariff"] == 1
         assert audit["financial_findings"][0]["type"] == "RECORDED_PAYMENT_BELOW_CONFIGURED_BASE_TARIFF"
+
+
+def test_ticket_id_correlates_vehicle_and_payment_events(tmp_path, monkeypatch):
+    test_settings = replace(
+        settings, api_key="test-api-key", token_secret="test-token-secret",
+        database_path=str(tmp_path / "vdi-ticket-test.sqlite3"), enable_rtsp=False,
+    )
+    monkeypatch.setattr(db, "settings", test_settings)
+    monkeypatch.setattr(main, "settings", test_settings)
+    headers = {"X-API-Key": "test-api-key"}
+    with TestClient(main.app) as client:
+        events = [
+            {"source_id":"parking","event_id":"ticket-entry","event_type":"entry",
+             "occurred_at":"2026-11-02T08:00:00+00:00","ticket_id":"ticket-42"},
+            {"source_id":"payments","event_id":"ticket-payment","event_type":"payment",
+             "occurred_at":"2026-11-02T08:20:00+00:00","ticket_id":"ticket-42",
+             "provider_event_id":"ticket-pay-evt","payment_status":"succeeded",
+             "amount_minor":50000,"currency":"KZT"},
+            {"source_id":"parking","event_id":"ticket-exit","event_type":"exit",
+             "occurred_at":"2026-11-02T08:40:00+00:00","ticket_id":"ticket-42"},
+        ]
+        for event in events:
+            response = client.post("/v1/events", json=event, headers=headers)
+            assert response.status_code == 200
+        audit = client.get("/v1/audit/reconcile", headers=headers).json()["audit"]
+        assert audit["findings_total"] == 0
+        assert audit["financial_reconciliation"]["sessions_without_tariff"] == 1
