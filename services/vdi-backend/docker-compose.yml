@@ -3,8 +3,22 @@ services:
     build: .
     env_file: .env
     ports:
-      - "8090:8090"
+      - "${VDI_BIND_HOST:-127.0.0.1}:8090:8090"
     volumes:
       - ./data:/app/data
       - ./weights:/models:ro
     restart: unless-stopped
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8090/ready', timeout=3)"
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 25s
