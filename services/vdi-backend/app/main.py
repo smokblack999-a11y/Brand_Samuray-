@@ -94,6 +94,8 @@ def ingest_event(payload: EventIn, x_api_key: str | None = Header(default=None))
         event,decision,proof,duplicate=record_event(data,validation,payload.crop_sha256)
     except EventConflict as exc:
         raise HTTPException(status_code=409, detail=str(exc))
+    except sqlite3.IntegrityError:
+        raise HTTPException(status_code=409, detail="provider_event_id was already ingested for this source")
     return {"ok":True,"duplicate":duplicate,"event":event,"decision":decision,"proof_hash":proof["receipt_hash"] if proof else None}
 
 @app.get("/v1/events")
