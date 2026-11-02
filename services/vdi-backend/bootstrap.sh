@@ -49,14 +49,16 @@ fi
 mkdir -p data weights
 chmod 700 data
 
-echo "Building and starting VDI in read-only/shadow mode (RTSP remains disabled)..."
-docker compose up -d --build
-
 api_key="$(sed -n 's/^VDI_API_KEY=//p' .env | head -n 1)"
-if [[ -z "$api_key" ]]; then
-  echo "ERROR: VDI_API_KEY is empty in .env" >&2
+token_secret="$(sed -n 's/^PLATE_TOKEN_SECRET=//p' .env | head -n 1)"
+if [[ "${#api_key}" -lt 32 || "${#token_secret}" -lt 32 ]] \
+  || [[ "$api_key" == replace-* || "$token_secret" == replace-* ]]; then
+  echo "ERROR: VDI_API_KEY and PLATE_TOKEN_SECRET must each be at least 32 characters and must not be placeholders." >&2
   exit 1
 fi
+
+echo "Building and starting VDI in read-only/shadow mode (RTSP remains disabled)..."
+docker compose up -d --build
 
 ready=0
 for attempt in $(seq 1 60); do
