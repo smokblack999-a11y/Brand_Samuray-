@@ -9,11 +9,10 @@ def _parse_time(value: str) -> datetime:
 
 
 def reconcile_events(events: list[dict], stale_after_minutes: int = 120, now: datetime | None = None) -> dict:
-    """Read-only operational reconciliation. Findings are leads for human review, not proof of loss."""
+    """Read-only reconciliation. Findings are review leads, never proof of loss."""
     now = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
     grouped: dict[str, list[dict]] = {}
     for event in events:
-        # Prefer the parking system's stable session ID. Plate token is only a fallback.
         key = ("session:" + event["session_id"]) if event.get("session_id") else (
             "plate:" + event["plate_token"] if event.get("plate_token") else None
         )
@@ -27,9 +26,25 @@ def reconcile_events(events: list[dict], stale_after_minutes: int = 120, now: da
                 return _parse_time(item["occurred_at"])
             except (TypeError, ValueError):
                 return datetime.min.replace(tzinfo=timezone.utc)
+
         rows.sort(key=sort_key)
+        # Determine the latest known state for every transaction across the full
+        # session, including provider refund/void notifications received after exit.
+        transaction_states: dict[str, tuple[datetime, str | None, dict]] = {}
+        for event in rows:
+            if event.get("event_type") != "payment":
+                continue
+            try:
+                when = _parse_time(event["occurred_at"])
+            except (TypeError, ValueError, KeyError):
+                continue
+            transaction_key = event.get("transaction_id") or event.get("provider_event_id") or event["event_id"]
+            previous = transaction_states.get(transaction_key)
+            if previous is None or when >= previous[0]:
+                transaction_states[transaction_key] = (when, event.get("payment_status"), event)
+
+        has_final_success = any(status == "succeeded" for _, status, _ in transaction_states.values())
         open_entry = None
-        payment_states = {}
         for event in rows:
             kind = event.get("event_type", "plate_observed")
             if kind == "entry":
@@ -42,11 +57,6 @@ def reconcile_events(events: list[dict], stale_after_minutes: int = 120, now: da
                     })
                 else:
                     open_entry = event
-                    payment_states = {}
-            elif kind == "payment" and open_entry is not None:
-                # Track the latest status per transaction: a later refund/void cancels success.
-                transaction_key = event.get("transaction_id") or event.get("provider_event_id") or event["event_id"]
-                payment_states[transaction_key] = event.get("payment_status")
             elif kind == "exit":
                 if open_entry is None:
                     findings.append({
@@ -56,15 +66,14 @@ def reconcile_events(events: list[dict], stale_after_minutes: int = 120, now: da
                         "message": "An exit was recorded without a matching earlier entry in the same correlation group."
                     })
                 else:
-                    if "succeeded" not in payment_states.values():
+                    if not has_final_success:
                         findings.append({
                             "type": "EXIT_WITHOUT_RECORDED_SUCCESSFUL_PAYMENT", "severity": "review",
                             "event_id": event["event_id"], "related_event_id": open_entry["event_id"],
                             "plate_masked": event.get("plate_masked"), "occurred_at": event["occurred_at"],
-                            "message": "No successful payment event was received for this session. This does not establish unpaid debt or financial loss."
+                            "message": "No transaction currently has a successful, non-reversed payment state. This does not establish unpaid debt or financial loss."
                         })
                     open_entry = None
-                    payment_states = {}
 
         if open_entry is not None:
             try:
@@ -76,7 +85,7 @@ def reconcile_events(events: list[dict], stale_after_minutes: int = 120, now: da
                         "plate_masked": open_entry.get("plate_masked"), "occurred_at": open_entry["occurred_at"],
                         "message": "An entry is older than the configured threshold and no exit has been recorded."
                     })
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, KeyError):
                 findings.append({
                     "type": "INVALID_EVENT_TIMESTAMP", "severity": "review",
                     "event_id": open_entry["event_id"], "related_event_id": None,
