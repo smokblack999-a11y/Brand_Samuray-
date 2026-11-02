@@ -32,6 +32,11 @@ class EventIn(BaseModel):
     def validate_event_shape(self):
         if self.tariff_id is not None and self.event_type != "entry":
             raise ValueError("tariff_id must be attached to the entry event")
+        if self.event_type != "payment" and any((
+            self.provider_event_id is not None, self.transaction_id is not None,
+            self.payment_status is not None, self.amount_minor is not None,
+        )):
+            raise ValueError("payment metadata is only valid on payment events")
         if self.event_type == "plate_observed":
             if not self.plate_text or self.ocr_confidence is None:
                 raise ValueError("plate_observed requires plate_text and ocr_confidence")
