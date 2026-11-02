@@ -156,3 +156,50 @@ def test_audit_reports_truncated_window_explicitly(tmp_path, monkeypatch):
         assert audit["events_available"] == 2
         assert audit["complete"] is False
         assert audit["warning"]
+
+
+def test_tariff_api_reconciles_recorded_payment_against_configured_rule(tmp_path, monkeypatch):
+    test_settings = replace(
+        settings, api_key="test-api-key", token_secret="test-token-secret",
+        database_path=str(tmp_path / "vdi-tariff-test.sqlite3"), enable_rtsp=False,
+    )
+    monkeypatch.setattr(db, "settings", test_settings)
+    monkeypatch.setattr(main, "settings", test_settings)
+    headers = {"X-API-Key": "test-api-key"}
+    with TestClient(main.app) as client:
+        tariff = {
+            "tariff_id": "pilot-30m-v1", "currency": "KZT", "rate_minor": 50000,
+            "billing_increment_minutes": 30, "grace_minutes": 10,
+            "max_charge_minor": 150000
+        }
+        created = client.post("/v1/tariffs", json=tariff, headers=headers)
+        assert created.status_code == 201
+        assert client.post("/v1/tariffs", json=tariff, headers=headers).status_code == 409
+
+        entry = {
+            "source_id": "parking", "event_id": "tariff-entry",
+            "event_type": "entry", "occurred_at": "2026-11-02T08:00:00+00:00",
+            "session_id": "tariff-session", "tariff_id": "pilot-30m-v1"
+        }
+        payment = {
+            "source_id": "payments", "event_id": "tariff-payment",
+            "event_type": "payment", "occurred_at": "2026-11-02T08:20:00+00:00",
+            "session_id": "tariff-session", "provider_event_id": "provider-tariff-1",
+            "payment_status": "succeeded", "amount_minor": 25000, "currency": "KZT"
+        }
+        exit_event = {
+            "source_id": "parking", "event_id": "tariff-exit",
+            "event_type": "exit", "occurred_at": "2026-11-02T08:40:00+00:00",
+            "session_id": "tariff-session"
+        }
+        assert client.post("/v1/events", json=entry, headers=headers).status_code == 200
+        assert client.post("/v1/events", json=payment, headers=headers).status_code == 200
+        assert client.post("/v1/events", json=exit_event, headers=headers).status_code == 200
+
+        audit = client.get("/v1/audit/reconcile", headers=headers).json()["audit"]
+        financial = audit["financial_reconciliation"]
+        assert financial["sessions_evaluated"] == 1
+        assert financial["expected_total_minor"] == 50000
+        assert financial["recorded_paid_total_minor"] == 25000
+        assert financial["under_base_tariff"] == 1
+        assert audit["financial_findings"][0]["type"] == "RECORDED_PAYMENT_BELOW_CONFIGURED_BASE_TARIFF"
