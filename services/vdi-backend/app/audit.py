@@ -15,7 +15,9 @@ def reconcile_events(events: list[dict], stale_after_minutes: int = 120, now: da
     grouped: dict[str, list[dict]] = {}
     for event in events:
         key = ("session:" + event["session_id"]) if event.get("session_id") else (
-            "plate:" + event["plate_token"] if event.get("plate_token") else None
+            "ticket:" + event["ticket_id"] if event.get("ticket_id") else (
+                "plate:" + event["plate_token"] if event.get("plate_token") else None
+            )
         )
         if key:
             grouped.setdefault(key, []).append(event)
