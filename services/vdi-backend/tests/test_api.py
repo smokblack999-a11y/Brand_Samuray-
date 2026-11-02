@@ -107,3 +107,27 @@ def test_payment_event_accepts_provider_payload_without_ocr(tmp_path, monkeypatc
         payment_row = next(row for row in stored if row["event_id"] == "provider-webhook-1")
         assert payment_row["payment_status"] == "succeeded"
         assert payment_row["ocr_confidence"] is None
+
+
+def test_event_id_reuse_with_changed_payload_returns_conflict(tmp_path, monkeypatch):
+    test_settings = replace(
+        settings, api_key="test-api-key", token_secret="test-token-secret",
+        database_path=str(tmp_path / "vdi-idempotency.sqlite3"), enable_rtsp=False,
+    )
+    monkeypatch.setattr(db, "settings", test_settings)
+    monkeypatch.setattr(main, "settings", test_settings)
+    headers = {"X-API-Key": "test-api-key"}
+    event = {
+        "source_id": "parking-A", "event_id": "same-id",
+        "event_type": "entry", "occurred_at": "2026-11-02T08:00:00+00:00",
+        "session_id": "session-A"
+    }
+    with TestClient(main.app) as client:
+        first = client.post("/v1/events", json=event, headers=headers)
+        exact_retry = client.post("/v1/events", json=event, headers=headers)
+        collision = {**event, "source_id": "parking-B", "session_id": "session-B"}
+        conflict = client.post("/v1/events", json=collision, headers=headers)
+        assert first.status_code == 200
+        assert exact_retry.status_code == 200
+        assert exact_retry.json()["duplicate"] is True
+        assert conflict.status_code == 409
