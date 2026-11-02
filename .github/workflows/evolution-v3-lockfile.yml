@@ -6,6 +6,9 @@ on:
       - feat/evolution-v3-server-foundation
     paths:
       - "core/package.json"
+  pull_request:
+    paths:
+      - "core/package.json"
 
 permissions:
   contents: write
