@@ -235,3 +235,10 @@ def metrics():
           "exit_total": c.execute("SELECT COUNT(*) FROM events WHERE event_type='exit'").fetchone()[0],
           "payment_total": c.execute("SELECT COUNT(*) FROM events WHERE event_type='payment'").fetchone()[0]
         }
+
+
+def audit_event_count():
+    with connect() as c:
+        return c.execute(
+            "SELECT COUNT(*) FROM events WHERE plate_token IS NOT NULL OR session_id IS NOT NULL"
+        ).fetchone()[0]
