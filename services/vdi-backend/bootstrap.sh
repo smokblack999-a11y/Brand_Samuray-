@@ -65,6 +65,18 @@ if [[ "${#api_key}" -lt 32 || "${#token_secret}" -lt 32 ]] \
   exit 1
 fi
 
+enable_rtsp="$(sed -n 's/^ENABLE_RTSP=//p' .env | head -n 1 | tr '[:upper:]' '[:lower:]')"
+if [[ "$enable_rtsp" == "true" || "$enable_rtsp" == "1" ]]; then
+  echo "ERROR: bootstrap is local shadow-only and refuses ENABLE_RTSP=true. Configure camera processing separately after explicit authorization." >&2
+  exit 1
+fi
+
+bind_host="$(sed -n 's/^VDI_BIND_HOST=//p' .env | head -n 1)"
+if [[ -n "$bind_host" && "$bind_host" != "127.0.0.1" && "$bind_host" != "localhost" ]]; then
+  echo "ERROR: local bootstrap only permits VDI_BIND_HOST=127.0.0.1 or localhost." >&2
+  exit 1
+fi
+
 echo "Building and starting VDI in read-only/shadow mode (RTSP remains disabled)..."
 docker compose up -d --build
 
