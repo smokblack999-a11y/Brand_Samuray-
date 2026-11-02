@@ -38,6 +38,7 @@ def init_db():
           session_id TEXT,
           ticket_id TEXT,
           tariff_id TEXT,
+          tariff_snapshot_json TEXT,
           provider_event_id TEXT,
           transaction_id TEXT,
           payment_status TEXT,
@@ -75,7 +76,7 @@ def init_db():
             c.execute("ALTER TABLE events ADD COLUMN amount_minor INTEGER")
         if "currency" not in columns:
             c.execute("ALTER TABLE events ADD COLUMN currency TEXT NOT NULL DEFAULT 'KZT'")
-        for name in ("session_id", "ticket_id", "tariff_id", "provider_event_id", "transaction_id", "payment_status", "payload_hash"):
+        for name in ("session_id", "ticket_id", "tariff_id", "tariff_snapshot_json", "provider_event_id", "transaction_id", "payment_status", "payload_hash"):
             if name not in columns:
                 c.execute("ALTER TABLE events ADD COLUMN " + name + " TEXT")
         c.execute("CREATE INDEX IF NOT EXISTS idx_events_session_time ON events(session_id, occurred_at)")
@@ -111,6 +112,8 @@ def record_event(data: dict, validation: dict, crop_sha256: str | None = None):
     session_id = data.get("session_id")
     ticket_id = data.get("ticket_id")
     tariff_id = data.get("tariff_id")
+    tariff_snapshot = data.get("tariff_snapshot")
+    tariff_snapshot_json = json.dumps(tariff_snapshot, sort_keys=True, separators=(",",":")) if tariff_snapshot is not None else None
     provider_event_id = data.get("provider_event_id")
     transaction_id = data.get("transaction_id")
     payment_status = data.get("payment_status")
@@ -128,12 +131,12 @@ def record_event(data: dict, validation: dict, crop_sha256: str | None = None):
         c.execute("""INSERT INTO events(
           event_id,source_id,event_type,occurred_at,received_at,plate_token,plate_masked,
           ocr_confidence,validation_status,reason_code,crop_sha256,amount_minor,currency,
-          session_id,ticket_id,tariff_id,provider_event_id,transaction_id,payment_status,payload_hash
-        ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+          session_id,ticket_id,tariff_id,tariff_snapshot_json,provider_event_id,transaction_id,payment_status,payload_hash
+        ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
         (data["event_id"], data["source_id"], data.get("event_type","plate_observed"),
          data["occurred_at"], now, token, masked, data.get("ocr_confidence"),
          validation["status"], validation["reason_code"], crop_sha256, amount_minor, currency,
-         session_id,ticket_id,tariff_id,provider_event_id,transaction_id,payment_status,payload_hash))
+         session_id,ticket_id,tariff_id,tariff_snapshot_json,provider_event_id,transaction_id,payment_status,payload_hash))
         c.execute("INSERT INTO decisions VALUES(?,?,?,?,?,?)",
         (decision_id, data["event_id"], decision, validation["reason_code"], policy_version, now))
         previous = c.execute("SELECT receipt_hash FROM proofs ORDER BY id DESC LIMIT 1").fetchone()
@@ -144,7 +147,7 @@ def record_event(data: dict, validation: dict, crop_sha256: str | None = None):
             "received_at":now, "plate_token":token, "plate_masked":masked,
             "validation_status":validation["status"], "decision":decision,
             "reason_code":validation["reason_code"], "amount_minor":amount_minor,
-            "currency":currency, "session_id":session_id, "ticket_id":ticket_id, "tariff_id":tariff_id,
+            "currency":currency, "session_id":session_id, "ticket_id":ticket_id, "tariff_id":tariff_id, "tariff_snapshot":tariff_snapshot,
             "provider_event_id":provider_event_id, "transaction_id":transaction_id,
             "payment_status":payment_status, "payload_hash":payload_hash, "policy_version":policy_version, "previous_hash":previous_hash
         }
@@ -169,13 +172,17 @@ def list_audit_events(limit=5000):
     with connect() as c:
         rows = c.execute("""SELECT * FROM (
           SELECT event_id,event_type,occurred_at,plate_token,plate_masked,amount_minor,currency,
-                 source_id,session_id,ticket_id,tariff_id,payment_status
+                 source_id,session_id,ticket_id,tariff_id,tariff_snapshot_json,payment_status
           FROM events
           WHERE plate_token IS NOT NULL OR session_id IS NOT NULL OR ticket_id IS NOT NULL
           ORDER BY id DESC LIMIT ?
         ) ORDER BY occurred_at ASC""",
         (max(1, min(int(limit), 10000)),)).fetchall()
-        return [dict(r) for r in rows]
+        result = [dict(r) for r in rows]
+        for row in result:
+            raw = row.pop("tariff_snapshot_json", None)
+            row["tariff_snapshot"] = json.loads(raw) if raw else None
+        return result
 
 
 def get_event(event_id):
@@ -201,7 +208,7 @@ def verify_proof_chain():
           SELECT p.event_id AS proof_event_id,p.previous_hash,p.receipt_json,p.receipt_hash,
                  e.source_id,e.event_type,e.occurred_at,e.plate_token,e.plate_masked,
                  e.validation_status,e.reason_code,e.amount_minor,e.currency,e.session_id,
-                 e.ticket_id,e.tariff_id,e.provider_event_id,e.transaction_id,e.payment_status,e.payload_hash,
+                 e.ticket_id,e.tariff_id,e.tariff_snapshot_json,e.provider_event_id,e.transaction_id,e.payment_status,e.payload_hash,
                  d.decision
           FROM proofs p
           LEFT JOIN events e ON e.event_id=p.event_id
@@ -226,6 +233,10 @@ def verify_proof_chain():
             return {"ok": False, "checked": checked, "broken_event_id": row["proof_event_id"], "reason": "RECEIPT_HASH_MISMATCH"}
         if row["source_id"] is None or row["decision"] is None:
             return {"ok": False, "checked": checked, "broken_event_id": row["proof_event_id"], "reason": "MISSING_EVENT_OR_DECISION"}
+        if "tariff_snapshot" in receipt:
+            stored_snapshot = json.loads(row["tariff_snapshot_json"]) if row["tariff_snapshot_json"] else None
+            if receipt["tariff_snapshot"] != stored_snapshot:
+                return {"ok": False, "checked": checked, "broken_event_id": row["proof_event_id"], "reason": "TARIFF_SNAPSHOT_MISMATCH"}
         for field in receipt_fields:
             # Legacy receipts predate payload_hash; verify every field they actually contain.
             if field in receipt and receipt[field] != row[field]:
