@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Header, HTTPException, Query
 from fastapi.responses import JSONResponse
 from .config import settings
-from .db import init_db, record_event, list_events, list_audit_events, get_event, get_proof, metrics, verify_proof_chain, EventConflict
+from .db import init_db, record_event, list_events, list_audit_events, get_event, get_proof, metrics, verify_proof_chain, EventConflict, audit_event_count
 from .audit import reconcile_events
 from .kz_validator import validate_kz_plate
 from .schemas import EventIn
@@ -87,9 +87,15 @@ def audit_reconcile(
     x_api_key: str | None=Header(default=None)
 ):
     auth(x_api_key)
-    result=reconcile_events(list_audit_events(limit), stale_after_minutes=stale_after_minutes)
+    events_to_check=list_audit_events(limit)
+    total=audit_event_count()
+    result=reconcile_events(events_to_check, stale_after_minutes=stale_after_minutes)
+    truncated=total > len(events_to_check)
     result["stale_after_minutes"]=stale_after_minutes
     result["limit"]=limit
+    result["events_available"]=total
+    result["complete"]=not truncated
+    result["warning"]=("Audit window is truncated; findings are not exhaustive and may miss entry/payment context." if truncated else None)
     return {"ok":True,"audit":result}
 
 @app.get("/v1/events/{event_id}")
