@@ -34,7 +34,12 @@ def init_db():
           reason_code TEXT NOT NULL,
           crop_sha256 TEXT,
           amount_minor INTEGER,
-          currency TEXT NOT NULL DEFAULT 'KZT'
+          currency TEXT NOT NULL DEFAULT 'KZT',
+          session_id TEXT,
+          ticket_id TEXT,
+          provider_event_id TEXT,
+          transaction_id TEXT,
+          payment_status TEXT
         );
         CREATE INDEX IF NOT EXISTS idx_events_received ON events(received_at DESC);
         CREATE INDEX IF NOT EXISTS idx_events_plate_time ON events(plate_token, occurred_at);
@@ -59,6 +64,10 @@ def init_db():
             c.execute("ALTER TABLE events ADD COLUMN amount_minor INTEGER")
         if "currency" not in columns:
             c.execute("ALTER TABLE events ADD COLUMN currency TEXT NOT NULL DEFAULT 'KZT'")
+        for name in ("session_id", "ticket_id", "provider_event_id", "transaction_id", "payment_status"):
+            if name not in columns:
+                c.execute("ALTER TABLE events ADD COLUMN " + name + " TEXT")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_events_session_time ON events(session_id, occurred_at)")
 
 
 def plate_token(plate: str) -> str:
@@ -79,9 +88,14 @@ def record_event(data: dict, validation: dict, crop_sha256: str | None = None):
     token = plate_token(plate) if plate else None
     masked = mask_plate(plate) if plate else None
     decision_id = "dec_" + hashlib.sha256(data["event_id"].encode()).hexdigest()[:24]
-    decision = "OBSERVED" if validation["status"] == "OBSERVED_VALID_FORMAT" else "REVIEW"
+    decision = "OBSERVED" if validation["status"] in ("OBSERVED_VALID_FORMAT", "SESSION_LINKED") else "REVIEW"
     amount_minor = data.get("amount_minor")
     currency = data.get("currency", "KZT")
+    session_id = data.get("session_id")
+    ticket_id = data.get("ticket_id")
+    provider_event_id = data.get("provider_event_id")
+    transaction_id = data.get("transaction_id")
+    payment_status = data.get("payment_status")
     with connect() as c:
         c.execute("BEGIN IMMEDIATE")
         existing = c.execute("SELECT * FROM events WHERE event_id=?", (data["event_id"],)).fetchone()
@@ -91,11 +105,13 @@ def record_event(data: dict, validation: dict, crop_sha256: str | None = None):
             return dict(existing), dict(d) if d else None, dict(p) if p else None, True
         c.execute("""INSERT INTO events(
           event_id,source_id,event_type,occurred_at,received_at,plate_token,plate_masked,
-          ocr_confidence,validation_status,reason_code,crop_sha256,amount_minor,currency
-        ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+          ocr_confidence,validation_status,reason_code,crop_sha256,amount_minor,currency,
+          session_id,ticket_id,provider_event_id,transaction_id,payment_status
+        ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
         (data["event_id"], data["source_id"], data.get("event_type","plate_observed"),
          data["occurred_at"], now, token, masked, data.get("ocr_confidence"),
-         validation["status"], validation["reason_code"], crop_sha256, amount_minor, currency))
+         validation["status"], validation["reason_code"], crop_sha256, amount_minor, currency,
+         session_id,ticket_id,provider_event_id,transaction_id,payment_status))
         c.execute("INSERT INTO decisions VALUES(?,?,?,?,?,?)",
         (decision_id, data["event_id"], decision, validation["reason_code"], "kz-format-v1", now))
         previous = c.execute("SELECT receipt_hash FROM proofs ORDER BY id DESC LIMIT 1").fetchone()
@@ -106,7 +122,9 @@ def record_event(data: dict, validation: dict, crop_sha256: str | None = None):
             "received_at":now, "plate_token":token, "plate_masked":masked,
             "validation_status":validation["status"], "decision":decision,
             "reason_code":validation["reason_code"], "amount_minor":amount_minor,
-            "currency":currency, "policy_version":"kz-format-v1", "previous_hash":previous_hash
+            "currency":currency, "session_id":session_id, "ticket_id":ticket_id,
+            "provider_event_id":provider_event_id, "transaction_id":transaction_id,
+            "payment_status":payment_status, "policy_version":"kz-format-v1", "previous_hash":previous_hash
         }
         receipt_json = json.dumps(receipt, sort_keys=True, separators=(",",":"))
         receipt_hash = hashlib.sha256((previous_hash + receipt_json).encode()).hexdigest()
@@ -125,11 +143,16 @@ def list_events(limit=50):
 
 
 def list_audit_events(limit=5000):
+    # Take the newest bounded window first, then sort it chronologically.
     with connect() as c:
-        rows = c.execute("""SELECT event_id,event_type,occurred_at,plate_token,plate_masked,
-          amount_minor,currency,source_id FROM events
-          WHERE plate_token IS NOT NULL ORDER BY occurred_at ASC LIMIT ?""",
-          (max(1, min(int(limit), 10000)),)).fetchall()
+        rows = c.execute("""SELECT * FROM (
+          SELECT event_id,event_type,occurred_at,plate_token,plate_masked,amount_minor,currency,
+                 source_id,session_id,ticket_id,payment_status
+          FROM events
+          WHERE plate_token IS NOT NULL OR session_id IS NOT NULL
+          ORDER BY id DESC LIMIT ?
+        ) ORDER BY occurred_at ASC""",
+        (max(1, min(int(limit), 10000)),)).fetchall()
         return [dict(r) for r in rows]
 
 
