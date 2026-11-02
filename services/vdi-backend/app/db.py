@@ -181,25 +181,48 @@ def get_proof(event_id):
 
 
 def verify_proof_chain():
-    """Verify every local receipt link and its canonical JSON hash."""
+    """Verify receipt hashes and that current event/decision rows match their receipts."""
     checked = 0
     expected_previous = "GENESIS"
     with connect() as c:
-        rows = c.execute("SELECT event_id, previous_hash, receipt_json, receipt_hash FROM proofs ORDER BY id ASC").fetchall()
+        rows = c.execute("""
+          SELECT p.event_id AS proof_event_id,p.previous_hash,p.receipt_json,p.receipt_hash,
+                 e.source_id,e.event_type,e.occurred_at,e.plate_token,e.plate_masked,
+                 e.validation_status,e.reason_code,e.amount_minor,e.currency,e.session_id,
+                 e.ticket_id,e.provider_event_id,e.transaction_id,e.payment_status,e.payload_hash,
+                 d.decision
+          FROM proofs p
+          LEFT JOIN events e ON e.event_id=p.event_id
+          LEFT JOIN decisions d ON d.event_id=p.event_id
+          ORDER BY p.id ASC
+        """).fetchall()
+    receipt_fields = (
+        "source_id", "event_type", "occurred_at", "plate_token", "plate_masked",
+        "validation_status", "reason_code", "amount_minor", "currency", "session_id",
+        "ticket_id", "provider_event_id", "transaction_id", "payment_status", "payload_hash",
+    )
     for row in rows:
         if row["previous_hash"] != expected_previous:
-            return {"ok": False, "checked": checked, "broken_event_id": row["event_id"], "reason": "PREVIOUS_HASH_MISMATCH"}
+            return {"ok": False, "checked": checked, "broken_event_id": row["proof_event_id"], "reason": "PREVIOUS_HASH_MISMATCH"}
         try:
             receipt = json.loads(row["receipt_json"])
             canonical = json.dumps(receipt, sort_keys=True, separators=(",",":"))
         except (TypeError, ValueError):
-            return {"ok": False, "checked": checked, "broken_event_id": row["event_id"], "reason": "INVALID_RECEIPT_JSON"}
+            return {"ok": False, "checked": checked, "broken_event_id": row["proof_event_id"], "reason": "INVALID_RECEIPT_JSON"}
         calculated = hashlib.sha256((expected_previous + canonical).encode()).hexdigest()
         if not hmac.compare_digest(calculated, row["receipt_hash"]):
-            return {"ok": False, "checked": checked, "broken_event_id": row["event_id"], "reason": "RECEIPT_HASH_MISMATCH"}
+            return {"ok": False, "checked": checked, "broken_event_id": row["proof_event_id"], "reason": "RECEIPT_HASH_MISMATCH"}
+        if row["source_id"] is None or row["decision"] is None:
+            return {"ok": False, "checked": checked, "broken_event_id": row["proof_event_id"], "reason": "MISSING_EVENT_OR_DECISION"}
+        for field in receipt_fields:
+            # Legacy receipts predate payload_hash; verify every field they actually contain.
+            if field in receipt and receipt[field] != row[field]:
+                return {"ok": False, "checked": checked, "broken_event_id": row["proof_event_id"], "reason": "EVENT_RECEIPT_MISMATCH"}
+        if receipt.get("decision") != row["decision"]:
+            return {"ok": False, "checked": checked, "broken_event_id": row["proof_event_id"], "reason": "DECISION_RECEIPT_MISMATCH"}
         expected_previous = row["receipt_hash"]
         checked += 1
-    return {"ok": True, "checked": checked, "broken_event_id": None, "reason": "CHAIN_VALID"}
+    return {"ok": True, "checked": checked, "broken_event_id": None, "reason": "CHAIN_AND_RECORDS_VALID"}
 
 
 def metrics():
