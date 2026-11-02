@@ -13,6 +13,7 @@ const { createRateLimiter } = require("./rate-limit");
 const dualAI = require("./dual-ai/engine");
 const agentControl = require("./agent-control");
 const agentControlGithub = require("./agent-control-github");
+const covenantAicp = require("./covenant-interop/aicp-gateway");
 
 const app = express();
 const PORT = Number(process.env.PORT || 8787);
@@ -225,7 +226,7 @@ app.post("/api/dual-ai/stop", requireApiKey, (req, res) => {
     return res.json({ ok: true, session, requestId: req.requestId });
   } catch (error) {
     const status = error.code === "SESSION_NOT_FOUND" ? 404 : error.code === "SESSION_NOT_RUNNING" ? 409 : 500;
-    return res.status(status).json(errorBody(error.code || "DUAL_AI_STOP_FAILED", status === 500 ? "Dual AI stop failed" : error.message, req.requestId));
+    return res.status(status).json(errorBody(error.code || "DUAL_AI_STOP_FAILED", status === 500 ? "Internal server error" : error.message, req.requestId));
   }
 });
 
@@ -364,6 +365,75 @@ app.post("/api/telegram/webhook", requireWebhookSecret, async (req, res) => {
   } catch (error) {
     console.error(JSON.stringify({ event: "business_webhook_error", requestId: req.requestId, error: error.message }));
   }
+});
+
+app.post("/api/covenant/aicp/validate", requireApiKey, dualRateLimit, (req, res) => {
+  if (String(process.env.COVENANT_AICP_ENABLED).toLowerCase() !== "true") {
+    return res.status(503).json(errorBody("COVENANT_AICP_DISABLED", "Covenant AICP gateway is disabled", req.requestId));
+  }
+  const allowedSenders = covenantAicp.configuredAllowedSenders();
+  if (allowedSenders.length === 0) {
+    return res.status(503).json(errorBody("COVENANT_AICP_ALLOWLIST_EMPTY", "No Covenant AICP senders are allowlisted", req.requestId));
+  }
+  const publicKeys = covenantAicp.configuredPublicKeys();
+  if (!allowedSenders.every(sender => typeof publicKeys[sender] === "string")) {
+    return res.status(503).json(errorBody("COVENANT_AICP_KEYS_INCOMPLETE", "Every allowlisted sender must have a pinned Ed25519 public key", req.requestId));
+  }
+  const dataDir = process.env.DATA_DIR || path.join(__dirname, "data");
+  const result = covenantAicp.validateAICPMessage(req.body || {}, {
+    allowedSenders,
+    publicKeys,
+    replayStoreDir: path.join(dataDir, "covenant-aicp", "replay")
+  });
+  if (!result.valid) {
+    const status = result.errors.includes("REPLAY_STORE_UNAVAILABLE") ? 503 : 400;
+    return res.status(status).json({ ...errorBody("COVENANT_AICP_REJECTED", "AICP message rejected", req.requestId), details: result.errors });
+  }
+  return res.status(202).json({ ok: true, result, requestId: req.requestId });
+});
+
+function covenantReviewStoreDir() {
+  const dataDir = process.env.DATA_DIR || path.join(__dirname, "data");
+  return path.join(dataDir, "covenant-aicp", "replay");
+}
+
+app.get("/api/covenant/aicp/reviews", requireApiKey, dualRateLimit, (req, res) => {
+  const items = covenantAicp.listReviewItems(covenantReviewStoreDir(), req.query.limit);
+  return res.json({
+    ok: true,
+    reviews: items,
+    counts: {
+      pending: items.filter(item => item.reviewStatus === "PENDING_HUMAN_REVIEW").length,
+      approvedForManualHandoff: items.filter(item => item.reviewStatus === "APPROVED_FOR_MANUAL_HANDOFF").length,
+      rejected: items.filter(item => item.reviewStatus === "REJECTED").length
+    },
+    requestId: req.requestId
+  });
+});
+
+app.post("/api/covenant/aicp/reviews/decision", requireApiKey, dualRateLimit, (req, res) => {
+  const sender = String(req.body?.sender || "").trim();
+  const messageId = String(req.body?.messageId || "").trim();
+  const decision = String(req.body?.decision || "").trim().toLowerCase();
+  const reason = String(req.body?.reason || "").trim();
+  if (!sender || !messageId || !["approve", "reject"].includes(decision)) {
+    return res.status(400).json(errorBody("INVALID_REVIEW_DECISION", "sender, messageId and approve/reject decision are required", req.requestId));
+  }
+  const result = covenantAicp.decideReviewItem(
+    covenantReviewStoreDir(), sender, messageId, decision, reason
+  );
+  if (!result.ok) {
+    const status = result.code === "REVIEW_ITEM_NOT_FOUND" ? 404
+      : result.code === "REVIEW_ALREADY_DECIDED" ? 409
+      : result.code === "REVIEW_STORE_UNAVAILABLE" ? 503 : 400;
+    return res.status(status).json({ ...errorBody(result.code, "Review decision was not recorded", req.requestId) });
+  }
+  return res.json({
+    ok: true,
+    reviewStatus: result.reviewStatus,
+    executionAuthorized: false,
+    requestId: req.requestId
+  });
 });
 
 app.use((req, res) => res.status(404).json(errorBody("NOT_FOUND", "Endpoint not found", req.requestId)));
