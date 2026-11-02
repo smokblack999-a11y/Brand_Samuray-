@@ -39,7 +39,8 @@ def init_db():
           ticket_id TEXT,
           provider_event_id TEXT,
           transaction_id TEXT,
-          payment_status TEXT
+          payment_status TEXT,
+          payload_hash TEXT
         );
         CREATE INDEX IF NOT EXISTS idx_events_received ON events(received_at DESC);
         CREATE INDEX IF NOT EXISTS idx_events_plate_time ON events(plate_token, occurred_at);
@@ -64,7 +65,7 @@ def init_db():
             c.execute("ALTER TABLE events ADD COLUMN amount_minor INTEGER")
         if "currency" not in columns:
             c.execute("ALTER TABLE events ADD COLUMN currency TEXT NOT NULL DEFAULT 'KZT'")
-        for name in ("session_id", "ticket_id", "provider_event_id", "transaction_id", "payment_status"):
+        for name in ("session_id", "ticket_id", "provider_event_id", "transaction_id", "payment_status", "payload_hash"):
             if name not in columns:
                 c.execute("ALTER TABLE events ADD COLUMN " + name + " TEXT")
         c.execute("CREATE INDEX IF NOT EXISTS idx_events_session_time ON events(session_id, occurred_at)")
@@ -82,6 +83,10 @@ def mask_plate(plate: str) -> str:
     return plate[:3] + "*" * max(0, len(plate)-5) + plate[-2:]
 
 
+class EventConflict(Exception):
+    """An event ID was reused with a different source or payload."""
+
+
 def record_event(data: dict, validation: dict, crop_sha256: str | None = None):
     now = datetime.now(timezone.utc).isoformat()
     plate = validation.get("normalized", "")
@@ -97,22 +102,26 @@ def record_event(data: dict, validation: dict, crop_sha256: str | None = None):
     provider_event_id = data.get("provider_event_id")
     transaction_id = data.get("transaction_id")
     payment_status = data.get("payment_status")
+    canonical_input = {"data": data, "validation": validation, "crop_sha256": crop_sha256}
+    payload_hash = hashlib.sha256(json.dumps(canonical_input, sort_keys=True, separators=(",",":"), default=str).encode()).hexdigest()
     with connect() as c:
         c.execute("BEGIN IMMEDIATE")
         existing = c.execute("SELECT * FROM events WHERE event_id=?", (data["event_id"],)).fetchone()
         if existing:
+            if existing["source_id"] != data["source_id"] or existing["payload_hash"] != payload_hash:
+                raise EventConflict("event_id was already used by this or another source with a different payload")
             d = c.execute("SELECT * FROM decisions WHERE event_id=?", (data["event_id"],)).fetchone()
             p = c.execute("SELECT * FROM proofs WHERE event_id=?", (data["event_id"],)).fetchone()
             return dict(existing), dict(d) if d else None, dict(p) if p else None, True
         c.execute("""INSERT INTO events(
           event_id,source_id,event_type,occurred_at,received_at,plate_token,plate_masked,
           ocr_confidence,validation_status,reason_code,crop_sha256,amount_minor,currency,
-          session_id,ticket_id,provider_event_id,transaction_id,payment_status
-        ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+          session_id,ticket_id,provider_event_id,transaction_id,payment_status,payload_hash
+        ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
         (data["event_id"], data["source_id"], data.get("event_type","plate_observed"),
          data["occurred_at"], now, token, masked, data.get("ocr_confidence"),
          validation["status"], validation["reason_code"], crop_sha256, amount_minor, currency,
-         session_id,ticket_id,provider_event_id,transaction_id,payment_status))
+         session_id,ticket_id,provider_event_id,transaction_id,payment_status,payload_hash))
         c.execute("INSERT INTO decisions VALUES(?,?,?,?,?,?)",
         (decision_id, data["event_id"], decision, validation["reason_code"], policy_version, now))
         previous = c.execute("SELECT receipt_hash FROM proofs ORDER BY id DESC LIMIT 1").fetchone()
@@ -125,7 +134,7 @@ def record_event(data: dict, validation: dict, crop_sha256: str | None = None):
             "reason_code":validation["reason_code"], "amount_minor":amount_minor,
             "currency":currency, "session_id":session_id, "ticket_id":ticket_id,
             "provider_event_id":provider_event_id, "transaction_id":transaction_id,
-            "payment_status":payment_status, "policy_version":policy_version, "previous_hash":previous_hash
+            "payment_status":payment_status, "payload_hash":payload_hash, "policy_version":policy_version, "previous_hash":previous_hash
         }
         receipt_json = json.dumps(receipt, sort_keys=True, separators=(",",":"))
         receipt_hash = hashlib.sha256((previous_hash + receipt_json).encode()).hexdigest()
