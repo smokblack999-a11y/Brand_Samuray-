@@ -13,6 +13,7 @@ class EventIn(BaseModel):
     ocr_confidence: float | None = Field(default=None, ge=0.0, le=1.0)
     session_id: str | None = Field(default=None, min_length=1, max_length=160)
     ticket_id: str | None = Field(default=None, min_length=1, max_length=160)
+    tariff_id: str | None = Field(default=None, min_length=1, max_length=128)
     provider_event_id: str | None = Field(default=None, min_length=1, max_length=200)
     transaction_id: str | None = Field(default=None, min_length=1, max_length=200)
     payment_status: Literal["pending", "succeeded", "failed", "refunded", "voided"] | None = None
@@ -58,3 +59,13 @@ class EventOut(BaseModel):
     duplicate: bool
     event: dict
     decision: dict
+
+
+
+class TariffRuleIn(BaseModel):
+    tariff_id: str = Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9._-]+$")
+    currency: str = Field(min_length=3, max_length=3, pattern=r"^[A-Z]{3}$")
+    rate_minor: int = Field(ge=0)
+    billing_increment_minutes: int = Field(ge=1, le=1440)
+    grace_minutes: int = Field(default=0, ge=0, le=1440)
+    max_charge_minor: int | None = Field(default=None, ge=0)
