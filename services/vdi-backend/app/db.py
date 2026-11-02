@@ -37,6 +37,7 @@ def init_db():
           currency TEXT NOT NULL DEFAULT 'KZT',
           session_id TEXT,
           ticket_id TEXT,
+          tariff_id TEXT,
           provider_event_id TEXT,
           transaction_id TEXT,
           payment_status TEXT,
@@ -44,6 +45,15 @@ def init_db():
         );
         CREATE INDEX IF NOT EXISTS idx_events_received ON events(received_at DESC);
         CREATE INDEX IF NOT EXISTS idx_events_plate_time ON events(plate_token, occurred_at);
+        CREATE TABLE IF NOT EXISTS tariffs (
+          tariff_id TEXT PRIMARY KEY,
+          currency TEXT NOT NULL,
+          rate_minor INTEGER NOT NULL CHECK(rate_minor >= 0),
+          billing_increment_minutes INTEGER NOT NULL CHECK(billing_increment_minutes > 0),
+          grace_minutes INTEGER NOT NULL CHECK(grace_minutes >= 0),
+          max_charge_minor INTEGER CHECK(max_charge_minor IS NULL OR max_charge_minor >= 0),
+          created_at TEXT NOT NULL
+        );
         CREATE TABLE IF NOT EXISTS decisions (
           decision_id TEXT PRIMARY KEY,
           event_id TEXT NOT NULL UNIQUE REFERENCES events(event_id),
@@ -65,7 +75,7 @@ def init_db():
             c.execute("ALTER TABLE events ADD COLUMN amount_minor INTEGER")
         if "currency" not in columns:
             c.execute("ALTER TABLE events ADD COLUMN currency TEXT NOT NULL DEFAULT 'KZT'")
-        for name in ("session_id", "ticket_id", "provider_event_id", "transaction_id", "payment_status", "payload_hash"):
+        for name in ("session_id", "ticket_id", "tariff_id", "provider_event_id", "transaction_id", "payment_status", "payload_hash"):
             if name not in columns:
                 c.execute("ALTER TABLE events ADD COLUMN " + name + " TEXT")
         c.execute("CREATE INDEX IF NOT EXISTS idx_events_session_time ON events(session_id, occurred_at)")
@@ -99,6 +109,7 @@ def record_event(data: dict, validation: dict, crop_sha256: str | None = None):
     currency = data.get("currency", "KZT")
     session_id = data.get("session_id")
     ticket_id = data.get("ticket_id")
+    tariff_id = data.get("tariff_id")
     provider_event_id = data.get("provider_event_id")
     transaction_id = data.get("transaction_id")
     payment_status = data.get("payment_status")
@@ -116,12 +127,12 @@ def record_event(data: dict, validation: dict, crop_sha256: str | None = None):
         c.execute("""INSERT INTO events(
           event_id,source_id,event_type,occurred_at,received_at,plate_token,plate_masked,
           ocr_confidence,validation_status,reason_code,crop_sha256,amount_minor,currency,
-          session_id,ticket_id,provider_event_id,transaction_id,payment_status,payload_hash
-        ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+          session_id,ticket_id,tariff_id,provider_event_id,transaction_id,payment_status,payload_hash
+        ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
         (data["event_id"], data["source_id"], data.get("event_type","plate_observed"),
          data["occurred_at"], now, token, masked, data.get("ocr_confidence"),
          validation["status"], validation["reason_code"], crop_sha256, amount_minor, currency,
-         session_id,ticket_id,provider_event_id,transaction_id,payment_status,payload_hash))
+         session_id,ticket_id,tariff_id,provider_event_id,transaction_id,payment_status,payload_hash))
         c.execute("INSERT INTO decisions VALUES(?,?,?,?,?,?)",
         (decision_id, data["event_id"], decision, validation["reason_code"], policy_version, now))
         previous = c.execute("SELECT receipt_hash FROM proofs ORDER BY id DESC LIMIT 1").fetchone()
@@ -132,7 +143,7 @@ def record_event(data: dict, validation: dict, crop_sha256: str | None = None):
             "received_at":now, "plate_token":token, "plate_masked":masked,
             "validation_status":validation["status"], "decision":decision,
             "reason_code":validation["reason_code"], "amount_minor":amount_minor,
-            "currency":currency, "session_id":session_id, "ticket_id":ticket_id,
+            "currency":currency, "session_id":session_id, "ticket_id":ticket_id, "tariff_id":tariff_id,
             "provider_event_id":provider_event_id, "transaction_id":transaction_id,
             "payment_status":payment_status, "payload_hash":payload_hash, "policy_version":policy_version, "previous_hash":previous_hash
         }
@@ -157,7 +168,7 @@ def list_audit_events(limit=5000):
     with connect() as c:
         rows = c.execute("""SELECT * FROM (
           SELECT event_id,event_type,occurred_at,plate_token,plate_masked,amount_minor,currency,
-                 source_id,session_id,ticket_id,payment_status
+                 source_id,session_id,ticket_id,tariff_id,payment_status
           FROM events
           WHERE plate_token IS NOT NULL OR session_id IS NOT NULL
           ORDER BY id DESC LIMIT ?
@@ -199,7 +210,7 @@ def verify_proof_chain():
     receipt_fields = (
         "source_id", "event_type", "occurred_at", "plate_token", "plate_masked",
         "validation_status", "reason_code", "amount_minor", "currency", "session_id",
-        "ticket_id", "provider_event_id", "transaction_id", "payment_status", "payload_hash",
+        "ticket_id", "tariff_id", "provider_event_id", "transaction_id", "payment_status", "payload_hash",
     )
     for row in rows:
         if row["previous_hash"] != expected_previous:
@@ -242,3 +253,29 @@ def audit_event_count():
         return c.execute(
             "SELECT COUNT(*) FROM events WHERE plate_token IS NOT NULL OR session_id IS NOT NULL"
         ).fetchone()[0]
+
+
+def create_tariff(rule: dict):
+    now = datetime.now(timezone.utc).isoformat()
+    with connect() as c:
+        c.execute(
+            """INSERT INTO tariffs(tariff_id,currency,rate_minor,billing_increment_minutes,
+               grace_minutes,max_charge_minor,created_at) VALUES(?,?,?,?,?,?,?)""",
+            (rule["tariff_id"], rule["currency"], rule["rate_minor"],
+             rule["billing_increment_minutes"], rule["grace_minutes"],
+             rule.get("max_charge_minor"), now),
+        )
+        row = c.execute("SELECT * FROM tariffs WHERE tariff_id=?", (rule["tariff_id"],)).fetchone()
+        return dict(row)
+
+
+def get_tariff(tariff_id: str):
+    with connect() as c:
+        row = c.execute("SELECT * FROM tariffs WHERE tariff_id=?", (tariff_id,)).fetchone()
+        return dict(row) if row else None
+
+
+def list_tariffs():
+    with connect() as c:
+        rows = c.execute("SELECT * FROM tariffs ORDER BY created_at DESC").fetchall()
+        return [dict(row) for row in rows]
