@@ -1,6 +1,6 @@
 # SAMURAI Kill Critic VDI — parking event audit backend
 
-**Status:** isolated backend and read-only reconciliation endpoint. The service can accept synthetic/vendor events and detect several event-sequence inconsistencies. No customer feed, camera, license-plate model weights, or paid pilot is connected.
+**Status:** isolated read-only pilot backend with configurable fixed-rate tariff reconciliation, payment-state tracking, event idempotency and local proof verification. No customer feed, camera, license-plate model weights, or paid pilot is connected.
 
 ## What the product does
 The first commercial product is an independent audit layer for an existing parking/ANPR system. It does not replace cameras, OCR, payment terminals, access control, or barriers.
@@ -32,7 +32,9 @@ Health: `GET /health`, readiness: `GET /ready`.
 ## API
 All endpoints except `/health` and `/ready` require `X-API-Key`.
 
-- `POST /v1/tariffs` — create an immutable operator-supplied base tariff rule. Reusing a tariff ID returns 409; create a new ID for a changed rule.\n- `GET /v1/tariffs` — list configured tariff rules.\n- `POST /v1/events` — ingest one event. Supported event_type: `plate_observed`, `entry`, `exit`, `payment`. Attach `tariff_id` to the entry event to snapshot the rule for that session. Correlate entry, exit and payment with the same normalized `session_id` or `ticket_id`.
+- `POST /v1/tariffs` — create an immutable operator-supplied base tariff rule. Reusing a tariff ID returns 409; create a new ID for a changed rule.
+- `GET /v1/tariffs` — list configured tariff rules.
+- `POST /v1/events` — ingest one event. Supported event_type: `plate_observed`, `entry`, `exit`, `payment`. Attach `tariff_id` to the entry event to snapshot the rule for that session. Correlate entry, exit and payment with the same normalized `session_id` or `ticket_id`.
 - `GET /v1/events?limit=50` — recent privacy-minimized events.
 - `GET /v1/audit/reconcile?stale_after_minutes=120` — read-only event and configured base-tariff reconciliation. The response reports `complete=false` when the bounded event window is truncated.
 - `GET /v1/events/{event_id}` — event + observation decision.
