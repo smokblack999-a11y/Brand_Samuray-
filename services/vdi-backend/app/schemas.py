@@ -33,7 +33,11 @@ class EventIn(BaseModel):
             if not self.plate_text or self.ocr_confidence is None:
                 raise ValueError("plate_observed requires plate_text and ocr_confidence")
         elif self.event_type in ("entry", "exit"):
-            if not self.session_id and (not self.plate_text or self.ocr_confidence is None):
+            if self.plate_text and self.ocr_confidence is None:
+                raise ValueError("plate_text requires ocr_confidence")
+            if self.ocr_confidence is not None and not self.plate_text:
+                raise ValueError("ocr_confidence requires plate_text")
+            if not self.session_id and not self.plate_text:
                 raise ValueError("entry/exit requires session_id or plate_text with ocr_confidence")
         elif self.event_type == "payment":
             if not self.session_id:
