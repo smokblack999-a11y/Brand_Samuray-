@@ -29,6 +29,19 @@ uvicorn app.main:app --host 0.0.0.0 --port 8090
 API docs: http://127.0.0.1:8090/docs
 Health: `GET /health`, readiness: `GET /ready`.
 
+
+## One-command local pilot
+Requires Docker Engine and Docker Compose v2.
+
+```bash
+cd services/vdi-backend
+bash bootstrap.sh
+```
+
+The script preserves an existing `.env`; otherwise it creates long random API/token secrets, restricts the file to mode 600, keeps RTSP disabled, builds the image, starts the service, and checks health, readiness and an authenticated metrics request. The container runs as the installing host UID/GID, drops Linux capabilities, enables no-new-privileges, and binds to `127.0.0.1:8090` by default. No sample tariff or customer data is inserted.
+
+This is a local pilot bootstrap, not a production installer. It has not yet been rehearsed on a clean customer server. Do not expose the API publicly without TLS, production authentication and network controls.
+
 ## API
 All endpoints except `/health` and `/ready` require `X-API-Key`.
 
