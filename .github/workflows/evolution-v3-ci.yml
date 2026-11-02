@@ -1,0 +1,67 @@
+name: EVOLUTION V3 isolated CI
+
+on:
+  push:
+    branches:
+      - feat/evolution-v3-server-foundation
+    paths:
+      - "core/evolution-v3/**"
+      - "core/package.json"
+      - "core/package-lock.json"
+      - ".github/workflows/evolution-v3-ci.yml"
+  pull_request:
+    paths:
+      - "core/evolution-v3/**"
+      - "core/package.json"
+      - "core/package-lock.json"
+      - ".github/workflows/evolution-v3-ci.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  evolution-v3:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: evolution_test
+          POSTGRES_USER: evolution_test
+          POSTGRES_PASSWORD: evolution_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U evolution_test -d evolution_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    defaults:
+      run:
+        working-directory: core
+    env:
+      EVOLUTION_TEST_DATABASE_URL: postgres://evolution_test:evolution_test@localhost:5432/evolution_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: core/package-lock.json
+      - run: npm ci
+      - name: Syntax checks
+        run: |
+          node --check evolution-v3/auth.js
+          node --check evolution-v3/billing.js
+          node --check evolution-v3/critic.js
+          node --check evolution-v3/repair-agent.js
+          node --check evolution-v3/safe-render.js
+          node --check evolution-v3/seo.js
+          node --check evolution-v3/index.js
+          node --check evolution-v3/crawler.js
+          node --check evolution-v3/postgres-store.js
+          node --check evolution-v3/http.js
+          node --check evolution-v3/postgres-store.integration.test.js
+      - name: Full Core and EVOLUTION V3 unit tests
+        run: npm test

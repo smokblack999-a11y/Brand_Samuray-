@@ -64,6 +64,24 @@ function requestId(req, res, next) {
 }
 
 app.use(requestId);
+
+if (String(process.env.EVOLUTION_ENABLED || "").toLowerCase() === "true") {
+  const databaseUrl = String(process.env.EVOLUTION_DATABASE_URL || "").trim();
+  const sessionSecret = String(process.env.EVOLUTION_SESSION_SECRET || "");
+  if (!databaseUrl) throw new Error("EVOLUTION_ENABLED requires EVOLUTION_DATABASE_URL");
+  if (sessionSecret.length < 32) throw new Error("EVOLUTION_ENABLED requires EVOLUTION_SESSION_SECRET (32+ characters)");
+  if (String(process.env.EVOLUTION_SCHEMA_READY || "").toLowerCase() !== "true") throw new Error("EVOLUTION_SCHEMA_READY=true is required after applying core/evolution-v3/schema.sql");
+  let Pool;
+  try { ({ Pool } = require("pg")); } catch { throw new Error("EVOLUTION_ENABLED requires the declared pg dependency; run npm ci in core"); }
+  const { createPostgresStore } = require("./evolution-v3/postgres-store");
+  const { createEvolutionRouter } = require("./evolution-v3/http");
+  const evolutionAuthRateLimit = createRateLimiter({ windowMs: 60000, max: 8 });
+  const evolutionPool = new Pool({ connectionString: databaseUrl, max: 5, connectionTimeoutMillis: 5000 });
+  app.use("/api/evolution", createEvolutionRouter({ store: createPostgresStore(evolutionPool), sessionSecret, authRateLimit: evolutionAuthRateLimit }));
+  app.locals.evolutionPool = evolutionPool;
+  console.log(JSON.stringify({ event: "evolution_v3_routes_enabled", database: "configured", auth: "bearer-session" }));
+}
+
 app.use((req, res, next) => {
   const timer = setTimeout(() => {
     if (!res.headersSent) res.status(503).json(errorBody("REQUEST_TIMEOUT", "Request timed out", req.requestId));
@@ -374,7 +392,7 @@ server.headersTimeout = REQUEST_TIMEOUT_MS + 5000;
 
 function shutdown(signal) {
   console.log(JSON.stringify({ event: "shutdown", signal }));
-  server.close(() => process.exit(0));
+  server.close(() => { const pool = app.locals.evolutionPool; if (pool) pool.end().finally(() => process.exit(0)); else process.exit(0); });
   setTimeout(() => process.exit(1), 10000).unref();
 }
 process.once("SIGTERM", () => shutdown("SIGTERM"));
