@@ -1,0 +1,35 @@
+name: EVOLUTION V3 lockfile generation
+
+on:
+  push:
+    branches:
+      - feat/evolution-v3-server-foundation
+    paths:
+      - "core/package.json"
+
+permissions:
+  contents: write
+
+jobs:
+  lockfile:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: core
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/evolution-v3-server-foundation
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: core/package-lock.json
+      - name: Regenerate lockfile from declared dependencies
+        run: npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+      - name: Commit generated lockfile
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          branch: feat/evolution-v3-server-foundation
+          file_pattern: core/package-lock.json
+          commit_message: "build(evolution): lock PostgreSQL runtime dependency"
