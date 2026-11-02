@@ -22,7 +22,7 @@ def reconcile_events(events: list[dict], stale_after_minutes: int = 120, now: da
 
     findings = []
     financial_findings = []
-    financial = {"sessions_evaluated": 0, "sessions_without_tariff": 0, "sessions_with_incomplete_payment_data": 0, "expected_total_minor": 0, "recorded_paid_total_minor": 0, "under_base_tariff": 0, "exact_base_tariff": 0, "over_base_tariff": 0, "currency": None}
+    financial = {"sessions_evaluated": 0, "sessions_without_tariff": 0, "sessions_with_incomplete_payment_data": 0, "by_currency": {}}
     tariffs = tariffs or {}
     for key, rows in grouped.items():
         def sort_key(item):
@@ -115,16 +115,19 @@ def reconcile_events(events: list[dict], stale_after_minutes: int = 120, now: da
                     rule = tariffs.get(tariff_id) if tariff_id else None
                     if rule and exit_time is not None:
                         financial["sessions_evaluated"] += 1
-                        financial["currency"] = rule["currency"]
+                        bucket = financial["by_currency"].setdefault(rule["currency"], {
+                            "expected_total_minor": 0, "recorded_paid_total_minor": 0,
+                            "under_base_tariff": 0, "exact_base_tariff": 0, "over_base_tariff": 0
+                        })
                         try:
                             expected = calculate_base_charge(open_entry["occurred_at"], event["occurred_at"], rule)
                             recorded, incomplete = paid_amount_at(exit_time, rule["currency"])
-                            financial["expected_total_minor"] += expected["base_charge_minor"]
-                            financial["recorded_paid_total_minor"] += recorded
+                            bucket["expected_total_minor"] += expected["base_charge_minor"]
+                            bucket["recorded_paid_total_minor"] += recorded
                             if incomplete:
                                 financial["sessions_with_incomplete_payment_data"] += 1
                             elif recorded < expected["base_charge_minor"]:
-                                financial["under_base_tariff"] += 1
+                                bucket["under_base_tariff"] += 1
                                 financial_findings.append({
                                     "type": "RECORDED_PAYMENT_BELOW_CONFIGURED_BASE_TARIFF",
                                     "severity": "review", "entry_event_id": open_entry["event_id"],
@@ -134,9 +137,9 @@ def reconcile_events(events: list[dict], stale_after_minutes: int = 120, now: da
                                     "message": "Recorded successful payments are below the configured base tariff. Discounts, validations, subscriptions and external adjustments are not modeled."
                                 })
                             elif recorded == expected["base_charge_minor"]:
-                                financial["exact_base_tariff"] += 1
+                                bucket["exact_base_tariff"] += 1
                             else:
-                                financial["over_base_tariff"] += 1
+                                bucket["over_base_tariff"] += 1
                         except (KeyError, TypeError, ValueError):
                             financial["sessions_with_incomplete_payment_data"] += 1
                     else:
