@@ -199,7 +199,7 @@ def test_tariff_api_reconciles_recorded_payment_against_configured_rule(tmp_path
         audit = client.get("/v1/audit/reconcile", headers=headers).json()["audit"]
         financial = audit["financial_reconciliation"]
         assert financial["sessions_evaluated"] == 1
-        assert financial["expected_total_minor"] == 50000
-        assert financial["recorded_paid_total_minor"] == 25000
-        assert financial["under_base_tariff"] == 1
+        assert financial["by_currency"]["KZT"]["expected_total_minor"] == 50000
+        assert financial["by_currency"]["KZT"]["recorded_paid_total_minor"] == 25000
+        assert financial["by_currency"]["KZT"]["under_base_tariff"] == 1
         assert audit["financial_findings"][0]["type"] == "RECORDED_PAYMENT_BELOW_CONFIGURED_BASE_TARIFF"
