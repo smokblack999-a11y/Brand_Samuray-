@@ -41,8 +41,16 @@ EOF
   echo "Created .env with fresh secrets (file permissions 600)."
 else
   echo "Existing .env preserved; no secrets were overwritten."
-  grep -q '^VDI_UID=' .env || echo "VDI_UID=$(id -u)" >> .env
-  grep -q '^VDI_GID=' .env || echo "VDI_GID=$(id -g)" >> .env
+  if grep -q '^VDI_UID=' .env; then
+    sed -i "s/^VDI_UID=.*/VDI_UID=$(id -u)/" .env
+  else
+    echo "VDI_UID=$(id -u)" >> .env
+  fi
+  if grep -q '^VDI_GID=' .env; then
+    sed -i "s/^VDI_GID=.*/VDI_GID=$(id -g)/" .env
+  else
+    echo "VDI_GID=$(id -g)" >> .env
+  fi
   chmod 600 .env
 fi
 
