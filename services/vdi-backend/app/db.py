@@ -210,7 +210,7 @@ def verify_proof_chain():
                  e.source_id,e.event_type,e.occurred_at,e.plate_token,e.plate_masked,
                  e.validation_status,e.reason_code,e.amount_minor,e.currency,e.session_id,
                  e.ticket_id,e.tariff_id,e.tariff_snapshot_json,e.provider_event_id,e.transaction_id,e.payment_status,e.payload_hash,
-                 d.decision
+                 d.decision,d.reason_code AS decision_reason_code,d.policy_version AS decision_policy_version
           FROM proofs p
           LEFT JOIN events e ON e.event_id=p.event_id
           LEFT JOIN decisions d ON d.event_id=p.event_id
@@ -229,6 +229,10 @@ def verify_proof_chain():
             canonical = json.dumps(receipt, sort_keys=True, separators=(",",":"))
         except (TypeError, ValueError):
             return {"ok": False, "checked": checked, "broken_event_id": row["proof_event_id"], "reason": "INVALID_RECEIPT_JSON"}
+        if receipt.get("schema_version") != "vdi.proof.v1" or receipt.get("event_id") != row["proof_event_id"]:
+            return {"ok": False, "checked": checked, "broken_event_id": row["proof_event_id"], "reason": "PROOF_IDENTITY_MISMATCH"}
+        if receipt.get("previous_hash") != row["previous_hash"]:
+            return {"ok": False, "checked": checked, "broken_event_id": row["proof_event_id"], "reason": "RECEIPT_LINK_MISMATCH"}
         calculated = hashlib.sha256((expected_previous + canonical).encode()).hexdigest()
         if not hmac.compare_digest(calculated, row["receipt_hash"]):
             return {"ok": False, "checked": checked, "broken_event_id": row["proof_event_id"], "reason": "RECEIPT_HASH_MISMATCH"}
@@ -244,6 +248,10 @@ def verify_proof_chain():
                 return {"ok": False, "checked": checked, "broken_event_id": row["proof_event_id"], "reason": "EVENT_RECEIPT_MISMATCH"}
         if receipt.get("decision") != row["decision"]:
             return {"ok": False, "checked": checked, "broken_event_id": row["proof_event_id"], "reason": "DECISION_RECEIPT_MISMATCH"}
+        if receipt.get("reason_code") != row["decision_reason_code"]:
+            return {"ok": False, "checked": checked, "broken_event_id": row["proof_event_id"], "reason": "DECISION_REASON_MISMATCH"}
+        if receipt.get("policy_version") != row["decision_policy_version"]:
+            return {"ok": False, "checked": checked, "broken_event_id": row["proof_event_id"], "reason": "DECISION_POLICY_MISMATCH"}
         expected_previous = row["receipt_hash"]
         checked += 1
     return {"ok": True, "checked": checked, "broken_event_id": None, "reason": "CHAIN_AND_RECORDS_VALID"}
