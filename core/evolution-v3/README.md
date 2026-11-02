@@ -18,12 +18,12 @@ Status: isolated implementation on feat/evolution-v3-server-foundation. Conditio
 - Account, workspace, membership, and initial session creation are transactional.
 - Site onboarding requires a DNS TXT ownership proof before a single-page audit is permitted.
 - The audit stores bounded crawler evidence and deterministic title/meta-description/H1 findings; no overall SEO score, rankings, or traffic are fabricated.
-- This feature remains disabled by default. Install pg with npm install pg in core, provision a dedicated database, apply schema.sql manually, then configure EVOLUTION_DATABASE_URL, EVOLUTION_SESSION_SECRET (32+ chars), EVOLUTION_SCHEMA_READY=true, and EVOLUTION_ENABLED=true.
+- This feature remains disabled by default. Provision a dedicated database, apply schema.sql manually, then configure EVOLUTION_DATABASE_URL, EVOLUTION_SESSION_SECRET (32+ chars), EVOLUTION_SCHEMA_READY=true, and EVOLUTION_ENABLED=true.
 
 ## Still not implemented or verified
 
-- The pg driver is not installed in core/package.json. No database has been provisioned and schema.sql has not been applied.
-- Routes are conditionally mounted, but no live PostgreSQL database has been provisioned or tested. Email verification, password reset, MFA, account recovery, and billing routes remain unimplemented.
+- The pg driver is declared in core/package.json and pinned in core/package-lock.json. No production database has been provisioned and schema.sql has not been applied outside disposable CI.
+- Routes are conditionally mounted. The PostgreSQL adapter is integration-tested against disposable PostgreSQL 16 in CI; no production database has been provisioned. Email verification, password reset, MFA, account recovery, and billing routes remain unimplemented.
 - Crawler has unit tests with mocked DNS/network. No live crawling, site ownership verification, robots policy, crawl queue, Search Console OAuth, rank/traffic source, or SEO scoring model.
 - No real Stripe API round-trip, configured test Price IDs, webhook route, subscription reconciliation implementation, or entitlement activation.
 - Repair proposals are not executed; no isolated patch sandbox, CI repair loop, or deploy approval integration is wired.
@@ -52,4 +52,4 @@ HubSpot pipeline/properties remain proposals only. Gmail draft remains unsent. F
 
 The isolated EVOLUTION V3 workflow starts a disposable PostgreSQL 16 service container, applies `schema.sql` to that CI-only database, and runs `postgres-store.integration.test.js` against the real server. The test exercises account/workspace/session persistence, tenant isolation, site verification, audit evidence, Stripe event idempotency, and session revocation. It cleans up its test rows and closes the pool.
 
-The workflow currently installs `pg@8.16.3` ephemerally for this test job after `npm ci`; this deliberately does **not** change the application dependency manifest or lockfile. Therefore the runtime dependency remains a separate release blocker: before enabling EVOLUTION V3 outside CI, add `pg` to `core/package.json` and regenerate/commit `core/package-lock.json`. No production database is used, and no schema is applied outside the disposable CI service.
+The `pg@8.16.3` runtime dependency is declared in `core/package.json` and locked in `core/package-lock.json`. The CI uses `npm ci` and the same locked driver as the application. No production database is used, and no schema is applied outside the disposable CI service.
