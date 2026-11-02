@@ -131,3 +131,28 @@ def test_event_id_reuse_with_changed_payload_returns_conflict(tmp_path, monkeypa
         assert exact_retry.status_code == 200
         assert exact_retry.json()["duplicate"] is True
         assert conflict.status_code == 409
+
+
+def test_audit_reports_truncated_window_explicitly(tmp_path, monkeypatch):
+    test_settings = replace(
+        settings, api_key="test-api-key", token_secret="test-token-secret",
+        database_path=str(tmp_path / "vdi-audit-window.sqlite3"), enable_rtsp=False,
+    )
+    monkeypatch.setattr(db, "settings", test_settings)
+    monkeypatch.setattr(main, "settings", test_settings)
+    headers = {"X-API-Key": "test-api-key"}
+    with TestClient(main.app) as client:
+        for number in range(2):
+            event = {
+                "source_id": "parking", "event_id": f"window-{number}",
+                "event_type": "entry", "occurred_at": f"2026-11-02T0{8+number}:00:00+00:00",
+                "session_id": f"session-{number}"
+            }
+            assert client.post("/v1/events", json=event, headers=headers).status_code == 200
+        response = client.get("/v1/audit/reconcile?limit=1", headers=headers)
+        assert response.status_code == 200
+        audit = response.json()["audit"]
+        assert audit["events_examined"] == 1
+        assert audit["events_available"] == 2
+        assert audit["complete"] is False
+        assert audit["warning"]
