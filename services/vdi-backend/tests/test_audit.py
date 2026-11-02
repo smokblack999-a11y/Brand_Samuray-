@@ -41,3 +41,21 @@ def test_payment_between_entry_and_exit_prevents_missing_payment_flag():
     ]
     result = reconcile_events(rows)
     assert result["findings_total"] == 0
+
+
+def test_refunded_payment_is_not_counted_as_settled():
+    rows = [
+        {"event_id": "entry-1", "event_type": "entry", "session_id": "session-refund",
+         "occurred_at": "2026-11-02T05:00:00+00:00"},
+        {"event_id": "payment-ok", "event_type": "payment", "session_id": "session-refund",
+         "transaction_id": "txn-refund", "payment_status": "succeeded",
+         "occurred_at": "2026-11-02T05:20:00+00:00"},
+        {"event_id": "payment-refund", "event_type": "payment", "session_id": "session-refund",
+         "transaction_id": "txn-refund", "payment_status": "refunded",
+         "occurred_at": "2026-11-02T05:40:00+00:00"},
+        {"event_id": "exit-1", "event_type": "exit", "session_id": "session-refund",
+         "occurred_at": "2026-11-02T06:00:00+00:00"},
+    ]
+    result = reconcile_events(rows)
+    assert result["findings_total"] == 1
+    assert result["findings"][0]["type"] == "EXIT_WITHOUT_RECORDED_SUCCESSFUL_PAYMENT"
