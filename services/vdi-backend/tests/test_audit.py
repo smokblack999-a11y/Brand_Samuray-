@@ -93,3 +93,24 @@ def test_payment_after_exit_does_not_retroactively_pay_session():
     result = reconcile_events(rows)
     assert result["findings_total"] == 1
     assert result["findings"][0]["event_id"] == "exit-before-pay"
+
+
+def test_zero_charge_grace_session_does_not_require_payment():
+    tariff = {
+        "tariff_id": "free-grace-v1", "currency": "KZT", "rate_minor": 50000,
+        "billing_increment_minutes": 30, "grace_minutes": 10,
+        "max_charge_minor": None
+    }
+    rows = [
+        {"event_id": "grace-entry", "event_type": "entry", "session_id": "grace-session",
+         "tariff_id": "free-grace-v1", "tariff_snapshot": tariff,
+         "occurred_at": "2026-11-02T05:00:00+00:00"},
+        {"event_id": "grace-exit", "event_type": "exit", "session_id": "grace-session",
+         "occurred_at": "2026-11-02T05:05:00+00:00"},
+    ]
+    result = reconcile_events(rows)
+    assert result["findings_total"] == 0
+    financial = result["financial_reconciliation"]
+    assert financial["sessions_evaluated"] == 1
+    assert financial["by_currency"]["KZT"]["expected_total_minor"] == 0
+    assert financial["by_currency"]["KZT"]["exact_base_tariff"] == 1
