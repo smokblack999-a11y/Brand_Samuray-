@@ -79,6 +79,7 @@ def init_db():
             if name not in columns:
                 c.execute("ALTER TABLE events ADD COLUMN " + name + " TEXT")
         c.execute("CREATE INDEX IF NOT EXISTS idx_events_session_time ON events(session_id, occurred_at)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_events_ticket_time ON events(ticket_id, occurred_at)")
 
 
 def plate_token(plate: str) -> str:
@@ -170,7 +171,7 @@ def list_audit_events(limit=5000):
           SELECT event_id,event_type,occurred_at,plate_token,plate_masked,amount_minor,currency,
                  source_id,session_id,ticket_id,tariff_id,payment_status
           FROM events
-          WHERE plate_token IS NOT NULL OR session_id IS NOT NULL
+          WHERE plate_token IS NOT NULL OR session_id IS NOT NULL OR ticket_id IS NOT NULL
           ORDER BY id DESC LIMIT ?
         ) ORDER BY occurred_at ASC""",
         (max(1, min(int(limit), 10000)),)).fetchall()
