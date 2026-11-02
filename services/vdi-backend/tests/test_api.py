@@ -47,7 +47,7 @@ def test_reconcile_api_reports_exit_without_payment(tmp_path, monkeypatch):
         assert response.status_code == 200
         audit = response.json()["audit"]
         assert audit["findings_total"] == 1
-        assert audit["findings"][0]["type"] == "EXIT_WITHOUT_RECORDED_PAYMENT"
+        assert audit["findings"][0]["type"] == "EXIT_WITHOUT_RECORDED_SUCCESSFUL_PAYMENT"
 
 
 def test_payment_event_requires_amount():
