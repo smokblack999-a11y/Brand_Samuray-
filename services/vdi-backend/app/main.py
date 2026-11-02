@@ -3,7 +3,8 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Header, HTTPException, Query
 from fastapi.responses import JSONResponse
 from .config import settings
-from .db import init_db, record_event, list_events, get_event, get_proof, metrics, verify_proof_chain
+from .db import init_db, record_event, list_events, list_audit_events, get_event, get_proof, metrics, verify_proof_chain
+from .audit import reconcile_events
 from .kz_validator import validate_kz_plate
 from .schemas import EventIn
 
@@ -37,7 +38,7 @@ async def lifespan(app: FastAPI):
     if worker_thread and worker_thread.is_alive():
         worker_thread.join(timeout=5)
 
-app=FastAPI(title="SAMURAI VDI Backend", version="0.1.0", lifespan=lifespan)
+app=FastAPI(title="SAMURAI Kill Critic VDI", version="0.2.0", lifespan=lifespan)
 
 def auth(x_api_key: str | None):
     if not settings.api_key or not settings.token_secret:
@@ -47,7 +48,7 @@ def auth(x_api_key: str | None):
 
 @app.get("/health")
 def health():
-    return {"ok":True,"service":"samurai-vdi-backend","version":"0.1.0"}
+    return {"ok":True,"service":"samurai-kill-critic-vdi","version":"0.2.0"}
 
 @app.get("/ready")
 def ready():
@@ -71,6 +72,18 @@ def ingest_event(payload: EventIn, x_api_key: str | None = Header(default=None))
 def events(limit: int=Query(default=50,ge=1,le=200), x_api_key: str | None=Header(default=None)):
     auth(x_api_key)
     return {"ok":True,"events":list_events(limit)}
+
+@app.get("/v1/audit/reconcile")
+def audit_reconcile(
+    stale_after_minutes: int=Query(default=120,ge=1,le=10080),
+    limit: int=Query(default=5000,ge=1,le=10000),
+    x_api_key: str | None=Header(default=None)
+):
+    auth(x_api_key)
+    result=reconcile_events(list_audit_events(limit), stale_after_minutes=stale_after_minutes)
+    result["stale_after_minutes"]=stale_after_minutes
+    result["limit"]=limit
+    return {"ok":True,"audit":result}
 
 @app.get("/v1/events/{event_id}")
 def event_detail(event_id: str, x_api_key: str | None=Header(default=None)):
