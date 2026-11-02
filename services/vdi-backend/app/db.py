@@ -200,7 +200,7 @@ def verify_proof_chain():
           SELECT p.event_id AS proof_event_id,p.previous_hash,p.receipt_json,p.receipt_hash,
                  e.source_id,e.event_type,e.occurred_at,e.plate_token,e.plate_masked,
                  e.validation_status,e.reason_code,e.amount_minor,e.currency,e.session_id,
-                 e.ticket_id,e.provider_event_id,e.transaction_id,e.payment_status,e.payload_hash,
+                 e.ticket_id,e.tariff_id,e.provider_event_id,e.transaction_id,e.payment_status,e.payload_hash,
                  d.decision
           FROM proofs p
           LEFT JOIN events e ON e.event_id=p.event_id
