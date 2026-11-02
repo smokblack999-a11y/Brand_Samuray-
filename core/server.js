@@ -72,7 +72,7 @@ if (String(process.env.EVOLUTION_ENABLED || "").toLowerCase() === "true") {
   if (sessionSecret.length < 32) throw new Error("EVOLUTION_ENABLED requires EVOLUTION_SESSION_SECRET (32+ characters)");
   if (String(process.env.EVOLUTION_SCHEMA_READY || "").toLowerCase() !== "true") throw new Error("EVOLUTION_SCHEMA_READY=true is required after applying core/evolution-v3/schema.sql");
   let Pool;
-  try { ({ Pool } = require("pg")); } catch { throw new Error("EVOLUTION_ENABLED requires pg; run npm install pg in core before enabling"); }
+  try { ({ Pool } = require("pg")); } catch { throw new Error("EVOLUTION_ENABLED requires the declared pg dependency; run npm ci in core"); }
   const { createPostgresStore } = require("./evolution-v3/postgres-store");
   const { createEvolutionRouter } = require("./evolution-v3/http");
   const evolutionAuthRateLimit = createRateLimiter({ windowMs: 60000, max: 8 });
