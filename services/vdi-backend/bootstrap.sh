@@ -4,7 +4,7 @@ set -Eeuo pipefail
 SERVICE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SERVICE_DIR"
 
-for command in docker openssl curl; do
+for command in docker openssl curl id; do
   if ! command -v "$command" >/dev/null 2>&1; then
     echo "ERROR: required command not found: $command" >&2
     exit 1
@@ -34,11 +34,16 @@ MIN_OCR_CONFIDENCE=0.70
 FRAME_INTERVAL_SECONDS=1.0
 MAX_FRAME_WIDTH=1280
 VDI_BIND_HOST=127.0.0.1
+VDI_UID=$(id -u)
+VDI_GID=$(id -g)
 EOF
   chmod 600 .env
   echo "Created .env with fresh secrets (file permissions 600)."
 else
   echo "Existing .env preserved; no secrets were overwritten."
+  grep -q '^VDI_UID=' .env || echo "VDI_UID=$(id -u)" >> .env
+  grep -q '^VDI_GID=' .env || echo "VDI_GID=$(id -g)" >> .env
+  chmod 600 .env
 fi
 
 mkdir -p data weights
