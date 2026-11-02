@@ -114,7 +114,7 @@ def reconcile_events(events: list[dict], stale_after_minutes: int = 120, now: da
                     # Financial comparison is enabled only when the entry references
                     # an operator-configured, immutable tariff rule.
                     tariff_id = open_entry.get("tariff_id")
-                    rule = tariffs.get(tariff_id) if tariff_id else None
+                    rule = open_entry.get("tariff_snapshot") or (tariffs.get(tariff_id) if tariff_id else None)
                     if rule and exit_time is not None:
                         financial["sessions_evaluated"] += 1
                         bucket = financial["by_currency"].setdefault(rule["currency"], {
