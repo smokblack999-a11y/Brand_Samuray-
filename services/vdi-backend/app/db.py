@@ -229,13 +229,13 @@ def verify_proof_chain():
             canonical = json.dumps(receipt, sort_keys=True, separators=(",",":"))
         except (TypeError, ValueError):
             return {"ok": False, "checked": checked, "broken_event_id": row["proof_event_id"], "reason": "INVALID_RECEIPT_JSON"}
+        calculated = hashlib.sha256((expected_previous + canonical).encode()).hexdigest()
+        if not hmac.compare_digest(calculated, row["receipt_hash"]):
+            return {"ok": False, "checked": checked, "broken_event_id": row["proof_event_id"], "reason": "RECEIPT_HASH_MISMATCH"}
         if receipt.get("schema_version") != "vdi.proof.v1" or receipt.get("event_id") != row["proof_event_id"]:
             return {"ok": False, "checked": checked, "broken_event_id": row["proof_event_id"], "reason": "PROOF_IDENTITY_MISMATCH"}
         if receipt.get("previous_hash") != row["previous_hash"]:
             return {"ok": False, "checked": checked, "broken_event_id": row["proof_event_id"], "reason": "RECEIPT_LINK_MISMATCH"}
-        calculated = hashlib.sha256((expected_previous + canonical).encode()).hexdigest()
-        if not hmac.compare_digest(calculated, row["receipt_hash"]):
-            return {"ok": False, "checked": checked, "broken_event_id": row["proof_event_id"], "reason": "RECEIPT_HASH_MISMATCH"}
         if row["source_id"] is None or row["decision"] is None:
             return {"ok": False, "checked": checked, "broken_event_id": row["proof_event_id"], "reason": "MISSING_EVENT_OR_DECISION"}
         if "tariff_snapshot" in receipt:
