@@ -34,6 +34,7 @@ test("PostgreSQL adapter persists tenant data, enforces membership, revokes sess
   t.after(async () => {
     try {
       await pool.query("DELETE FROM ev3_stripe_events WHERE event_id = $1", [eventId]);
+      await pool.query("DELETE FROM ev3_audit_log WHERE workspace_id = ANY($1::uuid[])", [[workspaceId, outsiderWorkspaceId]]);
       await pool.query("DELETE FROM ev3_workspaces WHERE id = ANY($1::uuid[])", [[workspaceId, outsiderWorkspaceId]]);
       await pool.query("DELETE FROM ev3_users WHERE id = ANY($1::uuid[])", [[userId, outsiderId]]);
     } finally {
