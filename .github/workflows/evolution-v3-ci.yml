@@ -50,8 +50,6 @@ jobs:
           cache: npm
           cache-dependency-path: core/package-lock.json
       - run: npm ci
-      - name: Install PostgreSQL driver for isolated integration job
-        run: npm install --no-save --package-lock=false pg@8.16.3
       - name: Syntax checks
         run: |
           node --check evolution-v3/auth.js
