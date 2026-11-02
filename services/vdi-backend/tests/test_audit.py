@@ -13,9 +13,9 @@ def test_exit_without_entry_is_flagged():
 
 def test_exit_without_payment_is_flagged():
     rows = [
-        {"event_id": "in-1", "event_type": "entry", "plate_token": "opaque",
+        {"event_id": "in-1", "event_type": "entry", "session_id": "sess-1", "plate_token": "opaque",
          "plate_masked": "123***01", "occurred_at": "2026-11-02T05:00:00+00:00"},
-        {"event_id": "out-1", "event_type": "exit", "plate_token": "opaque",
+        {"event_id": "out-1", "event_type": "exit", "session_id": "sess-1", "plate_token": "opaque",
          "plate_masked": "123***01", "occurred_at": "2026-11-02T06:00:00+00:00"}
     ]
     result = reconcile_events(rows)
@@ -34,7 +34,7 @@ def test_payment_between_entry_and_exit_prevents_missing_payment_flag():
     rows = [
         {"event_id": "in-1", "event_type": "entry", "plate_token": "opaque",
          "plate_masked": "123***01", "occurred_at": "2026-11-02T05:00:00+00:00"},
-        {"event_id": "pay-1", "event_type": "payment", "plate_token": "opaque",
+        {"event_id": "pay-1", "event_type": "payment", "session_id": "sess-1", "payment_status": "succeeded", "plate_token": "opaque",
          "plate_masked": "123***01", "occurred_at": "2026-11-02T05:30:00+00:00"},
         {"event_id": "out-1", "event_type": "exit", "plate_token": "opaque",
          "plate_masked": "123***01", "occurred_at": "2026-11-02T06:00:00+00:00"}
