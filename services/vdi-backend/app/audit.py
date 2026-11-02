@@ -151,6 +151,8 @@ def reconcile_events(events: list[dict], stale_after_minutes: int = 120, now: da
                                 bucket["over_base_tariff"] += 1
                         except (KeyError, TypeError, ValueError):
                             financial["sessions_with_incomplete_payment_data"] += 1
+                    elif rule:
+                        financial["sessions_with_incomplete_payment_data"] += 1
                     else:
                         financial["sessions_without_tariff"] += 1
                     open_entry = None
