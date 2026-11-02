@@ -81,6 +81,7 @@ def init_db():
                 c.execute("ALTER TABLE events ADD COLUMN " + name + " TEXT")
         c.execute("CREATE INDEX IF NOT EXISTS idx_events_session_time ON events(session_id, occurred_at)")
         c.execute("CREATE INDEX IF NOT EXISTS idx_events_ticket_time ON events(ticket_id, occurred_at)")
+        c.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_events_provider_event ON events(source_id, provider_event_id) WHERE provider_event_id IS NOT NULL")
 
 
 def plate_token(plate: str) -> str:
