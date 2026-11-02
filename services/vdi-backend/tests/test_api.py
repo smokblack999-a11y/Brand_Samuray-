@@ -238,3 +238,28 @@ def test_ticket_id_correlates_vehicle_and_payment_events(tmp_path, monkeypatch):
         audit = client.get("/v1/audit/reconcile", headers=headers).json()["audit"]
         assert audit["findings_total"] == 0
         assert audit["financial_reconciliation"]["sessions_without_tariff"] == 1
+
+
+def test_duplicate_provider_webhook_id_is_rejected(tmp_path, monkeypatch):
+    test_settings = replace(
+        settings, api_key="test-api-key", token_secret="test-token-secret",
+        database_path=str(tmp_path / "vdi-provider-dedupe.sqlite3"), enable_rtsp=False,
+    )
+    monkeypatch.setattr(db, "settings", test_settings)
+    monkeypatch.setattr(main, "settings", test_settings)
+    headers = {"X-API-Key": "test-api-key"}
+    payload = {
+        "source_id": "payment-provider", "event_id": "webhook-delivery-1",
+        "event_type": "payment", "occurred_at": "2026-11-02T08:20:00+00:00",
+        "session_id": "session-provider-dedupe", "provider_event_id": "provider-event-unique",
+        "transaction_id": "transaction-1", "payment_status": "succeeded",
+        "amount_minor": 50000, "currency": "KZT"
+    }
+    with TestClient(main.app) as client:
+        first = client.post("/v1/events", json=payload, headers=headers)
+        redelivery = client.post(
+            "/v1/events", json={**payload, "event_id": "webhook-delivery-2"},
+            headers=headers,
+        )
+        assert first.status_code == 200
+        assert redelivery.status_code == 409
