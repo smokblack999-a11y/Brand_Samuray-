@@ -196,6 +196,11 @@ def test_tariff_api_reconciles_recorded_payment_against_configured_rule(tmp_path
         assert client.post("/v1/events", json=payment, headers=headers).status_code == 200
         assert client.post("/v1/events", json=exit_event, headers=headers).status_code == 200
 
+        # Even if an operator edits the live tariff table directly, this session
+        # must continue using the tariff snapshot captured at entry.
+        with db.connect() as conn:
+            conn.execute("UPDATE tariffs SET rate_minor=99999 WHERE tariff_id=?", ("pilot-30m-v1",))
+
         audit = client.get("/v1/audit/reconcile", headers=headers).json()["audit"]
         financial = audit["financial_reconciliation"]
         assert financial["sessions_evaluated"] == 1
@@ -203,6 +208,9 @@ def test_tariff_api_reconciles_recorded_payment_against_configured_rule(tmp_path
         assert financial["by_currency"]["KZT"]["recorded_paid_total_minor"] == 25000
         assert financial["by_currency"]["KZT"]["under_base_tariff"] == 1
         assert audit["financial_findings"][0]["type"] == "RECORDED_PAYMENT_BELOW_CONFIGURED_BASE_TARIFF"
+        proof_check = client.get("/v1/proof-chain/verify", headers=headers)
+        assert proof_check.status_code == 200
+        assert proof_check.json()["reason"] == "CHAIN_AND_RECORDS_VALID"
 
 
 def test_ticket_id_correlates_vehicle_and_payment_events(tmp_path, monkeypatch):
