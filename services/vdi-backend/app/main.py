@@ -3,10 +3,10 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Header, HTTPException, Query
 from fastapi.responses import JSONResponse
 from .config import settings
-from .db import init_db, record_event, list_events, list_audit_events, get_event, get_proof, metrics, verify_proof_chain, EventConflict, audit_event_count
+from .db import init_db, record_event, list_events, list_audit_events, get_event, get_proof, metrics, verify_proof_chain, EventConflict, audit_event_count, create_tariff, get_tariff, list_tariffs
 from .audit import reconcile_events
 from .kz_validator import validate_kz_plate
-from .schemas import EventIn
+from .schemas import EventIn, TariffRuleIn
 
 stop_event=threading.Event()
 worker_thread=None
@@ -59,10 +59,28 @@ def ready():
     ok=bool(settings.api_key and settings.token_secret and db_ok and model_ok and worker_ok and not worker_error)
     return JSONResponse(status_code=200 if ok else 503, content={"ok":ok,"database":db_ok,"rtsp_enabled":settings.enable_rtsp,"model_available":model_ok,"worker_connected":worker_ready.is_set() if settings.enable_rtsp else None,"worker_error":worker_error})
 
+
+@app.post("/v1/tariffs", status_code=201)
+def add_tariff(payload: TariffRuleIn, x_api_key: str | None = Header(default=None)):
+    auth(x_api_key)
+    try:
+        tariff=create_tariff(payload.model_dump())
+    except __import__("sqlite3").IntegrityError:
+        raise HTTPException(status_code=409, detail="tariff_id already exists; tariff rules are immutable")
+    return {"ok":True,"tariff":tariff}
+
+
+@app.get("/v1/tariffs")
+def tariffs(x_api_key: str | None = Header(default=None)):
+    auth(x_api_key)
+    return {"ok":True,"tariffs":list_tariffs()}
+
 @app.post("/v1/events")
 def ingest_event(payload: EventIn, x_api_key: str | None = Header(default=None)):
     auth(x_api_key)
     data=payload.model_dump()
+    if payload.tariff_id and not get_tariff(payload.tariff_id):
+        raise HTTPException(status_code=422, detail="Unknown tariff_id; configure the tariff before ingesting an entry")
     data["occurred_at"]=payload.occurred_at.astimezone(__import__("datetime").timezone.utc).isoformat()
     if payload.plate_text:
         validation=validate_kz_plate(payload.plate_text, payload.ocr_confidence, settings.min_ocr_confidence)
@@ -89,7 +107,8 @@ def audit_reconcile(
     auth(x_api_key)
     events_to_check=list_audit_events(limit)
     total=audit_event_count()
-    result=reconcile_events(events_to_check, stale_after_minutes=stale_after_minutes)
+    tariff_rules={rule["tariff_id"]:rule for rule in list_tariffs()}
+    result=reconcile_events(events_to_check, stale_after_minutes=stale_after_minutes, tariffs=tariff_rules)
     truncated=total > len(events_to_check)
     result["stale_after_minutes"]=stale_after_minutes
     result["limit"]=limit
