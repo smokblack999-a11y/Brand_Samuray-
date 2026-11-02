@@ -1,3 +1,4 @@
+import sqlite3
 import threading
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Header, HTTPException, Query
@@ -65,7 +66,7 @@ def add_tariff(payload: TariffRuleIn, x_api_key: str | None = Header(default=Non
     auth(x_api_key)
     try:
         tariff=create_tariff(payload.model_dump())
-    except __import__("sqlite3").IntegrityError:
+    except sqlite3.IntegrityError:
         raise HTTPException(status_code=409, detail="tariff_id already exists; tariff rules are immutable")
     return {"ok":True,"tariff":tariff}
 
