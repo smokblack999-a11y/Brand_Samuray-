@@ -59,3 +59,22 @@ def test_refunded_payment_is_not_counted_as_settled():
     result = reconcile_events(rows)
     assert result["findings_total"] == 1
     assert result["findings"][0]["type"] == "EXIT_WITHOUT_RECORDED_SUCCESSFUL_PAYMENT"
+
+
+def test_refund_after_exit_reverses_payment_finding():
+    rows = [
+        {"event_id": "entry-late-refund", "event_type": "entry", "session_id": "session-late-refund",
+         "occurred_at": "2026-11-02T05:00:00+00:00"},
+        {"event_id": "payment-late-refund", "event_type": "payment", "session_id": "session-late-refund",
+         "transaction_id": "txn-late-refund", "payment_status": "succeeded",
+         "occurred_at": "2026-11-02T05:20:00+00:00"},
+        {"event_id": "exit-late-refund", "event_type": "exit", "session_id": "session-late-refund",
+         "occurred_at": "2026-11-02T06:00:00+00:00"},
+        {"event_id": "refund-after-exit", "event_type": "payment", "session_id": "session-late-refund",
+         "transaction_id": "txn-late-refund", "payment_status": "refunded",
+         "occurred_at": "2026-11-02T06:10:00+00:00"},
+    ]
+    result = reconcile_events(rows)
+    assert result["findings_total"] == 1
+    assert result["findings"][0]["event_id"] == "exit-late-refund"
+    assert result["findings"][0]["type"] == "EXIT_WITHOUT_RECORDED_SUCCESSFUL_PAYMENT"
