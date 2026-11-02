@@ -46,3 +46,10 @@ One agency, one verified domain, five pages, 30 days. Measure operator minutes p
 ## External integrations
 
 HubSpot pipeline/properties remain proposals only. Gmail draft remains unsent. Figma requires Editor access. Stripe remains test-mode-only in code and has not been connected or tested end-to-end.
+
+
+## Real PostgreSQL integration test (CI)
+
+The isolated EVOLUTION V3 workflow starts a disposable PostgreSQL 16 service container, applies `schema.sql` to that CI-only database, and runs `postgres-store.integration.test.js` against the real server. The test exercises account/workspace/session persistence, tenant isolation, site verification, audit evidence, Stripe event idempotency, and session revocation. It cleans up its test rows and closes the pool.
+
+The workflow currently installs `pg@8.16.3` ephemerally for this test job after `npm ci`; this deliberately does **not** change the application dependency manifest or lockfile. Therefore the runtime dependency remains a separate release blocker: before enabling EVOLUTION V3 outside CI, add `pg` to `core/package.json` and regenerate/commit `core/package-lock.json`. No production database is used, and no schema is applied outside the disposable CI service.
