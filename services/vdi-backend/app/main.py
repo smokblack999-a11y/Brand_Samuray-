@@ -38,7 +38,7 @@ async def lifespan(app: FastAPI):
     if worker_thread and worker_thread.is_alive():
         worker_thread.join(timeout=5)
 
-app=FastAPI(title="SAMURAI Kill Critic VDI", version="0.2.0", lifespan=lifespan)
+app=FastAPI(title="SAMURAI Kill Critic VDI", version="0.3.0", lifespan=lifespan)
 
 def auth(x_api_key: str | None):
     if not settings.api_key or not settings.token_secret:
@@ -48,7 +48,7 @@ def auth(x_api_key: str | None):
 
 @app.get("/health")
 def health():
-    return {"ok":True,"service":"samurai-kill-critic-vdi","version":"0.2.0"}
+    return {"ok":True,"service":"samurai-kill-critic-vdi","version":"0.3.0"}
 
 @app.get("/ready")
 def ready():
@@ -63,8 +63,12 @@ def ready():
 def ingest_event(payload: EventIn, x_api_key: str | None = Header(default=None)):
     auth(x_api_key)
     data=payload.model_dump()
-    data["occurred_at"]=payload.occurred_at.isoformat()
-    validation=validate_kz_plate(payload.plate_text, payload.ocr_confidence, settings.min_ocr_confidence)
+    data["occurred_at"]=payload.occurred_at.astimezone(__import__("datetime").timezone.utc).isoformat()
+    if payload.plate_text:
+        validation=validate_kz_plate(payload.plate_text, payload.ocr_confidence, settings.min_ocr_confidence)
+    else:
+        # Session-linked events do not need OCR; this does not verify a vehicle plate.
+        validation={"status":"SESSION_LINKED","reason_code":"SESSION_ID_ONLY","normalized":""}
     event,decision,proof,duplicate=record_event(data,validation,payload.crop_sha256)
     return {"ok":True,"duplicate":duplicate,"event":event,"decision":decision,"proof_hash":proof["receipt_hash"] if proof else None}
 
