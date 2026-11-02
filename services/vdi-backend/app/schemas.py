@@ -30,6 +30,8 @@ class EventIn(BaseModel):
 
     @model_validator(mode="after")
     def validate_event_shape(self):
+        if self.tariff_id is not None and self.event_type != "entry":
+            raise ValueError("tariff_id must be attached to the entry event")
         if self.event_type == "plate_observed":
             if not self.plate_text or self.ocr_confidence is None:
                 raise ValueError("plate_observed requires plate_text and ocr_confidence")
