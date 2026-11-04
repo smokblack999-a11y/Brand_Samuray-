@@ -3,16 +3,10 @@
 const crypto = require("crypto");
 
 const STATES = Object.freeze([
-  "UNKNOWN",
-  "CI_FAILED",
-  "REPAIR_PROPOSED",
-  "SANDBOX_PASSED",
-  "CI_PASSED",
-  "READY_FOR_REVIEW",
-  "BLOCKED"
+  "UNKNOWN", "CI_FAILED", "REPAIR_PROPOSED", "SANDBOX_PASSED",
+  "CI_PASSED", "READY_FOR_REVIEW", "BLOCKED"
 ]);
 
-// Deterministic path gates. These are signals, not an automatic vulnerability verdict.
 const CRITICAL_RULES = Object.freeze([
   ["authentication", /(?:^|\/)auth(?:\/|$)/i],
   ["cryptography", /(?:^|\/)crypto(?:\/|$)/i],
@@ -37,7 +31,7 @@ const DANGEROUS_PATTERNS = Object.freeze([
   ["privileged_container", /\bprivileged\s*:\s*true\b/i],
   ["setuid", /\bset-user-ID\b/i],
   ["privilege_escalation", /\b(?:sudo|su)\s+/i],
-  ["workflow_command_injection", /\$\{\{[\s\S]*?\}\}/i],
+  ["workflow_command_injection", /\$\{\{[\s\S]*?\}\}/i]
 ]);
 
 const ALLOWED_TRANSITIONS = Object.freeze({
@@ -67,13 +61,11 @@ function classifyFiles(files) {
     if (normalized.some(file => re.test(file))) categories.push(name);
   }
   if (normalized.length >= 20 || normalized.some(file => file.length > 180)) categories.push("large_change");
-
   const criticalSet = new Set([
-    "authentication", "cryptography", "tls", "acl", "policy",
-    "github_actions", "docker", "dependencies", "infrastructure",
-    "configuration", "api_surface", "database", "large_change"
+    "authentication", "cryptography", "tls", "acl", "policy", "github_actions",
+    "docker", "dependencies", "infrastructure", "configuration", "api_surface",
+    "database", "large_change"
   ]);
-
   return {
     files: normalized,
     categories: [...new Set(categories)],
@@ -84,32 +76,31 @@ function classifyFiles(files) {
   };
 }
 
-// Scan only added diff lines. Removed lines must not make a proposed change look dangerous.
 function scanDiff(diff) {
-  const added = String(diff || "")
-    .split("\n")
+  const added = String(diff || "").split("\n")
     .filter(line => line.startsWith("+") && !line.startsWith("+++"))
     .join("\n");
-
   const findings = DANGEROUS_PATTERNS
     .filter(([, re]) => re.test(added))
     .map(([name]) => name);
-
   if (String(diff || "").includes("${{") && String(diff || "").includes("github.event")) {
     findings.push("workflow_command_injection");
   }
-  return {
-    addedLines: added,
-    findings: [...new Set(findings)],
-    dangerous: findings.length > 0
-  };
+  return { addedLines: added, findings: [...new Set(findings)], dangerous: findings.length > 0 };
 }
 
 function canTransition(from, to) {
   return Boolean(ALLOWED_TRANSITIONS[from]?.includes(to));
 }
 
-function evaluate({ resource, fromState, toState, files, diff, actor = "x10think" }) {
+function checksRequiredFor(toState) {
+  if (toState === "SANDBOX_PASSED") return ["sandbox"];
+  if (toState === "CI_PASSED") return ["sandbox", "ci"];
+  if (toState === "READY_FOR_REVIEW") return ["sandbox", "ci", "proof_receipt"];
+  return [];
+}
+
+function evaluate({ resource, fromState, toState, files, diff, actor = "x10think", evidence = {} }) {
   const target = resource || "unknown";
   const classification = classifyFiles(files);
   const scan = scanDiff(diff);
@@ -117,8 +108,11 @@ function evaluate({ resource, fromState, toState, files, diff, actor = "x10think
     scan.findings.push("workflow_command_injection");
     scan.dangerous = true;
   }
+
   const reasons = [];
-  const required = [];
+  const required = checksRequiredFor(toState);
+  const suppliedChecks = new Set(Array.isArray(evidence.checks) ? evidence.checks.map(String) : []);
+  const missingEvidence = required.filter(check => !suppliedChecks.has(check));
   let decision = "ALLOW";
 
   if (!STATES.includes(fromState) || !STATES.includes(toState)) {
@@ -128,25 +122,33 @@ function evaluate({ resource, fromState, toState, files, diff, actor = "x10think
     decision = "BLOCK";
     reasons.push("invalid_state_transition");
   }
-
   if (!resource) {
     decision = "BLOCK";
     reasons.push("resource_identity_missing");
   }
-
   if (scan.dangerous) {
     decision = "BLOCK";
     reasons.push("dangerous_change_pattern");
   }
-
-  if (classification.criticality === "HIGH") {
-    required.push("sandbox", "ci", "proof_receipt");
-    if (toState === "READY_FOR_REVIEW") required.push("human_review");
+  if (missingEvidence.length) {
+    decision = "BLOCK";
+    reasons.push("required_evidence_missing");
+  }
+  if (required.includes("proof_receipt") &&
+      !/^[a-f0-9]{64}$/i.test(String(evidence.proofReceiptHash || ""))) {
+    decision = "BLOCK";
+    reasons.push("valid_proof_receipt_hash_required");
   }
 
-  if (fromState === "REPAIR_PROPOSED" && toState === "SANDBOX_PASSED") required.push("sandbox");
-  if (fromState === "SANDBOX_PASSED" && toState === "CI_PASSED") required.push("ci");
-  if (fromState === "CI_PASSED" && toState === "READY_FOR_REVIEW") required.push("proof_receipt");
+  const advisoryChecks = classification.criticality === "HIGH"
+    ? ["sandbox", "ci", "proof_receipt", ...(toState === "READY_FOR_REVIEW" ? ["human_review"] : [])]
+    : required;
+
+  const evaluationHash = sha256(JSON.stringify({
+    resource: target, fromState, toState, files: classification.files,
+    diff: String(diff || ""), actor, checks: [...suppliedChecks].sort(),
+    proofReceiptHash: evidence.proofReceiptHash || null
+  }));
 
   return {
     decision,
@@ -158,27 +160,18 @@ function evaluate({ resource, fromState, toState, files, diff, actor = "x10think
     categories: classification.categories,
     changedFiles: classification.files,
     criticalFiles: classification.criticalFiles,
-    requiredChecks: [...new Set(required)],
+    requiredChecks: [...new Set(advisoryChecks)],
+    suppliedChecks: [...suppliedChecks].sort(),
+    missingEvidence,
     reasons: [...new Set(reasons)],
     dangerousFindings: scan.findings,
-    policyVersion: "nexus-policy-v3",
-    evaluationHash: sha256(JSON.stringify({
-      resource: target,
-      fromState,
-      toState,
-      files: classification.files,
-      diff: String(diff || ""),
-      actor
-    }))
+    policyVersion: "nexus-policy-v4-evidence-enforced",
+    evaluationHash
   };
 }
 
 function transition(currentState, nextState, context = {}) {
-  const evaluation = evaluate({
-    ...context,
-    fromState: currentState,
-    toState: nextState
-  });
+  const evaluation = evaluate({ ...context, fromState: currentState, toState: nextState });
   return {
     ...evaluation,
     state: evaluation.decision === "ALLOW" ? nextState : "BLOCKED"
@@ -189,9 +182,16 @@ function createProofReceipt({ evaluation, beforeSha, afterSha, validations = [] 
   if (!evaluation || evaluation.decision !== "ALLOW") {
     throw new Error("proof_requires_allowed_transition");
   }
-
+  const checks = [...new Set(validations.map(String))];
+  if (evaluation.criticality === "HIGH" &&
+      (!checks.includes("sandbox") || !checks.includes("ci"))) {
+    throw new Error("critical_proof_requires_sandbox_and_ci");
+  }
+  if (evaluation.criticality === "HIGH" && (!beforeSha || !afterSha)) {
+    throw new Error("critical_proof_requires_before_after_sha");
+  }
   const receipt = {
-    schema: "nexus-proof-receipt/v2",
+    schema: "nexus-proof-receipt/v3",
     resource: evaluation.resource,
     transition: {
       from: evaluation.fromState,
@@ -202,28 +202,15 @@ function createProofReceipt({ evaluation, beforeSha, afterSha, validations = [] 
     after: { sha: afterSha || null },
     policy: evaluation.policyVersion,
     categories: evaluation.categories,
-    checks: [...new Set(validations.map(String))],
+    checks,
     criticality: evaluation.criticality,
     evaluationHash: evaluation.evaluationHash
   };
-
-  return {
-    ...receipt,
-    proofHash: sha256(JSON.stringify(receipt))
-  };
+  return { ...receipt, proofHash: sha256(JSON.stringify(receipt)) };
 }
 
 module.exports = {
-  STATES,
-  CRITICAL_RULES,
-  CRITICAL_PATHS: CRITICAL_RULES.map(([, re]) => re),
-  DANGEROUS_PATTERNS,
-  ALLOWED_TRANSITIONS,
-  normalizeFiles,
-  classifyFiles,
-  scanDiff,
-  canTransition,
-  evaluate,
-  transition,
-  createProofReceipt
+  STATES, CRITICAL_RULES, CRITICAL_PATHS: CRITICAL_RULES.map(([, re]) => re),
+  DANGEROUS_PATTERNS, ALLOWED_TRANSITIONS, normalizeFiles, classifyFiles,
+  scanDiff, canTransition, checksRequiredFor, evaluate, transition, createProofReceipt
 };
