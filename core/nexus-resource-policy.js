@@ -100,6 +100,17 @@ function checksRequiredFor(toState) {
   return [];
 }
 
+function verifyProofReceipt(receipt, resource) {
+  if (!receipt || typeof receipt !== "object" || Array.isArray(receipt)) return false;
+  const { proofHash, ...payload } = receipt;
+  if (receipt.schema !== "nexus-proof-receipt/v3" || receipt.resource !== resource) return false;
+  if (!receipt.before?.sha || !receipt.after?.sha) return false;
+  if (!Array.isArray(receipt.checks) || !receipt.checks.includes("sandbox") || !receipt.checks.includes("ci")) return false;
+  if (!/^[a-f0-9]{64}$/i.test(String(receipt.evaluationHash || ""))) return false;
+  if (!/^[a-f0-9]{64}$/i.test(String(proofHash || ""))) return false;
+  return sha256(JSON.stringify(payload)) === proofHash;
+}
+
 function evaluate({ resource, fromState, toState, files, diff, actor = "x10think", evidence = {} }) {
   const target = resource || "unknown";
   const classification = classifyFiles(files);
@@ -134,10 +145,9 @@ function evaluate({ resource, fromState, toState, files, diff, actor = "x10think
     decision = "BLOCK";
     reasons.push("required_evidence_missing");
   }
-  if (required.includes("proof_receipt") &&
-      !/^[a-f0-9]{64}$/i.test(String(evidence.proofReceiptHash || ""))) {
+  if (required.includes("proof_receipt") && !verifyProofReceipt(evidence.proofReceipt, target)) {
     decision = "BLOCK";
-    reasons.push("valid_proof_receipt_hash_required");
+    reasons.push("valid_proof_receipt_required");
   }
 
   const advisoryChecks = classification.criticality === "HIGH"
@@ -147,7 +157,7 @@ function evaluate({ resource, fromState, toState, files, diff, actor = "x10think
   const evaluationHash = sha256(JSON.stringify({
     resource: target, fromState, toState, files: classification.files,
     diff: String(diff || ""), actor, checks: [...suppliedChecks].sort(),
-    proofReceiptHash: evidence.proofReceiptHash || null
+    proofReceiptHash: evidence.proofReceipt?.proofHash || null
   }));
 
   return {
@@ -212,5 +222,5 @@ function createProofReceipt({ evaluation, beforeSha, afterSha, validations = [] 
 module.exports = {
   STATES, CRITICAL_RULES, CRITICAL_PATHS: CRITICAL_RULES.map(([, re]) => re),
   DANGEROUS_PATTERNS, ALLOWED_TRANSITIONS, normalizeFiles, classifyFiles,
-  scanDiff, canTransition, checksRequiredFor, evaluate, transition, createProofReceipt
+  scanDiff, canTransition, checksRequiredFor, verifyProofReceipt, evaluate, transition, createProofReceipt
 };
