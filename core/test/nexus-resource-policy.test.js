@@ -128,23 +128,25 @@ test("workflow event expression is detected in added command", () => {
 });
 
 test("proof receipt binds evaluation hash and commit transition", () => {
-  const evaluation = nexus.transition("CI_PASSED", "READY_FOR_REVIEW", {
+  const evaluation = nexus.transition("SANDBOX_PASSED", "CI_PASSED", {
     resource: "github://repo/pull/6",
-    files: ["src/crypto/key.js"]
+    files: ["src/crypto/key.js"],
+    evidence: {checks: ["sandbox", "ci"]}
   });
 
   const proof = nexus.createProofReceipt({
     evaluation,
-    beforeSha: "abc",
-    afterSha: "def",
+    beforeSha: "a".repeat(40),
+    afterSha: "b".repeat(40),
     validations: ["sandbox", "ci"]
   });
 
-  assert.equal(proof.schema, "nexus-proof-receipt/v2");
+  assert.equal(proof.schema, "nexus-proof-receipt/v3");
   assert.equal(proof.evaluationHash, evaluation.evaluationHash);
   assert.match(proof.proofHash, /^[a-f0-9]{64}$/);
-  assert.equal(proof.transition.from, "CI_PASSED");
-  assert.equal(proof.transition.to, "READY_FOR_REVIEW");
+  assert.equal(proof.transition.from, "SANDBOX_PASSED");
+  assert.equal(proof.transition.to, "CI_PASSED");
+  assert.equal(nexus.verifyProofReceipt(proof, "github://repo/pull/6"), true);
 });
 
 test("blocked evaluation cannot emit proof", () => {
