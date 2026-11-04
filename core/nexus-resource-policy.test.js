@@ -76,18 +76,25 @@ test("critical transition cannot advance without real evidence", () => {
   });
   assert.equal(blocked.decision, "BLOCK");
   assert.ok(blocked.reasons.includes("required_evidence_missing"));
-  assert.ok(blocked.reasons.includes("valid_proof_receipt_hash_required"));
+  assert.ok(blocked.reasons.includes("valid_proof_receipt_required"));
 
+  const receiptBase = nexus.transition("SANDBOX_PASSED", "CI_PASSED", {
+    resource: "github://repo/pull/4",
+    files: [".github/workflows/build.yml"],
+    evidence: { checks: ["sandbox", "ci"] }
+  });
+  const receipt = nexus.createProofReceipt({
+    evaluation: receiptBase, beforeSha: "a".repeat(40), afterSha: "b".repeat(40),
+    validations: ["sandbox", "ci"]
+  });
   const allowed = nexus.transition("CI_PASSED", "READY_FOR_REVIEW", {
     resource: "github://repo/pull/4",
     files: [".github/workflows/build.yml"],
-    evidence: {
-      checks: ["sandbox", "ci", "proof_receipt"],
-      proofReceiptHash: "a".repeat(64)
-    }
+    evidence: { checks: ["sandbox", "ci", "proof_receipt"], proofReceipt: receipt }
   });
   assert.equal(allowed.decision, "ALLOW");
   assert.deepEqual(allowed.missingEvidence, []);
+  assert.equal(nexus.verifyProofReceipt(receipt, "github://repo/pull/4"), true);
 });
 
 test("sandbox and CI stages require their matching evidence", () => {
@@ -120,20 +127,22 @@ test("workflow expression added to a workflow is blocked", () => {
 });
 
 test("proof receipt binds evaluation and critical validation evidence", () => {
-  const e = nexus.transition("CI_PASSED", "READY_FOR_REVIEW", {
+  const e = nexus.transition("SANDBOX_PASSED", "CI_PASSED", {
     resource: "github://repo/pull/6",
     files: ["src/crypto/key.js"],
-    evidence: { checks: ["sandbox", "ci", "proof_receipt"], proofReceiptHash: "b".repeat(64) }
+    evidence: { checks: ["sandbox", "ci"] }
   });
   const p = nexus.createProofReceipt({
-    evaluation: e, beforeSha: "abc", afterSha: "def",
+    evaluation: e, beforeSha: "a".repeat(40), afterSha: "b".repeat(40),
     validations: ["sandbox", "ci"]
   });
   assert.equal(p.schema, "nexus-proof-receipt/v3");
   assert.equal(p.proofHash.length, 64);
   assert.equal(p.evaluationHash, e.evaluationHash);
+  assert.equal(nexus.verifyProofReceipt(p, "github://repo/pull/6"), true);
+  assert.equal(nexus.verifyProofReceipt({ ...p, resource: "github://repo/other" }, "github://repo/pull/6"), false);
   assert.throws(() => nexus.createProofReceipt({
-    evaluation: e, beforeSha: "abc", afterSha: "def", validations: ["ci"]
+    evaluation: e, beforeSha: "a".repeat(40), afterSha: "b".repeat(40), validations: ["ci"]
   }), /critical_proof_requires_sandbox_and_ci/);
 });
 
