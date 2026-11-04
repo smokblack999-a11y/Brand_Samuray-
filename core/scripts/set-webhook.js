@@ -16,7 +16,7 @@ async function main() {
     body: JSON.stringify({
       url,
       secret_token: secret,
-      allowed_updates: ["business_connection", "business_message", "edited_business_message", "deleted_business_messages"]
+      allowed_updates: ["message", "callback_query", "business_connection", "business_message", "edited_business_message", "deleted_business_messages"]
     })
   });
 
