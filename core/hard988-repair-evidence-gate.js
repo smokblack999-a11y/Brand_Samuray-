@@ -82,18 +82,6 @@ function evaluateHard988(input = {}, options = {}) {
     addReason(reasons, "candidate_commit_not_distinct");
   }
 
-  const policy = nexus.evaluate({
-    resource,
-    fromState,
-    toState,
-    files,
-    diff: input.diff || "",
-    actor: "HARD988"
-  });
-  if (policy.decision !== "ALLOW") {
-    for (const reason of policy.reasons) addReason(reasons, "policy:" + reason);
-  }
-
   const byName = new Map();
   const seenIds = new Set();
   for (const check of checks) {
@@ -138,6 +126,41 @@ function evaluateHard988(input = {}, options = {}) {
     addReason(reasons, "ci_started_before_sandbox_finished");
   }
 
+  const ciEvaluation = nexus.transition("SANDBOX_PASSED", "CI_PASSED", {
+    resource,
+    files,
+    diff: input.diff || "",
+    actor: "HARD988",
+    evidence: {checks: ["sandbox", "ci"]}
+  });
+  if (ciEvaluation.decision !== "ALLOW") {
+    for (const reason of ciEvaluation.reasons) addReason(reasons, "policy:" + reason);
+  }
+
+  let nexusProof = null;
+  if (reasons.length === 0) {
+    nexusProof = nexus.createProofReceipt({
+      evaluation: ciEvaluation,
+      beforeSha,
+      afterSha,
+      validations: ["sandbox", "ci"]
+    });
+  }
+
+  const policy = nexus.transition("CI_PASSED", "READY_FOR_REVIEW", {
+    resource,
+    files,
+    diff: input.diff || "",
+    actor: "HARD988",
+    evidence: nexusProof ? {
+      checks: ["sandbox", "ci", "proof_receipt"],
+      proofReceipt: nexusProof
+    } : {}
+  });
+  if (policy.decision !== "ALLOW") {
+    for (const reason of policy.reasons) addReason(reasons, "policy:" + reason);
+  }
+
   const classification = nexus.classifyFiles(files);
   const blocked = reasons.length > 0;
   const evidence = checks
@@ -157,6 +180,7 @@ function evaluateHard988(input = {}, options = {}) {
     decision: blocked ? "BLOCK" : "READY_FOR_HUMAN_REVIEW",
     policyVersion: policy.policyVersion,
     policyEvaluationHash: policy.evaluationHash,
+    nexusProofHash: nexusProof?.proofHash || null,
     beforeSha: GIT_SHA.test(beforeSha) ? beforeSha.toLowerCase() : null,
     afterSha: GIT_SHA.test(afterSha) ? afterSha.toLowerCase() : null,
     changedFiles: classification.files,
