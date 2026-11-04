@@ -138,28 +138,53 @@ function finalizeProof(job, {afterSha, validations = []} = {}) {
     throw new Error("proof_requires_ci_success");
   }
 
-  const evaluation = policy.evaluate({
+  if (job.evidence?.sandbox?.passed !== true || job.evidence?.ci?.conclusion !== "success") {
+    throw new Error("proof_requires_observed_sandbox_and_ci_success");
+  }
+
+  const before = job.headSha;
+  const after = afterSha || job.headSha;
+  const ciEvaluation = policy.transition("SANDBOX_PASSED", "CI_PASSED", {
     resource: job.resource,
-    fromState: "CI_PASSED",
-    toState: "READY_FOR_REVIEW",
     files: job.changedFiles,
     diff: "",
-    actor: "x10think"
+    actor: "x10think",
+    evidence: {checks: ["sandbox", "ci"]}
+  });
+  if (ciEvaluation.decision !== "ALLOW") {
+    throw new Error("proof_requires_allowed_ci_transition");
+  }
+
+  const ciReceipt = policy.createProofReceipt({
+    evaluation: ciEvaluation,
+    beforeSha: before,
+    afterSha: after,
+    validations: ["sandbox", "ci"]
   });
 
+  const evaluation = policy.transition("CI_PASSED", "READY_FOR_REVIEW", {
+    resource: job.resource,
+    files: job.changedFiles,
+    diff: "",
+    actor: "x10think",
+    evidence: {
+      checks: ["sandbox", "ci", "proof_receipt"],
+      proofReceipt: ciReceipt
+    }
+  });
   if (evaluation.decision !== "ALLOW") {
     throw new Error("proof_requires_allowed_transition");
   }
 
   const receipt = policy.createProofReceipt({
     evaluation,
-    beforeSha: job.headSha,
-    afterSha: afterSha || job.headSha,
+    beforeSha: before,
+    afterSha: after,
     validations: [...new Set(["critic", "sandbox", "ci", ...validations])]
   });
 
   return {
-    job: nextState(job, "READY_FOR_REVIEW", {proof: receipt}),
+    job: nextState(job, "READY_FOR_REVIEW", {proof: receipt, ciProof: ciReceipt}),
     receipt
   };
 }
