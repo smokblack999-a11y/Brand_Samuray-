@@ -40,7 +40,8 @@ test("normal nested files remain normal", () => {
 test("invalid state transition is blocked", () => {
   const r = nexus.transition("REPAIR_PROPOSED", "CI_PASSED", {
     resource: "github://repo/pull/1",
-    files: ["src/auth/login.js"]
+    files: ["src/auth/login.js"],
+    evidence: { checks: ["sandbox", "ci"] }
   });
   assert.equal(r.decision, "BLOCK");
   assert.equal(r.state, "BLOCKED");
@@ -68,13 +69,50 @@ test("dangerous text removed from old code does not block", () => {
   assert.equal(r.state, "REPAIR_PROPOSED");
 });
 
-test("critical transition requires proof and validation", () => {
-  const r = nexus.transition("CI_PASSED", "READY_FOR_REVIEW", {
+test("critical transition cannot advance without real evidence", () => {
+  const blocked = nexus.transition("CI_PASSED", "READY_FOR_REVIEW", {
     resource: "github://repo/pull/4",
     files: [".github/workflows/build.yml"]
   });
-  assert.equal(r.decision, "ALLOW");
-  assert.deepEqual(r.requiredChecks, ["sandbox", "ci", "proof_receipt", "human_review"]);
+  assert.equal(blocked.decision, "BLOCK");
+  assert.ok(blocked.reasons.includes("required_evidence_missing"));
+  assert.ok(blocked.reasons.includes("valid_proof_receipt_required"));
+
+  const receiptBase = nexus.transition("SANDBOX_PASSED", "CI_PASSED", {
+    resource: "github://repo/pull/4",
+    files: [".github/workflows/build.yml"],
+    evidence: { checks: ["sandbox", "ci"] }
+  });
+  const receipt = nexus.createProofReceipt({
+    evaluation: receiptBase, beforeSha: "a".repeat(40), afterSha: "b".repeat(40),
+    validations: ["sandbox", "ci"]
+  });
+  const allowed = nexus.transition("CI_PASSED", "READY_FOR_REVIEW", {
+    resource: "github://repo/pull/4",
+    files: [".github/workflows/build.yml"],
+    evidence: { checks: ["sandbox", "ci", "proof_receipt"], proofReceipt: receipt }
+  });
+  assert.equal(allowed.decision, "ALLOW");
+  assert.deepEqual(allowed.missingEvidence, []);
+  assert.equal(nexus.verifyProofReceipt(receipt, "github://repo/pull/4"), true);
+});
+
+test("sandbox and CI stages require their matching evidence", () => {
+  const noSandbox = nexus.transition("REPAIR_PROPOSED", "SANDBOX_PASSED", {
+    resource: "github://repo/pull/8", files: ["src/index.js"]
+  });
+  assert.equal(noSandbox.decision, "BLOCK");
+  const sandbox = nexus.transition("REPAIR_PROPOSED", "SANDBOX_PASSED", {
+    resource: "github://repo/pull/8", files: ["src/index.js"],
+    evidence: { checks: ["sandbox"] }
+  });
+  assert.equal(sandbox.decision, "ALLOW");
+
+  const noCi = nexus.transition("SANDBOX_PASSED", "CI_PASSED", {
+    resource: "github://repo/pull/8", files: ["src/index.js"],
+    evidence: { checks: ["sandbox"] }
+  });
+  assert.equal(noCi.decision, "BLOCK");
 });
 
 test("workflow expression added to a workflow is blocked", () => {
@@ -88,34 +126,36 @@ test("workflow expression added to a workflow is blocked", () => {
   assert.ok(r.dangerousFindings.includes("workflow_command_injection"));
 });
 
-test("proof binds evaluation", () => {
-  const e = nexus.transition("CI_PASSED", "READY_FOR_REVIEW", {
+test("proof receipt binds evaluation and critical validation evidence", () => {
+  const e = nexus.transition("SANDBOX_PASSED", "CI_PASSED", {
     resource: "github://repo/pull/6",
-    files: ["src/crypto/key.js"]
+    files: ["src/crypto/key.js"],
+    evidence: { checks: ["sandbox", "ci"] }
   });
   const p = nexus.createProofReceipt({
-    evaluation: e,
-    beforeSha: "abc",
-    afterSha: "def",
+    evaluation: e, beforeSha: "a".repeat(40), afterSha: "b".repeat(40),
     validations: ["sandbox", "ci"]
   });
-  assert.equal(p.schema, "nexus-proof-receipt/v2");
+  assert.equal(p.schema, "nexus-proof-receipt/v3");
   assert.equal(p.proofHash.length, 64);
   assert.equal(p.evaluationHash, e.evaluationHash);
+  assert.equal(nexus.verifyProofReceipt(p, "github://repo/pull/6"), true);
+  assert.equal(nexus.verifyProofReceipt({ ...p, resource: "github://repo/other" }, "github://repo/pull/6"), false);
+  assert.throws(() => nexus.createProofReceipt({
+    evaluation: e, beforeSha: "a".repeat(40), afterSha: "b".repeat(40), validations: ["ci"]
+  }), /critical_proof_requires_sandbox_and_ci/);
 });
 
 test("proof cannot be created from a blocked evaluation", () => {
   const e = nexus.transition("CI_FAILED", "CI_PASSED", {
-    resource: "github://repo/pull/7",
-    files: ["src/index.js"]
+    resource: "github://repo/pull/7", files: ["src/index.js"]
   });
   assert.throws(() => nexus.createProofReceipt({ evaluation: e }), /proof_requires_allowed_transition/);
 });
 
 test("missing identity blocks", () => {
   const r = nexus.transition("CI_FAILED", "REPAIR_PROPOSED", {
-    resource: "",
-    files: ["src/index.js"]
+    resource: "", files: ["src/index.js"]
   });
   assert.equal(r.decision, "BLOCK");
   assert.ok(r.reasons.includes("resource_identity_missing"));
