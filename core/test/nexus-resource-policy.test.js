@@ -80,13 +80,35 @@ test("removed dangerous code alone does not block", () => {
   assert.equal(result.state, "REPAIR_PROPOSED");
 });
 
-test("critical path requires explicit downstream checks", () => {
-  const result = nexus.transition("CI_PASSED", "READY_FOR_REVIEW", {
+test("critical path blocks until a verifiable proof receipt exists", () => {
+  const blocked = nexus.transition("CI_PASSED", "READY_FOR_REVIEW", {
     resource: "github://repo/pull/4",
     files: [".github/workflows/build.yml"]
   });
+  assert.equal(blocked.decision, "BLOCK");
+  assert.ok(blocked.reasons.includes("required_evidence_missing"));
 
+  const ciEvaluation = nexus.transition("SANDBOX_PASSED", "CI_PASSED", {
+    resource: "github://repo/pull/4",
+    files: [".github/workflows/build.yml"],
+    evidence: {checks: ["sandbox", "ci"]}
+  });
+  const receipt = nexus.createProofReceipt({
+    evaluation: ciEvaluation,
+    beforeSha: "a".repeat(40),
+    afterSha: "b".repeat(40),
+    validations: ["sandbox", "ci"]
+  });
+  const result = nexus.transition("CI_PASSED", "READY_FOR_REVIEW", {
+    resource: "github://repo/pull/4",
+    files: [".github/workflows/build.yml"],
+    evidence: {
+      checks: ["sandbox", "ci", "proof_receipt"],
+      proofReceipt: receipt
+    }
+  });
   assert.equal(result.decision, "ALLOW");
+  assert.deepEqual(result.missingEvidence, []);
   assert.deepEqual(
     result.requiredChecks,
     ["sandbox", "ci", "proof_receipt", "human_review"]
