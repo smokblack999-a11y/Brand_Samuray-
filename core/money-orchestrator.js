@@ -97,7 +97,8 @@ function attachOffer(deal, input = {}, options = {}) {
     name: requiredText(input.name, "offer.name"),
     scope: requiredText(input.scope, "offer.scope"),
     deliveryDays: Number(input.deliveryDays),
-    ...price
+    priceMinor: price.amountMinor,
+    currency: price.currency
   };
   if (!Number.isSafeInteger(offer.deliveryDays) || offer.deliveryDays < 1) fail("INVALID_DELIVERY_DAYS", "deliveryDays must be a positive integer");
   const at = isoNow(options.at);
