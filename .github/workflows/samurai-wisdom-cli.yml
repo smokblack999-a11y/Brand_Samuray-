@@ -1,0 +1,25 @@
+name: Samurai Wisdom CLI
+on:
+  push:
+    branches: [samurai-wisdom-crm-ultimate]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Syntax check
+        run: python -m py_compile samurai_launcher.py
+      - name: Self-test
+        run: python samurai_launcher.py --self-test
+      - name: Dashboard smoke test
+        run: |
+          tmpdir="$(mktemp -d)"
+          SAMURAI_HOME="$tmpdir" python samurai_launcher.py --dashboard
