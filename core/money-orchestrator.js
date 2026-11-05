@@ -157,22 +157,29 @@ function markLost(deal, input = {}, options = {}) {
 function summarize(deals = []) {
   const rows = Array.isArray(deals) ? deals : [];
   const counts = Object.fromEntries(Object.values(STAGES).map(stage => [stage, 0]));
-  let confirmedRevenueMinor = 0;
+  const revenueByCurrency = {};
   const currencies = new Set();
   for (const deal of rows) {
     if (counts[deal.stage] !== undefined) counts[deal.stage] += 1;
     if ([STAGES.PAID, STAGES.DELIVERED].includes(deal.stage) && deal.payment?.status === "confirmed") {
-      confirmedRevenueMinor += Number(deal.payment.amountMinor) || 0;
-      if (deal.payment.currency) currencies.add(deal.payment.currency);
+      const currency = String(deal.payment.currency || "").toUpperCase();
+      const amount = Number(deal.payment.amountMinor);
+      if (/^[A-Z]{3}$/.test(currency) && Number.isSafeInteger(amount) && amount > 0) {
+        revenueByCurrency[currency] = (revenueByCurrency[currency] || 0) + amount;
+        currencies.add(currency);
+      }
     }
   }
+  const mixed = currencies.size > 1;
+  const onlyCurrency = currencies.size === 1 ? [...currencies][0] : null;
   return {
     dealCount: rows.length,
     counts,
-    confirmedRevenueMinor,
-    revenueCurrency: currencies.size === 1 ? [...currencies][0] : currencies.size === 0 ? null : "MIXED",
-    revenueIsMixedCurrency: currencies.size > 1,
-    note: "Only deals with confirmed payment evidence are included; mixed currencies are not converted."
+    confirmedRevenueMinor: mixed ? null : (onlyCurrency ? revenueByCurrency[onlyCurrency] : 0),
+    revenueCurrency: mixed ? "MIXED" : onlyCurrency,
+    revenueByCurrency,
+    revenueIsMixedCurrency: mixed,
+    note: "Only confirmed payments are included. Mixed currencies are reported separately and never summed or converted."
   };
 }
 
