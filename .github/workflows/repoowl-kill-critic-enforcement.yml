@@ -1,0 +1,222 @@
+name: RepoOwl Kill Critic Enforcement
+
+on:
+  workflow_run:
+    workflows: ["RepoOwl Kill Critic"]
+    types: [completed]
+
+permissions:
+  actions: read
+  contents: read
+  issues: write
+  pull-requests: write
+  checks: write
+
+jobs:
+  enforce:
+    if: github.event.workflow_run.conclusion != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Resolve pull request from workflow run
+        id: pr
+        uses: actions/github-script@v8
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const runId = context.payload.workflow_run.id;
+            const prs = await github.paginate(
+              github.rest.actions.listWorkflowRunPullRequests,
+              { owner: context.repo.owner, repo: context.repo.repo, run_id: runId, per_page: 100 }
+            );
+
+            if (!prs.length) {
+              core.setFailed("No pull request is associated with the completed Kill Critic run");
+              return;
+            }
+
+            if (prs.length !== 1) {
+              core.setFailed(`Expected one pull request, got ${prs.length}`);
+              return;
+            }
+
+            core.setOutput("number", String(prs[0].number));
+            core.setOutput("head_sha", prs[0].head.sha);
+
+      - name: Checkout trusted scanner
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Run trusted Kill Critic against PR diff
+        id: scan
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+          WORKFLOW_SHA: ${{ github.workflow_sha }}
+        run: node .github/scripts/kill-critic-gate.js
+
+      - name: Verify trusted receipt and enforce
+        uses: actions/github-script@v8
+        env:
+          RECEIPT_PATH: kill-critic-receipt.json
+          EXPECTED_PR: ${{ steps.pr.outputs.number }}
+          EXPECTED_HEAD_SHA: ${{ steps.pr.outputs.head_sha }}
+          SCANNER_SHA: ${{ github.workflow_sha }}
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require("fs");
+            const crypto = require("crypto");
+
+            const receipt = JSON.parse(
+              fs.readFileSync(process.env.RECEIPT_PATH, "utf8")
+            );
+
+            if (receipt.schema !== "repoowl.kill-critic.receipt/v2") {
+              throw new Error("Unsupported receipt schema");
+            }
+
+            if (receipt.repository !== process.env.GITHUB_REPOSITORY) {
+              throw new Error("Receipt repository mismatch");
+            }
+
+            if (String(receipt.pull_request) !== String(process.env.EXPECTED_PR)) {
+              throw new Error("Receipt pull request mismatch");
+            }
+
+            if (!/^[0-9a-f]{40}$/.test(receipt.base_sha) ||
+                !/^[0-9a-f]{40}$/.test(receipt.head_sha)) {
+              throw new Error("Invalid commit SHA in receipt");
+            }
+
+            if (receipt.head_sha !== process.env.EXPECTED_HEAD_SHA) {
+              throw new Error("Receipt head SHA mismatch");
+            }
+
+            if (receipt.scanner_workflow_sha !== process.env.SCANNER_SHA) {
+              throw new Error("Receipt scanner SHA mismatch");
+            }
+
+            if (!["ALLOW", "REVIEW", "BLOCK"].includes(receipt.decision)) {
+              throw new Error("Invalid Kill Critic decision");
+            }
+
+            const canonical = JSON.stringify({
+              schema: receipt.schema,
+              repository: receipt.repository,
+              pull_request: receipt.pull_request,
+              base_sha: receipt.base_sha,
+              head_sha: receipt.head_sha,
+              findings: receipt.findings,
+              decision: receipt.decision
+            });
+
+            const expected = crypto
+              .createHash("sha256")
+              .update(canonical)
+              .digest("hex");
+
+            if (expected !== receipt.receipt_sha256) {
+              throw new Error("Receipt SHA256 mismatch");
+            }
+
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const pr = Number(receipt.pull_request);
+
+            const labelSpecs = [
+              { name: "security", color: "B60205", description: "Security-related finding" },
+              { name: "needs-triage", color: "FBCA04", description: "Requires manual triage" }
+            ];
+
+            for (const label of labelSpecs) {
+              try {
+                await github.rest.issues.getLabel({
+                  owner, repo, name: label.name
+                });
+              } catch (error) {
+                if (error.status !== 404) throw error;
+                await github.rest.issues.createLabel({
+                  owner,
+                  repo,
+                  name: label.name,
+                  color: label.color,
+                  description: label.description
+                });
+              }
+            }
+
+            const summary = receipt.findings
+              .slice(0, 10)
+              .map(f => `- ${f.code} [${f.severity}] ${f.file || ""}`)
+              .join("\n") || "- Manual review required";
+
+            const marker = `<!-- repoowl-kill-critic:${receipt.receipt_sha256} -->`;
+
+            if (receipt.decision === "BLOCK" || receipt.decision === "REVIEW") {
+              await github.rest.issues.addLabels({
+                owner,
+                repo,
+                issue_number: pr,
+                labels: ["security", "needs-triage"]
+              });
+
+              const comments = await github.paginate(
+                github.rest.issues.listComments,
+                { owner, repo, issue_number: pr, per_page: 100 }
+              );
+
+              if (!comments.some(c => String(c.body || "").includes(marker))) {
+                await github.rest.issues.createComment({
+                  owner,
+                  repo,
+                  issue_number: pr,
+                  body:
+                    `${marker}\n` +
+                    `## RepoOwl Kill Critic: ${receipt.decision}\n\n` +
+                    `Receipt: \`${receipt.receipt_sha256}\`\n\n` +
+                    summary
+                });
+              }
+            }
+
+            const conclusion = receipt.decision === "ALLOW" ? "success" : "failure";
+            const title =
+              receipt.decision === "ALLOW"
+                ? "Kill Critic ALLOW"
+                : `Kill Critic ${receipt.decision}`;
+
+            await github.rest.checks.create({
+              owner,
+              repo,
+              name: "RepoOwl / Kill Critic Enforcement",
+              head_sha: receipt.head_sha,
+              status: "completed",
+              conclusion,
+              details_url: `https://github.com/${owner}/${repo}/pull/${pr}`,
+              output: {
+                title,
+                summary:
+                  `Decision: **${receipt.decision}**\\n\\n` +
+                  `Receipt: \`${receipt.receipt_sha256}\`\\n\\n` +
+                  (summary || "No findings.")
+              }
+            });
+
+            core.setOutput("decision", receipt.decision);
+            core.setOutput("receipt", receipt.receipt_sha256);
+
+      - name: Upload trusted proof receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kill-critic-trusted-receipt
+          path: kill-critic-receipt.json
+          if-no-files-found: error
+          retention-days: 14
