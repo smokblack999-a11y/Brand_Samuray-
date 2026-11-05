@@ -22,14 +22,37 @@ jobs:
           AGENT_CONTROL_URL: ${{ secrets.X10THINK_RECOVERY_URL }}
           WEBHOOK_SECRET: ${{ secrets.GITHUB_WEBHOOK_SECRET }}
           PAYLOAD: ${{ toJSON(github.event) }}
+        shell: bash
         run: |
           set -euo pipefail
-          test -n "${AGENT_CONTROL_URL:-}"
-          test -n "${WEBHOOK_SECRET:-}"
 
+          if [[ -z "${AGENT_CONTROL_URL:-}" ]]; then
+            echo "::error title=Missing GitHub Actions secret::X10THINK_RECOVERY_URL is empty. Configure it in repository Settings > Secrets and variables > Actions."
+            exit 1
+          fi
+          if [[ -z "${WEBHOOK_SECRET:-}" ]]; then
+            echo "::error title=Missing GitHub Actions secret::GITHUB_WEBHOOK_SECRET is empty. Configure it in repository Settings > Secrets and variables > Actions."
+            exit 1
+          fi
+
+          # Accept either a base URL with or without a trailing slash.
+          AGENT_CONTROL_URL="${AGENT_CONTROL_URL%/}"
           signature="sha256=$(printf '%s' "${PAYLOAD}" | openssl dgst -sha256 -hmac "${WEBHOOK_SECRET}" -hex | sed 's/^.* //')"
 
-          code="$(curl -sS -o /tmp/agent-control.json -w '%{http_code}'             --connect-timeout 5 --max-time 20             -X POST "${AGENT_CONTROL_URL}/api/agent-control/github/webhook"             -H "Content-Type: application/json"             -H "X-GitHub-Event: workflow_run"             -H "X-GitHub-Delivery: workflow-run-${{ github.event.workflow_run.id }}"             -H "X-Hub-Signature-256: ${signature}"             --data "${PAYLOAD}")"
+          if ! code="$(curl -sS -o /tmp/agent-control.json -w '%{http_code}' \
+            --connect-timeout 5 --max-time 20 \
+            -X POST "${AGENT_CONTROL_URL}/api/agent-control/github/webhook" \
+            -H "Content-Type: application/json" \
+            -H "X-GitHub-Event: workflow_run" \
+            -H "X-GitHub-Delivery: workflow-run-${{ github.event.workflow_run.id }}" \
+            -H "X-Hub-Signature-256: ${signature}" \
+            --data "${PAYLOAD}")"; then
+            echo "::error title=Agent-control endpoint unreachable::Could not send workflow event to the configured X10THINK_RECOVERY_URL."
+            exit 1
+          fi
 
           cat /tmp/agent-control.json
-          test "${code}" -ge 200 -a "${code}" -lt 300
+          if [[ ! "${code}" =~ ^2[0-9][0-9]$ ]]; then
+            echo "::error title=Agent-control rejected event::Endpoint returned HTTP ${code}. Check its deployment, route, and matching webhook secret."
+            exit 1
+          fi
