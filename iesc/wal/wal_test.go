@@ -1,0 +1,4 @@
+package wal
+import("os";"path/filepath";"testing")
+func TestRoundTripRecovery(t *testing.T){p:=filepath.Join(t.TempDir(),"x.wal");w,err:=Open(p,[]byte("0123456789abcdef"));if err!=nil{t.Fatal(err)};if err=w.Append(Event{1,7,[]byte("ok")},true);err!=nil{t.Fatal(err)};w.Close();w,err=Open(p,[]byte("0123456789abcdef"));if err!=nil{t.Fatal(err)};defer w.Close();ev,err:=w.Recover();if err!=nil||len(ev)!=1||string(ev[0].Payload)!="ok"{t.Fatalf("%v %#v",err,ev)}}
+func TestTamperedTailTruncated(t *testing.T){p:=filepath.Join(t.TempDir(),"x.wal");w,_:=Open(p,[]byte("0123456789abcdef"));_ = w.Append(Event{1,1,[]byte("good")},true);w.Close();f,_:=os.OpenFile(p,os.O_RDWR,0600);_,_=f.WriteAt([]byte("X"),52);f.Close();w,_=Open(p,[]byte("0123456789abcdef"));defer w.Close();ev,err:=w.Recover();if err!=nil||len(ev)!=0{t.Fatalf("%v %#v",err,ev)}}
