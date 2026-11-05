@@ -2,6 +2,8 @@ package com.samuraios.app
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.app.AlertDialog
+import android.text.InputType
 import android.graphics.Color
 import android.location.Location
 import android.os.Bundle
@@ -14,10 +16,12 @@ import android.widget.EditText
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
+import android.widget.SeekBar
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
@@ -26,9 +30,6 @@ import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
-import com.google.android.gms.location.LocationServices
-import com.google.android.gms.location.Priority
-import com.google.android.gms.tasks.CancellationTokenSource
 import java.io.File
 import java.io.OutputStream
 import java.net.HttpURLConnection
@@ -40,8 +41,9 @@ import java.util.concurrent.Executors
 import kotlin.concurrent.thread
 
 class MainActivity : ComponentActivity() {
-    private val coreUrl = BuildConfig.CORE_BASE_URL.trimEnd('/')
-    private val coreApiKey = BuildConfig.CORE_API_KEY.trim()
+    private val coreConfig by lazy { CoreConfigStore(this) }
+    private val coreUrl: String get() = coreConfig.baseUrl
+    private val coreApiKey: String get() = coreConfig.apiKey()
     private val permissionRequest = 100
     private lateinit var previewView: PreviewView
     private lateinit var statusText: TextView
@@ -49,12 +51,13 @@ class MainActivity : ComponentActivity() {
     private lateinit var chatIdInput: EditText
     private lateinit var messageInput: EditText
     private lateinit var galleryContainer: LinearLayout
+    private lateinit var zoomSeekBar: SeekBar
+    private lateinit var zoomLabel: TextView
+    private var activeCamera: Camera? = null
     private var imageCapture: ImageCapture? = null
     private var selectedPhoto: File? = null
-    private var pendingTimestamp: Long = 0L
     private var cameraExecutor: ExecutorService? = null
     private val mainHandler = Handler(Looper.getMainLooper())
-    private val locationClient by lazy { LocationServices.getFusedLocationProviderClient(this) }
     private val galleryPicker = registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri == null) return@registerForActivityResult
         runCatching {
@@ -68,22 +71,29 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         cameraExecutor = Executors.newSingleThreadExecutor()
         buildUi()
-        if (hasPermissions()) startCamera() else ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.CAMERA, Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION), permissionRequest)
+        if (hasCameraPermission()) { startCamera(); if (!hasLocationPermission()) ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION), permissionRequest) } else ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.CAMERA, Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION), permissionRequest)
         refreshGallery()
         checkCoreStatus()
     }
 
-    override fun onDestroy() { cameraExecutor?.shutdown(); super.onDestroy() }
+    override fun onDestroy() { activeCamera = null; cameraExecutor?.shutdown(); super.onDestroy() }
 
-    private fun hasPermissions(): Boolean =
-        ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED &&
-        (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
-         ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED)
+    private fun hasCameraPermission(): Boolean =
+        ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
+
+    private fun hasLocationPermission(): Boolean =
+        ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
+        ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == permissionRequest && hasPermissions()) startCamera()
-        else showToast("Для камеры и GPS нужны разрешения")
+        if (requestCode != permissionRequest) return
+        if (hasCameraPermission()) {
+            startCamera()
+            if (!hasLocationPermission()) showToast("Камера работает без GPS: разрешение геолокации не выдано")
+        } else {
+            showToast("Для съёмки необходимо разрешение камеры")
+        }
     }
 
     private fun buildUi() {
@@ -92,13 +102,32 @@ class MainActivity : ComponentActivity() {
         root.addView(statusText)
         previewView = PreviewView(this).apply { scaleType = PreviewView.ScaleType.FILL_CENTER }
         root.addView(previewView, LinearLayout.LayoutParams(-1, 520))
+        zoomLabel = TextView(this).apply { text = "ЗУМ: 1.0x"; setTextColor(Color.WHITE); setPadding(0, 8, 0, 0) }
+        root.addView(zoomLabel)
+        zoomSeekBar = SeekBar(this).apply {
+            max = 100
+            progress = 0
+            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                    val camera = activeCamera ?: return
+                    val zoom = camera.cameraInfo.zoomState.value ?: return
+                    val ratio = zoom.minZoomRatio + (zoom.maxZoomRatio - zoom.minZoomRatio) * (progress / 100f)
+                    camera.cameraControl.setZoomRatio(ratio)
+                    zoomLabel.text = "ЗУМ: %.1fx".format(ratio)
+                }
+                override fun onStartTrackingTouch(seekBar: SeekBar?) {}
+                override fun onStopTrackingTouch(seekBar: SeekBar?) {}
+            })
+        }
+        root.addView(zoomSeekBar)
         root.addView(Button(this).apply { text = "СНЯТЬ ФОТО + GPS"; setOnClickListener { capturePhoto() } })
         root.addView(Button(this).apply { text = "ИМПОРТИРОВАТЬ ИЗ ГАЛЕРЕИ"; setOnClickListener { galleryPicker.launch("image/*") } })
         root.addView(TextView(this).apply { text = "Галерея SamuraiOS — приватная копия"; textSize = 18f; setTextColor(Color.WHITE); setPadding(0, 18, 0, 8) })
         galleryContainer = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         root.addView(galleryContainer)
         root.addView(TextView(this).apply { text = "Telegram"; textSize = 20f; setTextColor(Color.WHITE); setPadding(0, 24, 0, 8) })
-        root.addView(Button(this).apply { text = "Мой Telegram"; setOnClickListener { loadMe() } })
+        root.addView(Button(this).apply { text = "НАСТРОИТЬ CORE / API"; setOnClickListener { openCoreSettings() } })
+        root.addView(Button(this).apply { text = "Проверить Telegram-бота"; setOnClickListener { loadMe() } })
         root.addView(Button(this).apply { text = "Диалоги"; setOnClickListener { loadDialogs() } })
         chatIdInput = EditText(this).apply { hint = "Chat ID, например -100..."; setSingleLine(true); setTextColor(Color.WHITE); setHintTextColor(Color.GRAY) }
         root.addView(chatIdInput, LinearLayout.LayoutParams(-1, -2))
@@ -118,9 +147,12 @@ class MainActivity : ComponentActivity() {
             try {
                 val provider = future.get()
                 val preview = Preview.Builder().build().also { it.setSurfaceProvider(previewView.surfaceProvider) }
-                imageCapture = ImageCapture.Builder().setJpegQuality(85).build()
+                imageCapture = ImageCapture.Builder().setJpegQuality(95).build()
                 provider.unbindAll()
-                provider.bindToLifecycle(this, CameraSelector.DEFAULT_BACK_CAMERA, preview, imageCapture)
+                activeCamera = provider.bindToLifecycle(this, CameraSelector.DEFAULT_BACK_CAMERA, preview, imageCapture)
+                val zoom = activeCamera?.cameraInfo?.zoomState?.value
+                zoomLabel.text = "ЗУМ: %.1fx - %.1fx".format(zoom?.minZoomRatio ?: 1f, zoom?.maxZoomRatio ?: 1f)
+                zoomSeekBar.progress = 0
                 statusText.text = "SamuraiOS: CAMERA ONLINE"
             } catch (e: Exception) { statusText.text = "Camera error: ${e.message}" }
         }, ContextCompat.getMainExecutor(this))
@@ -129,10 +161,10 @@ class MainActivity : ComponentActivity() {
     private fun capturePhoto() {
         val capture = imageCapture ?: run { showToast("Камера ещё не готова"); return }
         val file = Vault.createPhotoFile(this)
-        pendingTimestamp = System.currentTimeMillis()
+        val captureTimestamp = System.currentTimeMillis()
         capture.takePicture(ImageCapture.OutputFileOptions.Builder(file).build(), cameraExecutor!!, object : ImageCapture.OnImageSavedCallback {
             override fun onError(exception: ImageCaptureException) { file.delete(); mainHandler.post { showToast("Ошибка камеры: ${exception.message}") } }
-            override fun onImageSaved(outputFileResults: ImageCapture.OutputFileResults) { fetchLocationAndSaveMetadata(file, pendingTimestamp) }
+            override fun onImageSaved(outputFileResults: ImageCapture.OutputFileResults) { fetchLocationAndSaveMetadata(file, captureTimestamp) }
         })
     }
 
@@ -140,12 +172,17 @@ class MainActivity : ComponentActivity() {
         if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
             Vault.saveMetadata(photo, null, null, null, timestamp); mainHandler.post { refreshGallery(); showToast("Фото сохранено, GPS без разрешения") }; return
         }
-        locationClient.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, CancellationTokenSource().token)
-            .addOnSuccessListener { location: Location? ->
-                Vault.saveMetadata(photo, location?.latitude, location?.longitude, location?.accuracy, timestamp)
-                mainHandler.post { refreshGallery(); outputText.text = if (location != null) "Сохранено: %.6f, %.6f ± %.1fm".format(location.latitude, location.longitude, location.accuracy) else "Сохранено без GPS fix" }
+        GeoLocationProvider.current(this) { location: Location? ->
+            Vault.saveMetadata(photo, location?.latitude, location?.longitude, location?.accuracy, timestamp)
+            mainHandler.post {
+                refreshGallery()
+                outputText.text = if (location != null) {
+                    "Сохранено: %.6f, %.6f ± %.1fm".format(location.latitude, location.longitude, location.accuracy)
+                } else {
+                    "Сохранено без GPS fix — координаты не подставлены"
+                }
             }
-            .addOnFailureListener { Vault.saveMetadata(photo, null, null, null, timestamp); mainHandler.post { refreshGallery(); showToast("Фото сохранено, GPS недоступен") } }
+        }
     }
 
     private fun refreshGallery() {
@@ -157,14 +194,63 @@ class MainActivity : ComponentActivity() {
             val image = ImageView(this).apply { setImageURI(android.net.Uri.fromFile(photo)); scaleType = ImageView.ScaleType.CENTER_CROP }
             row.addView(image, LinearLayout.LayoutParams(180, 130))
             val meta = Vault.metadata(photo)
-            val text = TextView(this).apply { text = if (meta?.has("latitude") == true && !meta.isNull("latitude")) "${photo.name}\nGPS: ${meta.optDouble("latitude")}, ${meta.optDouble("longitude")}\n± ${meta.optDouble("accuracyMeters", 0.0)} m" else photo.name + "\nGPS: нет fix"; setTextColor(Color.LTGRAY); setPadding(12, 0, 0, 0) }
+            val text = TextView(this).apply {
+                text = if (meta?.has("latitude") == true && !meta.isNull("latitude")) {
+                    "${photo.name}\nGPS: ${meta.optDouble("latitude")}, ${meta.optDouble("longitude")}\n± ${meta.optDouble("accuracyMeters", 0.0)} m\nШтамп на фото: ${if (meta.optBoolean("visibleGpsStamp", false)) "да" else "нет; JSON sidecar сохранён"}"
+                } else photo.name + "\nGPS: нет fix"
+                setTextColor(Color.LTGRAY); setPadding(12, 0, 0, 0)
+            }
             row.addView(text, LinearLayout.LayoutParams(0, -2, 1f))
             row.setOnClickListener { selectedPhoto = photo; outputText.text = "Выбрано: ${photo.name}" }
             galleryContainer.addView(row)
         }
     }
 
-    private fun checkCoreStatus() = apiGet("/health") { result -> mainHandler.post { if (result.startsWith("ERROR:")) statusText.text = "Core: OFFLINE" else statusText.text = "Camera/Gallery + Core ONLINE"; outputText.text = result } }
+    private fun openCoreSettings() {
+        val form = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(32, 8, 32, 0)
+        }
+        val urlInput = EditText(this).apply {
+            hint = "Core HTTPS URL, например https://your-service.example"
+            setSingleLine(true)
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI
+            setText(coreUrl)
+        }
+        val keyInput = EditText(this).apply {
+            hint = "Новый CORE_API_KEY (пусто — оставить прежний)"
+            setSingleLine(true)
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+            // Keep the existing secret out of the UI; leave blank to preserve it.
+        }
+        form.addView(urlInput, LinearLayout.LayoutParams(-1, -2))
+        form.addView(keyInput, LinearLayout.LayoutParams(-1, -2))
+        AlertDialog.Builder(this)
+            .setTitle("Подключение SamuraiOS Core")
+            .setMessage("Ключ хранится зашифрованным через Android Keystore. Используйте HTTPS и не передавайте ключ посторонним.")
+            .setView(form)
+            .setNegativeButton("Отмена", null)
+            .setPositiveButton("Сохранить", null)
+            .create()
+            .also { dialog ->
+                dialog.setOnShowListener {
+                    dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                        val url = urlInput.text.toString().trim()
+                        val key = keyInput.text.toString()
+                        if (!coreConfig.save(url, key)) {
+                            urlInput.error = "Укажите корректный HTTPS URL Core"
+                            return@setOnClickListener
+                        }
+                        dialog.dismiss()
+                        outputText.text = if (url.isBlank()) "Core не настроен. Камера и локальная галерея остаются доступны." else "Настройки сохранены. Проверяю Core..."
+                        checkCoreStatus()
+                    }
+                }
+                dialog.show()
+            }
+    }
+
+    private fun checkCoreStatus() { if (coreUrl.isBlank()) { statusText.text = if (hasCameraPermission()) "Camera ready - Core not configured" else "Core not configured"; outputText.text = "Core is not configured. Camera and local gallery remain available. Set HTTPS URL and CORE_API_KEY for Telegram."; return }; apiGet("/health") { result -> mainHandler.post { statusText.text = when { result.startsWith("ERROR:") && hasCameraPermission() -> "Camera/Gallery ready - Core OFFLINE"; result.startsWith("ERROR:") -> "Core: OFFLINE"; hasCameraPermission() -> "Camera/Gallery + Core ONLINE"; else -> "Core ONLINE - camera permission required" }; outputText.text = result } } }
     private fun loadMe() = apiGet("/api/telegram/me") { result -> mainHandler.post { outputText.text = result } }
     private fun loadDialogs() = apiGet("/api/telegram/dialogs?limit=20") { result -> mainHandler.post { outputText.text = result } }
 
@@ -186,6 +272,11 @@ class MainActivity : ComponentActivity() {
         outputText.text = "Подготовка фото..."
         thread {
             try {
+                val maxUploadBytes = 10L * 1024L * 1024L
+                if (photo.length() > maxUploadBytes) {
+                    mainHandler.post { outputText.text = "ERROR: Фото больше 10 МБ. Уменьшите файл перед отправкой; сервер принимает JSON до 16 МБ." }
+                    return@thread
+                }
                 val bytes = photo.readBytes(); val base64 = Base64.encodeToString(bytes, Base64.NO_WRAP); val meta = Vault.metadata(photo)
                 val caption = if (meta != null) "SamuraiOS | ${meta.optDouble("latitude", Double.NaN)}, ${meta.optDouble("longitude", Double.NaN)} | ±${meta.optDouble("accuracyMeters", 0.0)}m" else "SamuraiOS | ${photo.name}"
                 val latitude = meta?.takeIf { !it.isNull("latitude") }?.optDouble("latitude")
@@ -203,11 +294,12 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun apiGet(path: String, callback: (String) -> Unit) {
+        if (coreUrl.isBlank()) { mainHandler.post { callback("ERROR: Core не настроен. Откройте «НАСТРОИТЬ CORE / API» и укажите HTTPS URL.") }; return }
         thread {
             var connection: HttpURLConnection? = null
             try {
                 connection = (URL(coreUrl + path).openConnection() as HttpURLConnection).apply {
-                    requestMethod = "GET"; connectTimeout = 5000; readTimeout = 10000; useCaches = false
+                    requestMethod = "GET"; connectTimeout = 5000; readTimeout = 10000; useCaches = false; instanceFollowRedirects = false
                     apiHeaders(this)
                 }
                 val code = connection.responseCode; val stream = if (code in 200..299) connection.inputStream else connection.errorStream; val body = stream?.bufferedReader()?.use { it.readText() } ?: ""
@@ -217,11 +309,12 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun apiPost(path: String, json: String, callback: (String) -> Unit) {
+        if (coreUrl.isBlank()) { mainHandler.post { callback("ERROR: Core не настроен. Откройте «НАСТРОИТЬ CORE / API» и укажите HTTPS URL.") }; return }
         thread {
             var connection: HttpURLConnection? = null
             try {
                 connection = (URL(coreUrl + path).openConnection() as HttpURLConnection).apply {
-                    requestMethod = "POST"; connectTimeout = 5000; readTimeout = 30000; useCaches = false; doOutput = true
+                    requestMethod = "POST"; connectTimeout = 5000; readTimeout = 30000; useCaches = false; doOutput = true; instanceFollowRedirects = false
                     setRequestProperty("Content-Type", "application/json; charset=UTF-8")
                     apiHeaders(this)
                 }
