@@ -15,9 +15,7 @@ android {
         versionName '1.3.0'
 
         def configuredCoreUrl = project.findProperty('CORE_BASE_URL') ?: 'https://core.example.invalid'
-        def configuredApiKey = project.findProperty('CORE_API_KEY') ?: ''
         buildConfigField 'String', 'CORE_BASE_URL', '"' + configuredCoreUrl.replace('"', '\\"') + '"'
-        buildConfigField 'String', 'CORE_API_KEY', '"' + configuredApiKey.replace('"', '\\"') + '"'
     }
 
     buildFeatures {

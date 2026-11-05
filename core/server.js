@@ -7,7 +7,7 @@ const cors = require("cors");
 const { scoreLead } = require("./lead-engine");
 const { generateReply, checkOpenAI } = require("./openai");
 const { sendBusinessMessage } = require("./business-bot");
-const telegramCamera = require("./telegram-camera");
+
 const { saveLead, claimEvent, updateLead, listLeads, stats } = require("./store");
 const { createRateLimiter } = require("./rate-limit");
 const dualAI = require("./dual-ai/engine");
@@ -34,7 +34,15 @@ if (process.env.NODE_ENV === "production") {
 app.disable("x-powered-by");
 app.set("trust proxy", process.env.TRUST_PROXY === "true" ? 1 : false);
 app.use(cors(CORS_ORIGIN ? { origin: CORS_ORIGIN } : { origin: false }));
-app.use(express.json({ limit: "16mb", verify: (req, _res, buf) => { req.rawBody = Buffer.from(buf); } }));
+app.use(express.json({
+  limit: "16mb",
+  verify: (req, _res, buf) => {
+    // Preserve exact bytes only for the HMAC-verified GitHub webhook; photo uploads do not need a duplicate body buffer.
+    if (req.originalUrl.split("?")[0] === "/api/agent-control/github/webhook") {
+      req.rawBody = Buffer.from(buf);
+    }
+  }
+}));
 
 function errorBody(code, message, requestId) {
   return { ok: false, error: { code, message, requestId } };
@@ -276,7 +284,7 @@ app.post("/api/lead/analyze", requireApiKey, leadRateLimit, async (req, res) => 
 
 app.get("/api/telegram/me", requireApiKey, async (req, res) => {
   try {
-    const result = await telegramCamera.getMe();
+    const result = await telegramUser().getMe();
     return res.json({ ok: true, telegram: result, requestId: req.requestId });
   } catch (error) {
     return res.status(503).json(errorBody(error.code || "TELEGRAM_UNAVAILABLE", "Telegram unavailable", req.requestId));
@@ -308,10 +316,14 @@ app.post("/api/telegram/send", requireApiKey, async (req, res) => {
     const chatId = String(req.body?.chatId || "").trim();
     const message = String(req.body?.message || "").trim();
     if (!chatId || !message) return res.status(400).json(errorBody("INVALID_TELEGRAM_MESSAGE", "chatId and message are required", req.requestId));
-    const result = await telegramCamera.sendMessage({ chatId, message });
+    const result = await telegramUser().sendMessage(chatId, message);
     return res.json({ ok: true, result, requestId: req.requestId });
   } catch (error) {
-    return res.status(502).json(errorBody(error.code || "TELEGRAM_SEND_FAILED", "Telegram send failed", req.requestId));
+    const status = error.code === "TELEGRAM_NOT_CONFIGURED" ? 503 :
+      ["INVALID_CHAT_ID", "INVALID_MESSAGE"].includes(error.code) ? 400 : 502;
+    const message = status === 503 ? "Telegram user session is not configured" :
+      status === 400 ? error.message : "Telegram send failed";
+    return res.status(status).json(errorBody(error.code || "TELEGRAM_SEND_FAILED", message, req.requestId));
   }
 });
 
@@ -321,7 +333,7 @@ app.post("/api/telegram/send-photo", requireApiKey, async (req, res) => {
     if (!String(chatId || "").trim() || !String(base64 || "").trim()) {
       return res.status(400).json(errorBody("INVALID_TELEGRAM_PHOTO", "chatId and base64 photo are required", req.requestId));
     }
-    const result = await telegramCamera.sendPhoto({
+    const result = await telegramUser().sendPhotoBase64({
       chatId: String(chatId).trim(),
       fileName,
       caption,
@@ -329,10 +341,12 @@ app.post("/api/telegram/send-photo", requireApiKey, async (req, res) => {
       latitude,
       longitude,
     });
-    return res.json({ ok: true, result, locationSent: latitude != null && longitude != null, requestId: req.requestId });
+    return res.json({ ok: true, result, coordinatesIncludedInCaption: result.caption.includes("GPS: "), locationSent: Boolean(result.locationSent), requestId: req.requestId });
   } catch (error) {
-    const status = error.code === "TELEGRAM_NOT_CONFIGURED" ? 503 : 502;
-    return res.status(status).json(errorBody(error.code || "TELEGRAM_PHOTO_FAILED", status === 503 ? "Telegram is not configured" : "Telegram photo send failed", req.requestId));
+    const status = error.code === "TELEGRAM_NOT_CONFIGURED" ? 503 :
+      ["INVALID_CHAT_ID", "INVALID_PHOTO", "INVALID_PHOTO_SIZE"].includes(error.code) ? 400 : 502;
+    return res.status(status).json(errorBody(error.code || "TELEGRAM_PHOTO_FAILED", status === 503 ? "Telegram user session is not configured" :
+      status === 400 ? (error.message || "Invalid Telegram photo request") : "Telegram photo send failed", req.requestId));
   }
 });
 
