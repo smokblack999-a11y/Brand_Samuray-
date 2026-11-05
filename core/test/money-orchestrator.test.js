@@ -86,3 +86,22 @@ test("loss reason is mandatory and terminal deals cannot be lost", () => {
   });
   assert.throws(() => money.markLost(deal, { reason: "changed mind" }), { code: "INVALID_TRANSITION" });
 });
+
+
+test("does not add different currencies into one misleading total", () => {
+  let kzt = readyForPayment();
+  kzt = money.confirmPayment(kzt, {
+    verified: true, signatureVerified: true, verificationMethod: "provider_webhook",
+    externalReference: "evt-kzt", verifiedBy: "provider", amountMinor: 50000, currency: "KZT"
+  });
+  const usd = {
+    ...kzt,
+    id: "deal-usd",
+    offer: { ...kzt.offer, currency: "USD" },
+    payment: { ...kzt.payment, currency: "USD", amountMinor: 1200 }
+  };
+  const summary = money.summarize([kzt, usd]);
+  assert.equal(summary.confirmedRevenueMinor, null);
+  assert.equal(summary.revenueCurrency, "MIXED");
+  assert.deepEqual(summary.revenueByCurrency, { KZT: 50000, USD: 1200 });
+});
