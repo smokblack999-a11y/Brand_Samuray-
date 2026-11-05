@@ -164,3 +164,28 @@ Design rule: one Core API and one canonical identity/data model; modules stay se
 - **Not implemented:** no executable implementation found in inspected sources.
 
 A source file existing is not proof that its feature works. A passing unit test is not proof of production safety or customer demand.
+
+
+## Additional project-samurai branch findings
+
+### MoneyProof candidate
+
+- `feat/x10-moneyproof` adds explicit evidence classes (paid, buying intent, qualified demo, budget pain, weak, speculation), an opportunity model, and tests.
+- This is a useful policy concept for the Money Orchestrator: separate observed buyer evidence from model-generated assumptions.
+- A logic issue needs fixing before porting: `MoneyProof.decide()` uses the highest-ranked signal without considering its confidence. A `PAID` signal with confidence `0.0` can still return `BUILD`. Decision thresholds must include confidence and evidence provenance; paid evidence should require a verifiable payment record.
+- Branch divergence: 22 commits ahead / 41 behind main. Port only the small evidence model after tests and schema review.
+
+### HAMYLION production-hardening candidate
+
+- `x10thinc/production-hardening-v6` is 80 commits ahead / 5 behind `project-samurai/main`, making it a closer integration candidate than the older HAMYLION baseline.
+- It adds database-backed API-key records, Alembic migrations, per-event delivery records, retry scheduling, and more complete Redis worker processing.
+- It still needs CI repair: the latest observed HAMYLION CI run failed during `alembic upgrade head` with `ModuleNotFoundError: No module named 'psycopg'`; pytest and compileall were skipped after that failure. Therefore it is **not CI-green** and not ready to deploy.
+- Its auth code retains a configured bootstrap `settings.API_KEY` fallback mapped to `default-project`. Production mode should either disable this fallback or scope it to an explicit bootstrap-only deployment path.
+- The project branch is a candidate for a cloud durable-event service, not automatically the Termux deployment target. Termux should keep a light local profile; cloud production can use PostgreSQL + Redis after migrations and CI pass.
+
+### LeadOps pilot candidate
+
+- `feat/leadops-pilot-clean` contains a FastAPI LeadOps service, deterministic baseline classification, optional OpenAI classification, event storage, pilot metrics, and operational docs.
+- Its inspected `leadops/app.py` does not show route authentication, webhook signature verification, or rate limiting. Reuse the classification contract only; do not expose the service as-is.
+- Branch divergence: 136 commits ahead / 44 behind main. Do not merge wholesale.
+
