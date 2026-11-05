@@ -12,6 +12,32 @@ function sha256(value) {
   return crypto.createHash("sha256").update(String(value)).digest("hex");
 }
 
+function createCandidateBinding(input = {}) {
+  const files = nexus.classifyFiles(Array.isArray(input.files) ? input.files : []).files.sort();
+  return Object.freeze({
+    resource: typeof input.resource === "string" ? input.resource.trim() : "",
+    beforeSha: String(input.beforeSha || "").toLowerCase(),
+    afterSha: String(input.afterSha || "").toLowerCase(),
+    changedFilesSha256: sha256(JSON.stringify(files)),
+    diffSha256: sha256(String(input.diff || ""))
+  });
+}
+
+function normalizeCandidateBinding(binding) {
+  if (!binding || typeof binding !== "object") return null;
+  const normalized = {
+    resource: String(binding.resource || "").trim(),
+    beforeSha: String(binding.beforeSha || "").toLowerCase(),
+    afterSha: String(binding.afterSha || "").toLowerCase(),
+    changedFilesSha256: String(binding.changedFilesSha256 || "").toLowerCase(),
+    diffSha256: String(binding.diffSha256 || "").toLowerCase()
+  };
+  if (!normalized.resource || !GIT_SHA.test(normalized.beforeSha) ||
+      !GIT_SHA.test(normalized.afterSha) || !HEX_64.test(normalized.changedFilesSha256) ||
+      !HEX_64.test(normalized.diffSha256)) return null;
+  return normalized;
+}
+
 function canonicalCheck(check) {
   return JSON.stringify({
     checkId: String(check.checkId || ""),
@@ -21,7 +47,8 @@ function canonicalCheck(check) {
     runnerId: String(check.runnerId || ""),
     startedAt: String(check.startedAt || ""),
     finishedAt: String(check.finishedAt || ""),
-    artifactSha256: String(check.artifactSha256 || "").toLowerCase()
+    artifactSha256: String(check.artifactSha256 || "").toLowerCase(),
+    candidateBinding: normalizeCandidateBinding(check.candidateBinding)
   });
 }
 
@@ -29,9 +56,12 @@ function validSecret(secret) {
   return typeof secret === "string" && Buffer.byteLength(secret, "utf8") >= 32;
 }
 
-function signEvidence(check, secret) {
+function signEvidence(check, secret, candidateBinding) {
   if (!validSecret(secret)) throw new Error("hard988_secret_must_be_at_least_32_bytes");
-  const body = canonicalCheck(check);
+  const binding = normalizeCandidateBinding(candidateBinding);
+  if (!binding) throw new Error("hard988_candidate_binding_invalid");
+  const signedCheck = { ...check, candidateBinding: binding };
+  const body = canonicalCheck(signedCheck);
   return {
     checkId: String(check.checkId || ""),
     name: String(check.name || ""),
@@ -41,6 +71,7 @@ function signEvidence(check, secret) {
     startedAt: String(check.startedAt || ""),
     finishedAt: String(check.finishedAt || ""),
     artifactSha256: String(check.artifactSha256 || "").toLowerCase(),
+    candidateBinding: binding,
     signature: crypto.createHmac("sha256", secret).update(body).digest("hex")
   };
 }
@@ -70,6 +101,7 @@ function evaluateHard988(input = {}, options = {}) {
   const afterSha = String(input.afterSha || "");
   const fromState = input.fromState || "CI_PASSED";
   const toState = input.toState || "READY_FOR_REVIEW";
+  const expectedBinding = createCandidateBinding(input);
 
   if (!validSecret(secret)) addReason(reasons, "trusted_runner_secret_missing_or_too_short");
   if (!resource) addReason(reasons, "resource_identity_missing");
@@ -124,6 +156,10 @@ function evaluateHard988(input = {}, options = {}) {
     } else if (Date.parse(check.finishedAt) < Date.parse(check.startedAt)) {
       addReason(reasons, "check_finished_before_start:" + name);
     }
+    if (!check.candidateBinding ||
+        JSON.stringify(normalizeCandidateBinding(check.candidateBinding)) !== JSON.stringify(expectedBinding)) {
+      addReason(reasons, "candidate_binding_mismatch:" + name);
+    }
     if (!verifySignature(check, secret)) addReason(reasons, "check_signature_invalid:" + name);
   }
 
@@ -147,6 +183,7 @@ function evaluateHard988(input = {}, options = {}) {
       name: String(check.name || ""),
       runnerId: String(check.runnerId || ""),
       artifactSha256: String(check.artifactSha256 || "").toLowerCase(),
+      candidateBinding: normalizeCandidateBinding(check.candidateBinding),
       signature: String(check.signature || "")
     }))
     .sort((a, b) => a.name.localeCompare(b.name));
@@ -159,6 +196,7 @@ function evaluateHard988(input = {}, options = {}) {
     policyEvaluationHash: policy.evaluationHash,
     beforeSha: GIT_SHA.test(beforeSha) ? beforeSha.toLowerCase() : null,
     afterSha: GIT_SHA.test(afterSha) ? afterSha.toLowerCase() : null,
+    candidateBinding: expectedBinding,
     changedFiles: classification.files,
     criticality: classification.criticality,
     categories: classification.categories,
@@ -178,6 +216,7 @@ function evaluateHard988(input = {}, options = {}) {
 module.exports = {
   SCHEMA,
   CHECK_NAMES,
+  createCandidateBinding,
   signEvidence,
   verifySignature,
   evaluateHard988
