@@ -139,12 +139,15 @@ function summarizeGroup(items) {
   const won = items.filter((item) => item.outcome === "won").length;
   const lost = items.filter((item) => item.outcome === "lost").length;
   const open = items.filter((item) => item.outcome === "open").length;
+  const resolved = won + lost;
   return {
     leads: items.length,
     won,
     lost,
     open,
-    winRatePct: percent(won, items.length)
+    resolved,
+    // Open deals are excluded: they have not reached a final outcome.
+    winRatePct: percent(won, resolved)
   };
 }
 
