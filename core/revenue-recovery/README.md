@@ -37,6 +37,8 @@ L-003,2026-10-01T09:00:00Z,,lost
 - `first_response_at`: same format; blank means no response timestamp was recorded.
 - `outcome`: exactly `open`, `won`, or `lost`.
 - Extra columns are ignored. Do not send message text, phone numbers, emails or other direct identifiers.
+- Group win rate is calculated only over closed outcomes (`won` + `lost`); open leads are reported separately and excluded from the denominator.
+- SLA timing currently uses elapsed clock minutes, not business hours or a holiday calendar.
 
 Example:
 
