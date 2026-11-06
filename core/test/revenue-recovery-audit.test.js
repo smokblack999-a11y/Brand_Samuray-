@@ -88,3 +88,19 @@ test("rejects malformed CSV and missing required columns", () => {
   assert.throws(() => parseCsvLeads("lead_id,created_at\n1,2026-10-01T09:00:00Z"), e => e.code === "INVALID_CSV");
   assert.throws(() => parseCsvLeads('lead_id,created_at,first_response_at,outcome\n1,2026-10-01T09:00:00Z,,"open'), e => e.code === "INVALID_CSV");
 });
+
+test("calculates win rate only from closed outcomes, excluding open leads", () => {
+  const report = auditRevenueLeakage({
+    currency: "USD",
+    leads: [
+      { id: "won-1", createdAt: "2026-10-01T09:00:00Z", firstResponseAt: "2026-10-01T09:01:00Z", outcome: "won" },
+      { id: "lost-1", createdAt: "2026-10-01T09:00:00Z", firstResponseAt: "2026-10-01T09:02:00Z", outcome: "lost" },
+      { id: "open-1", createdAt: "2026-10-01T09:00:00Z", firstResponseAt: "2026-10-01T09:03:00Z", outcome: "open" },
+      { id: "open-2", createdAt: "2026-10-01T09:00:00Z", firstResponseAt: null, outcome: "open" }
+    ]
+  });
+  assert.equal(report.outcomesByResponseGroup.withinSla.resolved, 2);
+  assert.equal(report.outcomesByResponseGroup.withinSla.winRatePct, 50);
+  assert.equal(report.outcomesByResponseGroup.noRecordedResponse.resolved, 0);
+  assert.equal(report.outcomesByResponseGroup.noRecordedResponse.winRatePct, null);
+});
