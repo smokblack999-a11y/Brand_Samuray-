@@ -3,6 +3,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const { spawnSync } = require("node:child_process");
 
 const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "samurai-agent-control-"));
 process.env.DATA_DIR = dataDir;
@@ -30,14 +31,25 @@ test("GitHub webhook HMAC accepts only exact raw-body signature", () => {
   assert.equal(agent.verifyGithubSignature(raw, signature, ""), false);
 });
 
-test("workflow delivery is idempotent and survives module restart", () => {
+test("workflow delivery is idempotent and survives a separate process restart", () => {
   const first = agent.ingestWorkflowRun(event(101), "delivery-101");
   assert.equal(first.duplicate, false);
   const duplicate = agent.ingestWorkflowRun(event(101), "delivery-101");
   assert.equal(duplicate.duplicate, true);
+
+  const child = spawnSync(process.execPath, ["-e", `
+    const agent = require("./agent-control");
+    const jobs = agent.listJobs(10);
+    process.stdout.write(JSON.stringify({ count: jobs.length, workflowId: jobs[0]?.workflow?.id }));
+  `], {
+    cwd: path.resolve(__dirname, ".."),
+    env: { ...process.env, DATA_DIR: dataDir },
+    encoding: "utf8"
+  });
+  assert.equal(child.status, 0, child.stderr);
+  assert.deepEqual(JSON.parse(child.stdout), { count: 1, workflowId: 101 });
   delete require.cache[modulePath];
   agent = require("../agent-control");
-  assert.equal(agent.listJobs(10).length, 1);
   assert.equal(agent.getJob(first.job.id).workflow.id, 101);
 });
 
