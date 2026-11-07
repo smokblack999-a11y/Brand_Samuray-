@@ -1,0 +1,44 @@
+name: SAMURAI Core CI
+
+on:
+  push:
+    branches:
+      - feat/samurai-commerce-core-integration
+      - fix/commerce-http-v1-hardening
+    paths:
+      - "core/**"
+      - ".github/workflows/commerce-core-ci.yml"
+  pull_request:
+    branches:
+      - feat/x10thinc-hamylion-v3
+    paths:
+      - "core/**"
+      - ".github/workflows/commerce-core-ci.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  core-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: core/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+        working-directory: core
+      - name: Syntax checks
+        run: |
+          node --check server.js
+          node --check commerce-store.js
+        working-directory: core
+      - name: Run full Core test suite
+        run: npm test
+        working-directory: core
