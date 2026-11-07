@@ -89,3 +89,55 @@ test("small GitHub webhook reaches signature gate when no secret is configured",
   });
   assert.equal(response.status, 503);
 });
+
+test("all sensitive API routes reject requests without the API key", async () => {
+  const protectedRoutes = [
+    ["GET", "/ready/telegram"],
+    ["GET", "/health/openai"],
+    ["GET", "/api/leads"],
+    ["GET", "/api/stats"],
+    ["GET", "/api/agent-control/health"],
+    ["GET", "/api/agent-control/jobs"],
+    ["GET", "/api/agent-control/jobs/missing"],
+    ["POST", "/api/agent-control/jobs/missing/evidence"],
+    ["POST", "/api/agent-control/jobs/missing/propose"],
+    ["POST", "/api/agent-control/jobs/missing/sandbox"],
+    ["POST", "/api/agent-control/jobs/missing/ci"],
+    ["POST", "/api/agent-control/jobs/missing/proof"],
+    ["POST", "/api/agent-control/jobs/missing/diagnose"],
+    ["GET", "/api/dual-ai/config"],
+    ["GET", "/api/dual-ai/sessions"],
+    ["GET", "/api/dual-ai/session/missing"],
+    ["POST", "/api/dual-ai/session"],
+    ["POST", "/api/dual-ai/turn"],
+    ["POST", "/api/dual-ai/stop"],
+    ["GET", "/api/dual-ai/export/missing"],
+    ["POST", "/api/lead/analyze"],
+    ["GET", "/api/telegram/me"],
+    ["GET", "/api/telegram/dialogs"],
+    ["GET", "/api/telegram/messages?chatId=123"],
+    ["POST", "/api/telegram/send"],
+    ["POST", "/api/telegram/send-photo"]
+  ];
+
+  for (const [method, pathname] of protectedRoutes) {
+    const response = await fetch(`http://127.0.0.1:${port}${pathname}`, {
+      method,
+      headers: method === "POST" ? { "content-type": "application/json" } : {},
+      body: method === "POST" ? "{}" : undefined
+    });
+    assert.equal(response.status, 401, `${method} ${pathname} must require X-API-Key`);
+  }
+});
+
+test("public health endpoints remain available and Telegram webhook fails closed without secret", async () => {
+  assert.equal((await get("/health")).status, 200);
+  assert.equal((await get("/ready")).status, 200);
+
+  const response = await fetch(`http://127.0.0.1:${port}/api/telegram/webhook`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: "{}"
+  });
+  assert.equal(response.status, 503);
+});
