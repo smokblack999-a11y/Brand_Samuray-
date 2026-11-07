@@ -174,7 +174,7 @@ function auditRevenueLeakage(input) {
     }
     const id = String(lead.id || "").trim();
     if (!id || id.length > 128) fail("INVALID_METRIC", "leads[" + index + "].id is required and must be at most 128 characters");
-    if (ids.has(id)) fail("DUPLICATE_LEAD_ID", "Duplicate lead id: " + id);
+    if (ids.has(id)) fail("DUPLICATE_LEAD_ID", "Duplicate lead id; use unique pseudonymous identifiers");
     ids.add(id);
 
     const createdMs = parseTimestamp(lead.createdAt, "leads[" + index + "].createdAt");
