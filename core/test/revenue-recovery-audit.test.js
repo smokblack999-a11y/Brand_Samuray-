@@ -118,3 +118,27 @@ test("calculates win rate only from closed outcomes, excluding open leads", () =
   assert.equal(report.outcomesByResponseGroup.noRecordedResponse.resolved, 0);
   assert.equal(report.outcomesByResponseGroup.noRecordedResponse.winRatePct, null);
 });
+
+
+test("rejects CSV rows with missing or extra fields instead of silently shifting data", () => {
+  assert.throws(
+    () => parseCsvLeads("lead_id,created_at,first_response_at,outcome\\nL-1,2026-10-01T09:00:00Z,"),
+    e => e.code === "INVALID_CSV"
+  );
+  assert.throws(
+    () => parseCsvLeads("lead_id,created_at,first_response_at,outcome\\nL-1,2026-10-01T09:00:00Z,,open,unexpected"),
+    e => e.code === "INVALID_CSV"
+  );
+});
+
+test("rejects booleans and whitespace strings as numeric assumptions", () => {
+  for (const grossProfitPerWin of [true, " "]) {
+    assert.throws(
+      () => auditRevenueLeakage({
+        ...sample,
+        assumptions: { grossProfitPerWin, recoveryRatePct: 10, pilotFee: 10, operatingCost: 1 }
+      }),
+      e => e.code === "INVALID_METRIC"
+    );
+  }
+});
