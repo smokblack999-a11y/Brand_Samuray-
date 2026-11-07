@@ -1,7 +1,7 @@
 "use strict";
 
 const MAX_LEADS = 10000;
-const MAX_CSV_CHARS = 5 * 1024 * 1024;
+const MAX_CSV_BYTES = 5 * 1024 * 1024;
 const OUTCOMES = new Set(["open", "won", "lost"]);
 const REQUIRED_CSV_COLUMNS = ["lead_id", "created_at", "first_response_at", "outcome"];
 
@@ -52,7 +52,7 @@ function parseTimestamp(value, field, { optional = false } = {}) {
 
 function parseCsvRecords(csv) {
   if (typeof csv !== "string") fail("INVALID_CSV", "csv must be a string");
-  if (csv.length > MAX_CSV_CHARS) fail("CSV_TOO_LARGE", "CSV exceeds the 5 MiB limit", 413);
+  if (Buffer.byteLength(csv, "utf8") > MAX_CSV_BYTES) fail("CSV_TOO_LARGE", "CSV exceeds the 5 MiB limit", 413);
 
   const input = csv.charCodeAt(0) === 0xFEFF ? csv.slice(1) : csv;
   const rows = [];
@@ -280,4 +280,4 @@ function auditRevenueLeakage(input) {
   };
 }
 
-module.exports = { auditRevenueLeakage, parseCsvLeads, MAX_LEADS, MAX_CSV_CHARS };
+module.exports = { auditRevenueLeakage, parseCsvLeads, MAX_LEADS, MAX_CSV_BYTES };
