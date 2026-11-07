@@ -22,9 +22,28 @@ function finiteNumber(value, field, { min = 0, max = Number.MAX_SAFE_INTEGER } =
 function parseTimestamp(value, field, { optional = false } = {}) {
   if ((value === null || value === undefined || String(value).trim() === "") && optional) return null;
   const text = String(value || "").trim();
-  // Require an explicit timezone so records from different systems remain comparable.
-  if (!/^\d{4}-\d{2}-\d{2}T.*(?:Z|[+-]\d{2}:\d{2})$/i.test(text)) {
-    fail("INVALID_METRIC", field + " must be an ISO timestamp with timezone, e.g. 2026-10-01T09:30:00Z");
+  // Require a strict RFC 3339 timestamp with seconds and an explicit timezone.
+  const match = text.match(/^(\\d{4})-(\\d{2})-(\\d{2})T(\\d{2}):(\\d{2}):(\\d{2})(?:\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})$/i);
+  if (!match) {
+    fail("INVALID_METRIC", field + " must be an ISO timestamp with seconds and timezone, e.g. 2026-10-01T09:30:00Z");
+  }
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const hour = Number(match[4]);
+  const minute = Number(match[5]);
+  const second = Number(match[6]);
+  const daysInMonth = [31, ((year % 4 === 0 && year % 100 !== 0) || year % 400 === 0) ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  if (month < 1 || month > 12 || day < 1 || day > daysInMonth[month - 1] || hour > 23 || minute > 59 || second > 59) {
+    fail("INVALID_METRIC", field + " contains an out-of-range date or time component");
+  }
+  const zone = match[7];
+  if (zone.toUpperCase() !== "Z") {
+    const offsetHour = Number(zone.slice(1, 3));
+    const offsetMinute = Number(zone.slice(4, 6));
+    if (offsetHour > 23 || offsetMinute > 59) {
+      fail("INVALID_METRIC", field + " contains an invalid timezone offset");
+    }
   }
   const valueMs = Date.parse(text);
   if (!Number.isFinite(valueMs)) fail("INVALID_METRIC", field + " is not a valid timestamp");
