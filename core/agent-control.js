@@ -10,23 +10,30 @@ const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, "data");
 const QUEUE_FILE = path.join(DATA_DIR, "agent-control-queue.jsonl");
 const TERMINAL = new Set(["success", "failure", "timed_out", "startup_failure", "cancelled", "action_required"]);
 
+function syncDirectory() {
+  const dirFd = fs.openSync(DATA_DIR, "r");
+  try { fs.fsyncSync(dirFd); } finally { fs.closeSync(dirFd); }
+}
+
 function ensureStore() {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
+  fs.mkdirSync(DATA_DIR, { recursive: true, mode: 0o700 });
+  fs.chmodSync(DATA_DIR, 0o700);
   if (!fs.existsSync(QUEUE_FILE)) {
     const fd = fs.openSync(QUEUE_FILE, "wx", 0o600);
-    fs.fsyncSync(fd);
-    fs.closeSync(fd);
+    try { fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
+    syncDirectory();
     return;
   }
 
-  // A crash can leave only the final JSONL record incomplete. Discard that tail,
-  // but never silently skip corruption in a completed record.
+  // A crash can leave only the final JSONL record incomplete. Work on raw bytes
+  // so UTF-8 replacement characters cannot shift the recovery offset.
   const fd = fs.openSync(QUEUE_FILE, "r+");
   try {
-    const content = fs.readFileSync(fd, "utf8");
-    if (content && !content.endsWith("\n")) {
-      const lastNewline = content.lastIndexOf("\n");
-      fs.ftruncateSync(fd, lastNewline < 0 ? 0 : Buffer.byteLength(content.slice(0, lastNewline + 1), "utf8"));
+    fs.fchmodSync(fd, 0o600);
+    const content = fs.readFileSync(fd);
+    if (content.length && content[content.length - 1] !== 0x0a) {
+      const lastNewline = content.lastIndexOf(0x0a);
+      fs.ftruncateSync(fd, lastNewline < 0 ? 0 : lastNewline + 1);
       fs.fsyncSync(fd);
     }
   } finally {
