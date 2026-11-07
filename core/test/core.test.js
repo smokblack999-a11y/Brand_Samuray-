@@ -223,13 +223,30 @@ test('Commerce API order lifecycle enforces lookup customerId and simulates paym
   assert.equal(rightOwner.status, 200);
   assert.equal((await rightOwner.json()).order.id, id);
 
-  const firstPayment = await api(`/v1/commerce/orders/${id}/simulate-payment`, { method: 'POST' });
+  const wrongOwnerPayment = await api(`/v1/commerce/orders/${id}/simulate-payment`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ customerId: 'client-2' })
+  });
+  assert.equal(wrongOwnerPayment.status, 404);
+
+  const firstPayment = await api(`/v1/commerce/orders/${id}/simulate-payment`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ customerId: 'client-1' })
+  });
   assert.equal(firstPayment.status, 200);
   const firstBody = await firstPayment.json();
+  assert.equal(firstBody.mode, 'test');
+  assert.equal(firstBody.simulationOnly, true);
   assert.equal(firstBody.order.status, 'fulfilled_test');
   assert.equal(firstBody.order.delivery.kind, 'digital_test');
 
-  const secondPayment = await api(`/v1/commerce/orders/${id}/simulate-payment`, { method: 'POST' });
+  const secondPayment = await api(`/v1/commerce/orders/${id}/simulate-payment`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ customerId: 'client-1' })
+  });
   assert.equal(secondPayment.status, 200);
   assert.equal((await secondPayment.json()).order.status, 'fulfilled_test');
 });
