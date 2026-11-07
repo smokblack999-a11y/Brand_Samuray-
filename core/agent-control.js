@@ -12,19 +12,50 @@ const TERMINAL = new Set(["success", "failure", "timed_out", "startup_failure", 
 
 function ensureStore() {
   fs.mkdirSync(DATA_DIR, { recursive: true });
-  if (!fs.existsSync(QUEUE_FILE)) fs.writeFileSync(QUEUE_FILE, "", "utf8");
+  if (!fs.existsSync(QUEUE_FILE)) {
+    const fd = fs.openSync(QUEUE_FILE, "wx", 0o600);
+    fs.fsyncSync(fd);
+    fs.closeSync(fd);
+    return;
+  }
+
+  // A crash can leave only the final JSONL record incomplete. Discard that tail,
+  // but never silently skip corruption in a completed record.
+  const fd = fs.openSync(QUEUE_FILE, "r+");
+  try {
+    const content = fs.readFileSync(fd, "utf8");
+    if (content && !content.endsWith("\n")) {
+      const lastNewline = content.lastIndexOf("\n");
+      fs.ftruncateSync(fd, lastNewline < 0 ? 0 : Buffer.byteLength(content.slice(0, lastNewline + 1), "utf8"));
+      fs.fsyncSync(fd);
+    }
+  } finally {
+    fs.closeSync(fd);
+  }
 }
 
 function readAll() {
   ensureStore();
-  return fs.readFileSync(QUEUE_FILE, "utf8").split("\n").filter(Boolean).map(line => {
-    try { return JSON.parse(line); } catch { return null; }
-  }).filter(Boolean);
+  const content = fs.readFileSync(QUEUE_FILE, "utf8");
+  return content.split("\n").filter(Boolean).map((line, index) => {
+    try { return JSON.parse(line); }
+    catch {
+      const error = new Error(`Agent-control queue corruption at record ${index + 1}`);
+      error.code = "AGENT_CONTROL_QUEUE_CORRUPT";
+      throw error;
+    }
+  });
 }
 
 function append(record) {
   ensureStore();
-  fs.appendFileSync(QUEUE_FILE, JSON.stringify(record) + "\n", { encoding: "utf8", flag: "a" });
+  const fd = fs.openSync(QUEUE_FILE, "a", 0o600);
+  try {
+    fs.writeFileSync(fd, JSON.stringify(record) + "\n", "utf8");
+    fs.fsyncSync(fd);
+  } finally {
+    fs.closeSync(fd);
+  }
 }
 
 function now() {
