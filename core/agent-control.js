@@ -10,21 +10,59 @@ const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, "data");
 const QUEUE_FILE = path.join(DATA_DIR, "agent-control-queue.jsonl");
 const TERMINAL = new Set(["success", "failure", "timed_out", "startup_failure", "cancelled", "action_required"]);
 
+function syncDirectory() {
+  const dirFd = fs.openSync(DATA_DIR, "r");
+  try { fs.fsyncSync(dirFd); } finally { fs.closeSync(dirFd); }
+}
+
 function ensureStore() {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
-  if (!fs.existsSync(QUEUE_FILE)) fs.writeFileSync(QUEUE_FILE, "", "utf8");
+  fs.mkdirSync(DATA_DIR, { recursive: true, mode: 0o700 });
+  fs.chmodSync(DATA_DIR, 0o700);
+  if (!fs.existsSync(QUEUE_FILE)) {
+    const fd = fs.openSync(QUEUE_FILE, "wx", 0o600);
+    try { fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
+    syncDirectory();
+    return;
+  }
+
+  // A crash can leave only the final JSONL record incomplete. Work on raw bytes
+  // so UTF-8 replacement characters cannot shift the recovery offset.
+  const fd = fs.openSync(QUEUE_FILE, "r+");
+  try {
+    fs.fchmodSync(fd, 0o600);
+    const content = fs.readFileSync(fd);
+    if (content.length && content[content.length - 1] !== 0x0a) {
+      const lastNewline = content.lastIndexOf(0x0a);
+      fs.ftruncateSync(fd, lastNewline < 0 ? 0 : lastNewline + 1);
+      fs.fsyncSync(fd);
+    }
+  } finally {
+    fs.closeSync(fd);
+  }
 }
 
 function readAll() {
   ensureStore();
-  return fs.readFileSync(QUEUE_FILE, "utf8").split("\n").filter(Boolean).map(line => {
-    try { return JSON.parse(line); } catch { return null; }
-  }).filter(Boolean);
+  const content = fs.readFileSync(QUEUE_FILE, "utf8");
+  return content.split("\n").filter(Boolean).map((line, index) => {
+    try { return JSON.parse(line); }
+    catch {
+      const error = new Error(`Agent-control queue corruption at record ${index + 1}`);
+      error.code = "AGENT_CONTROL_QUEUE_CORRUPT";
+      throw error;
+    }
+  });
 }
 
 function append(record) {
   ensureStore();
-  fs.appendFileSync(QUEUE_FILE, JSON.stringify(record) + "\n", { encoding: "utf8", flag: "a" });
+  const fd = fs.openSync(QUEUE_FILE, "a", 0o600);
+  try {
+    fs.writeFileSync(fd, JSON.stringify(record) + "\n", "utf8");
+    fs.fsyncSync(fd);
+  } finally {
+    fs.closeSync(fd);
+  }
 }
 
 function now() {

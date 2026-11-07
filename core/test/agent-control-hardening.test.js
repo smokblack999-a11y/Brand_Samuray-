@@ -1,0 +1,73 @@
+const test = require("node:test");
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
+const { spawnSync } = require("node:child_process");
+
+const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "samurai-agent-control-"));
+process.env.DATA_DIR = dataDir;
+const modulePath = require.resolve("../agent-control");
+let agent = require("../agent-control");
+
+function event(id, conclusion = "failure") {
+  return {
+    workflow_run: {
+      id, name: "SamuraiOS Core CI", event: "push", status: "completed",
+      conclusion, head_branch: "test", head_sha: "a".repeat(40),
+      repository: { full_name: "owner/repo" },
+      actor: { login: "test-user" }, html_url: "https://example.invalid/run"
+    }
+  };
+}
+
+test("GitHub webhook HMAC accepts only exact raw-body signature", () => {
+  const crypto = require("node:crypto");
+  const raw = Buffer.from('{"ok":true}');
+  const secret = "test-secret";
+  const signature = "sha256=" + crypto.createHmac("sha256", secret).update(raw).digest("hex");
+  assert.equal(agent.verifyGithubSignature(raw, signature, secret), true);
+  assert.equal(agent.verifyGithubSignature(Buffer.from('{"ok":false}'), signature, secret), false);
+  assert.equal(agent.verifyGithubSignature(raw, signature, ""), false);
+});
+
+test("workflow delivery is idempotent and survives a separate process restart", () => {
+  const first = agent.ingestWorkflowRun(event(101), "delivery-101");
+  assert.equal(first.duplicate, false);
+  const queueFile = path.join(dataDir, "agent-control-queue.jsonl");
+  assert.equal(fs.statSync(dataDir).mode & 0o777, 0o700);
+  assert.equal(fs.statSync(queueFile).mode & 0o777, 0o600);
+  const duplicate = agent.ingestWorkflowRun(event(101), "delivery-101");
+  assert.equal(duplicate.duplicate, true);
+
+  const child = spawnSync(process.execPath, ["-e", `
+    const agent = require("./agent-control");
+    const jobs = agent.listJobs(10);
+    process.stdout.write(JSON.stringify({ count: jobs.length, workflowId: jobs[0]?.workflow?.id }));
+  `], {
+    cwd: path.resolve(__dirname, ".."),
+    env: { ...process.env, DATA_DIR: dataDir },
+    encoding: "utf8"
+  });
+  assert.equal(child.status, 0, child.stderr);
+  assert.deepEqual(JSON.parse(child.stdout), { count: 1, workflowId: 101 });
+  delete require.cache[modulePath];
+  agent = require("../agent-control");
+  assert.equal(agent.getJob(first.job.id).workflow.id, 101);
+});
+
+test("incomplete final JSONL record is truncated without losing prior records", () => {
+  agent.ingestWorkflowRun(event(102), "delivery-102");
+  const queue = path.join(dataDir, "agent-control-queue.jsonl");
+  fs.appendFileSync(queue, Buffer.from([0x7b, 0x22, 0x74, 0x79, 0x70, 0x65, 0x22, 0x3a, 0x22, 0x49, 0x4e, 0x47, 0x45, 0x53, 0x54, 0x22, 0x2c, 0x22, 0x6a, 0x6f, 0x62, 0x22, 0x3a, 0x22, 0xc3]));
+  delete require.cache[modulePath];
+  agent = require("../agent-control");
+  assert.equal(agent.listJobs(10).length, 2);
+  assert.ok(fs.readFileSync(queue, "utf8").endsWith("\n"));
+});
+
+test("corruption in a completed JSONL record fails closed", () => {
+  const queue = path.join(dataDir, "agent-control-queue.jsonl");
+  fs.writeFileSync(queue, '{"broken":}\n', "utf8");
+  assert.throws(() => agent.listJobs(10), { code: "AGENT_CONTROL_QUEUE_CORRUPT" });
+});

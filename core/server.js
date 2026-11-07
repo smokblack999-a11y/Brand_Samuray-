@@ -24,17 +24,19 @@ const REQUEST_TIMEOUT_MS = Math.max(5000, Number(process.env.REQUEST_TIMEOUT_MS 
 const LEAD_RATE_LIMIT_WINDOW_MS = Math.max(1000, Number(process.env.LEAD_RATE_LIMIT_WINDOW_MS || 60000));
 const LEAD_RATE_LIMIT_MAX = Math.max(1, Number(process.env.LEAD_RATE_LIMIT_MAX || 20));
 
-if (process.env.NODE_ENV === "production") {
-  const missing = [];
-  if (!API_KEY) missing.push("CORE_API_KEY");
-  if (!WEBHOOK_SECRET) missing.push("TELEGRAM_WEBHOOK_SECRET");
-  if (missing.length) throw new Error(`Production startup blocked: missing ${missing.join(", ")}`);
+if (process.env.NODE_ENV === "production" && !API_KEY) {
+  throw new Error("Production startup blocked: missing CORE_API_KEY");
 }
 
 app.disable("x-powered-by");
 app.set("trust proxy", process.env.TRUST_PROXY === "true" ? 1 : false);
 app.use(cors(CORS_ORIGIN ? { origin: CORS_ORIGIN } : { origin: false }));
-app.use(express.json({ limit: "16mb", verify: (req, _res, buf) => { req.rawBody = Buffer.from(buf); } }));
+// GitHub Actions webhooks are small metadata events; cap them independently from media-capable API payloads.
+app.use("/api/agent-control/github/webhook", express.json({
+  limit: "1mb",
+  verify: (req, _res, buf) => { req.rawBody = Buffer.from(buf); }
+}));
+app.use(express.json({ limit: "16mb" }));
 
 function errorBody(code, message, requestId) {
   return { ok: false, error: { code, message, requestId } };
@@ -80,11 +82,23 @@ app.get("/health", (_req, res) => res.json({ ok: true, service: "SamuraiOS Core"
 app.get("/ready", (req, res) => {
   try {
     const current = stats();
-    const ready = Boolean(API_KEY && WEBHOOK_SECRET && current && Number.isFinite(current.total));
-    return res.status(ready ? 200 : 503).json({ ok: ready, service: "SamuraiOS Core", ready, requestId: req.requestId });
+    const ready = Boolean(API_KEY && current && Number.isFinite(current.total));
+    return res.status(ready ? 200 : 503).json({
+      ok: ready, service: "SamuraiOS Core", ready,
+      integrations: { telegramConfigured: Boolean(WEBHOOK_SECRET) },
+      requestId: req.requestId
+    });
   } catch (_error) {
     return res.status(503).json(errorBody("NOT_READY", "Service is not ready", req.requestId));
   }
+});
+
+app.get("/ready/telegram", requireApiKey, (req, res) => {
+  const ready = Boolean(WEBHOOK_SECRET);
+  return res.status(ready ? 200 : 503).json({
+    ok: ready, service: "SamuraiOS Core Telegram integration",
+    ready, configured: ready, requestId: req.requestId
+  });
 });
 app.get("/health/openai", requireApiKey, async (req, res) => {
   if (!process.env.OPENAI_API_KEY) return res.status(503).json({ ...errorBody("OPENAI_NOT_CONFIGURED", "OpenAI is not configured", req.requestId), configured: false });

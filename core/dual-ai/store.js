@@ -6,9 +6,24 @@ const path = require("path");
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, "..", "data");
 const FILE = path.join(DATA_DIR, "dual-sessions.json");
 
+function syncDirectory() {
+  const dirFd = fs.openSync(DATA_DIR, "r");
+  try { fs.fsyncSync(dirFd); } finally { fs.closeSync(dirFd); }
+}
+
 function ensure() {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
-  if (!fs.existsSync(FILE)) fs.writeFileSync(FILE, "{}\n");
+  fs.mkdirSync(DATA_DIR, { recursive: true, mode: 0o700 });
+  fs.chmodSync(DATA_DIR, 0o700);
+  if (!fs.existsSync(FILE)) {
+    const fd = fs.openSync(FILE, "wx", 0o600);
+    try {
+      fs.writeFileSync(fd, "{}\n", "utf8");
+      fs.fsyncSync(fd);
+    } finally { fs.closeSync(fd); }
+    syncDirectory();
+    return;
+  }
+  fs.chmodSync(FILE, 0o600);
 }
 function read() {
   ensure();
@@ -17,8 +32,13 @@ function read() {
 function write(value) {
   ensure();
   const tmp = FILE + ".tmp";
-  fs.writeFileSync(tmp, JSON.stringify(value, null, 2) + "\n", { mode: 0o600 });
+  const fd = fs.openSync(tmp, "w", 0o600);
+  try {
+    fs.writeFileSync(fd, JSON.stringify(value, null, 2) + "\n", "utf8");
+    fs.fsyncSync(fd);
+  } finally { fs.closeSync(fd); }
   fs.renameSync(tmp, FILE);
+  syncDirectory();
 }
 function create(session) {
   const all = read();
