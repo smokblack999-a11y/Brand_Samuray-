@@ -34,13 +34,18 @@ function getCommerceStore() {
   if (!COMMERCE_ENABLED) return Promise.reject(Object.assign(new Error("Commerce is disabled"), { code: "COMMERCE_DISABLED" }));
   if (!commerceStorePromise) {
     const dataDir = process.env.DATA_DIR || path.join(__dirname, "data");
-    commerceStorePromise = new CommerceStore({ dataDir, catalogFile: process.env.COMMERCE_CATALOG_FILE || path.join(__dirname, "commerce-catalog.json") }).init();
+    const catalogSetting = process.env.COMMERCE_CATALOG_FILE || path.join(__dirname, "commerce-catalog.json");
+    const catalogFile = path.isAbsolute(catalogSetting) ? catalogSetting : path.resolve(__dirname, catalogSetting);
+    commerceStorePromise = new CommerceStore({ dataDir, catalogFile }).init().catch(error => {
+      commerceStorePromise = null;
+      throw error;
+    });
   }
   return commerceStorePromise;
 }
 
-if (process.env.COMMERCE_MODE && process.env.COMMERCE_MODE !== "test") {
-  throw new Error("Commerce only supports COMMERCE_MODE=test; real payments are not implemented");
+if (COMMERCE_ENABLED && process.env.COMMERCE_MODE !== "test") {
+  throw new Error("Commerce is enabled but COMMERCE_MODE is not exactly test; refusing Core startup");
 }
 
 if (process.env.NODE_ENV === "production") {
@@ -460,9 +465,13 @@ app.get("/v1/commerce/orders/:id", requireApiKey, async (req, res) => {
 
 app.post("/v1/commerce/orders/:id/simulate-payment", requireApiKey, async (req, res) => {
   try {
+    const customerId = req.body?.customerId;
+    if (typeof customerId !== "string" || !/^[a-zA-Z0-9_:-]{1,100}$/.test(customerId)) {
+      return res.status(400).json(errorBody("CUSTOMER_ID_REQUIRED", "A valid customerId is required", req.requestId));
+    }
     const commerce = await getCommerceStore();
-    const order = await commerce.simulatePayment(req.params.id);
-    return res.json({ ok: true, mode: "test", order, requestId: req.requestId });
+    const order = await commerce.simulatePayment(req.params.id, customerId);
+    return res.json({ ok: true, mode: "test", simulationOnly: true, order, requestId: req.requestId });
   } catch (error) { return commerceError(res, req, error); }
 });
 
