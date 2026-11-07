@@ -23,7 +23,7 @@ function parseTimestamp(value, field, { optional = false } = {}) {
   if ((value === null || value === undefined || String(value).trim() === "") && optional) return null;
   const text = String(value || "").trim();
   // Require a strict RFC 3339 timestamp with seconds and an explicit timezone.
-  const match = text.match(/^(\\d{4})-(\\d{2})-(\\d{2})T(\\d{2}):(\\d{2}):(\\d{2})(?:\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})$/i);
+  const match = text.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(Z|[+-]\d{2}:\d{2})$/i);
   if (!match) {
     fail("INVALID_METRIC", field + " must be an ISO timestamp with seconds and timezone, e.g. 2026-10-01T09:30:00Z");
   }
