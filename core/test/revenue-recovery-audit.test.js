@@ -142,3 +142,21 @@ test("rejects booleans and whitespace strings as numeric assumptions", () => {
     );
   }
 });
+
+
+test("rejects impossible calendar dates and invalid timezone offsets", () => {
+  for (const createdAt of [
+    "2026-02-30T09:00:00Z",
+    "2026-13-01T09:00:00Z",
+    "2026-10-01T24:00:00Z",
+    "2026-10-01T09:00:00+25:00"
+  ]) {
+    assert.throws(
+      () => auditRevenueLeakage({
+        currency: "USD",
+        leads: [{ id: "bad-time", createdAt, firstResponseAt: null, outcome: "open" }]
+      }),
+      error => error.code === "INVALID_METRIC"
+    );
+  }
+});
