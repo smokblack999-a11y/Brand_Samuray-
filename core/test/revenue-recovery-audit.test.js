@@ -59,6 +59,20 @@ test("rejects duplicate IDs, invalid outcomes, and response before creation", ()
   assert.throws(() => auditRevenueLeakage({ ...sample, leads: [{ ...sample.leads[0], firstResponseAt: "2026-10-01T08:59:00Z" }] }), e => e.code === "INVALID_METRIC");
 });
 
+test("does not echo duplicate lead identifiers in validation errors", () => {
+  const sensitiveLookingId = "customer@example.com";
+  assert.throws(
+    () => auditRevenueLeakage({
+      currency: "USD",
+      leads: [
+        { id: sensitiveLookingId, createdAt: "2026-10-01T09:00:00Z", firstResponseAt: null, outcome: "open" },
+        { id: sensitiveLookingId, createdAt: "2026-10-01T09:00:00Z", firstResponseAt: null, outcome: "open" }
+      ]
+    }),
+    error => error.code === "DUPLICATE_LEAD_ID" && !error.message.includes(sensitiveLookingId)
+  );
+});
+
 test("requires timezone-qualified timestamps and rejects invalid assumptions", () => {
   assert.throws(() => auditRevenueLeakage({
     currency: "USD",
