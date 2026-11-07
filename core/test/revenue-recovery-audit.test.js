@@ -160,3 +160,9 @@ test("rejects impossible calendar dates and invalid timezone offsets", () => {
     );
   }
 });
+
+
+test("enforces the CSV size limit using UTF-8 bytes", () => {
+  const oversizedUtf8 = "é".repeat(2_621_441);
+  assert.throws(() => parseCsvLeads(oversizedUtf8), error => error.code === "CSV_TOO_LARGE");
+});
