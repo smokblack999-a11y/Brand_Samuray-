@@ -36,11 +36,11 @@ test("test order reserves stock and simulated payment fulfills idempotently", as
   try {
     const order = await store.createOrder({ sku: "guide", quantity: 1, customerId: "client-1" });
     assert.equal(store.listProducts().find(p => p.sku === "guide").stock, 1);
-    const paid = await store.simulatePayment(order.id);
+    const paid = await store.simulatePayment(order.id, "client-1");
     assert.equal(paid.status, "fulfilled_test");
     assert.equal(paid.paymentMode, "test_only_no_money_moved");
     assert.equal(paid.delivery.kind, "digital_test");
-    const second = await store.simulatePayment(order.id);
+    const second = await store.simulatePayment(order.id, "client-1");
     assert.equal(second.status, "fulfilled_test");
     assert.equal(store.listProducts().find(p => p.sku === "guide").stock, 1);
   } finally { await fs.rm(dir, { recursive: true, force: true }); }
@@ -66,11 +66,20 @@ test("cancelling unpaid order restores stock once", async () => {
   } finally { await fs.rm(dir, { recursive: true, force: true }); }
 });
 
+test("simulated payment requires the matching customerId", async () => {
+  const { dir, store } = await fixture();
+  try {
+    const order = await store.createOrder({ sku: "guide", quantity: 1, customerId: "client-1" });
+    await assert.rejects(store.simulatePayment(order.id, "client-2"), /ORDER_NOT_FOUND/);
+    assert.equal(store.getOrder(order.id, "client-1").paymentStatus, "unpaid");
+  } finally { await fs.rm(dir, { recursive: true, force: true }); }
+});
+
 test("paid test order cannot be cancelled", async () => {
   const { dir, store } = await fixture();
   try {
     const order = await store.createOrder({ sku: "guide", quantity: 1, customerId: "client-1" });
-    await store.simulatePayment(order.id);
+    await store.simulatePayment(order.id, "client-1");
     await assert.rejects(store.cancelOrder(order.id, "client-1"), /PAID_ORDER_CANNOT_BE_CANCELLED/);
   } finally { await fs.rm(dir, { recursive: true, force: true }); }
 });
