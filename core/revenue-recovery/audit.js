@@ -13,11 +13,10 @@ function fail(code, message, statusCode = 400) {
 }
 
 function finiteNumber(value, field, { min = 0, max = Number.MAX_SAFE_INTEGER } = {}) {
-  const n = Number(value);
-  if (value === "" || value === null || value === undefined || !Number.isFinite(n) || n < min || n > max) {
-    fail("INVALID_METRIC", field + " must be a number between " + min + " and " + max);
+  if (typeof value !== "number" || !Number.isFinite(value) || value < min || value > max) {
+    fail("INVALID_METRIC", field + " must be a JSON number between " + min + " and " + max);
   }
-  return n;
+  return value;
 }
 
 function parseTimestamp(value, field, { optional = false } = {}) {
@@ -104,13 +103,18 @@ function parseCsvLeads(csv) {
   if (missing.length) fail("INVALID_CSV", "CSV is missing required columns: " + missing.join(", "));
 
   const index = Object.fromEntries(headers.map((header, i) => [header, i]));
-  return rows.slice(1).map((values, i) => ({
-    id: values[index.lead_id] || "",
-    createdAt: values[index.created_at] || "",
-    firstResponseAt: values[index.first_response_at] || null,
-    outcome: values[index.outcome] || "",
-    sourceRow: i + 2
-  }));
+  return rows.slice(1).map((values, i) => {
+    if (values.length !== headers.length) {
+      fail("INVALID_CSV", "CSV row " + (i + 2) + " has " + values.length + " fields; expected " + headers.length);
+    }
+    return {
+      id: values[index.lead_id] || "",
+      createdAt: values[index.created_at] || "",
+      firstResponseAt: values[index.first_response_at] || null,
+      outcome: values[index.outcome] || "",
+      sourceRow: i + 2
+    };
+  });
 }
 
 function normalizeAssumptions(value) {
