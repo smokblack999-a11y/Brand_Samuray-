@@ -34,6 +34,9 @@ test("GitHub webhook HMAC accepts only exact raw-body signature", () => {
 test("workflow delivery is idempotent and survives a separate process restart", () => {
   const first = agent.ingestWorkflowRun(event(101), "delivery-101");
   assert.equal(first.duplicate, false);
+  const queueFile = path.join(dataDir, "agent-control-queue.jsonl");
+  assert.equal(fs.statSync(dataDir).mode & 0o777, 0o700);
+  assert.equal(fs.statSync(queueFile).mode & 0o777, 0o600);
   const duplicate = agent.ingestWorkflowRun(event(101), "delivery-101");
   assert.equal(duplicate.duplicate, true);
 
@@ -56,7 +59,7 @@ test("workflow delivery is idempotent and survives a separate process restart", 
 test("incomplete final JSONL record is truncated without losing prior records", () => {
   agent.ingestWorkflowRun(event(102), "delivery-102");
   const queue = path.join(dataDir, "agent-control-queue.jsonl");
-  fs.appendFileSync(queue, '{"type":"INGEST","job":');
+  fs.appendFileSync(queue, Buffer.from([0x7b, 0x22, 0x74, 0x79, 0x70, 0x65, 0x22, 0x3a, 0x22, 0x49, 0x4e, 0x47, 0x45, 0x53, 0x54, 0x22, 0x2c, 0x22, 0x6a, 0x6f, 0x62, 0x22, 0x3a, 0x22, 0xc3]));
   delete require.cache[modulePath];
   agent = require("../agent-control");
   assert.equal(agent.listJobs(10).length, 2);
