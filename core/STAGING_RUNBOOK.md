@@ -52,6 +52,9 @@ Bind only to loopback. Put a TLS reverse proxy or managed HTTPS ingress in front
 ## 3. Verify Core and authentication
 
 ```bash
+set -a
+. core/.env
+set +a
 curl -i http://127.0.0.1:8787/health
 curl -i http://127.0.0.1:8787/ready
 curl -i http://127.0.0.1:8787/api/stats
