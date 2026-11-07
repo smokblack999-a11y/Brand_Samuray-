@@ -21,13 +21,36 @@ function validateProduct(p) {
   if (!CURRENCIES.has(p.currency)) throw new Error("INVALID_CATALOG_CURRENCY");
   if (!["digital", "physical"].includes(p.type)) throw new Error("INVALID_CATALOG_TYPE");
   if (!Number.isSafeInteger(p.stock) || p.stock < 0) throw new Error("INVALID_CATALOG_STOCK");
+  if (p.active !== undefined && typeof p.active !== "boolean") throw new Error("INVALID_CATALOG_ACTIVE");
+  if (p.description !== undefined && typeof p.description !== "string") throw new Error("INVALID_CATALOG_DESCRIPTION");
+  if (p.physicalInstructions !== undefined && typeof p.physicalInstructions !== "string") throw new Error("INVALID_CATALOG_INSTRUCTIONS");
   if (p.type === "digital" && (typeof p.deliveryText !== "string" || !p.deliveryText.trim())) throw new Error("INVALID_CATALOG_DELIVERY");
   return {
-    sku: p.sku, name: p.name.trim(), description: String(p.description || "").slice(0, 500),
+    sku: p.sku, name: p.name.trim(), description: (p.description || "").slice(0, 500),
     priceMinor: p.priceMinor, currency: p.currency, type: p.type, stock: p.stock,
     active: p.active !== false, deliveryText: p.type === "digital" ? p.deliveryText.slice(0, 2000) : "",
-    physicalInstructions: String(p.physicalInstructions || "").slice(0, 500)
+    physicalInstructions: (p.physicalInstructions || "").slice(0, 500)
   };
+}
+
+function validateOrder(o) {
+  if (!o || typeof o !== "object" || Array.isArray(o)) throw new Error("COMMERCE_ORDER_INVALID");
+  if (typeof o.id !== "string" || !ORDER_ID.test(o.id)) throw new Error("COMMERCE_ORDER_INVALID");
+  if (typeof o.sku !== "string" || !SKU.test(o.sku)) throw new Error("COMMERCE_ORDER_INVALID");
+  if (typeof o.productName !== "string" || !o.productName.trim() || !["digital", "physical"].includes(o.productType)) throw new Error("COMMERCE_ORDER_INVALID");
+  if (!Number.isSafeInteger(o.quantity) || o.quantity < 1 || o.quantity > 20) throw new Error("COMMERCE_ORDER_INVALID");
+  if (!Number.isSafeInteger(o.unitPriceMinor) || o.unitPriceMinor < 1 || !Number.isSafeInteger(o.totalMinor) || o.totalMinor !== o.unitPriceMinor * o.quantity) throw new Error("COMMERCE_ORDER_INVALID");
+  if (!CURRENCIES.has(o.currency) || typeof o.customerId !== "string" || !/^[a-zA-Z0-9_:-]{1,100}$/.test(o.customerId)) throw new Error("COMMERCE_ORDER_INVALID");
+  if (!["awaiting_test_payment", "paid_test", "fulfilled_test", "cancelled"].includes(o.status)) throw new Error("COMMERCE_ORDER_INVALID");
+  if (!["unpaid", "paid"].includes(o.paymentStatus) || o.paymentMode !== "test") throw new Error("COMMERCE_ORDER_INVALID");
+  if (typeof o.createdAt !== "string" || !Number.isFinite(Date.parse(o.createdAt))) throw new Error("COMMERCE_ORDER_INVALID");
+  for (const field of ["paidAt", "fulfilledAt", "cancelledAt"]) {
+    if (o[field] !== undefined && o[field] !== null && (typeof o[field] !== "string" || !Number.isFinite(Date.parse(o[field])))) throw new Error("COMMERCE_ORDER_INVALID");
+  }
+  if (o.delivery !== null && (typeof o.delivery !== "object" || Array.isArray(o.delivery))) throw new Error("COMMERCE_ORDER_INVALID");
+  if (o.status === "fulfilled_test" && (o.paymentStatus !== "paid" || !o.fulfilledAt || !o.delivery)) throw new Error("COMMERCE_ORDER_INVALID");
+  if (o.status === "cancelled" && (o.paymentStatus !== "unpaid" || !o.cancelledAt)) throw new Error("COMMERCE_ORDER_INVALID");
+  return structuredClone(o);
 }
 
 class CommerceStore {
@@ -46,8 +69,16 @@ class CommerceStore {
     catch (error) { if (error.code !== "ENOENT") throw new Error("COMMERCE_STATE_INVALID"); }
     if (state) {
       if (state.mode !== "test" || !Array.isArray(state.products) || !Array.isArray(state.orders)) throw new Error("COMMERCE_STATE_INVALID");
-      for (const p of state.products) this.products.set(p.sku, validateProduct(p));
-      for (const o of state.orders) this.orders.set(o.id, o);
+      for (const raw of state.products) {
+        const p = validateProduct(raw);
+        if (this.products.has(p.sku)) throw new Error("COMMERCE_DUPLICATE_SKU");
+        this.products.set(p.sku, p);
+      }
+      for (const raw of state.orders) {
+        const order = validateOrder(raw);
+        if (this.orders.has(order.id) || !this.products.has(order.sku)) throw new Error("COMMERCE_ORDER_INVALID");
+        this.orders.set(order.id, order);
+      }
     } else {
       const catalog = JSON.parse(await fs.readFile(this.catalogFile, "utf8"));
       if (catalog.mode !== "test" || !Array.isArray(catalog.products)) throw new Error("COMMERCE_CATALOG_INVALID");
@@ -70,10 +101,21 @@ class CommerceStore {
   }
 
   async save() {
-    const tmp = this.file + "." + process.pid + ".tmp";
+    const tmp = this.file + "." + process.pid + "." + crypto.randomBytes(8).toString("hex") + ".tmp";
     const body = JSON.stringify({ mode: "test", products: [...this.products.values()], orders: [...this.orders.values()] }, null, 2);
-    await fs.writeFile(tmp, body, { mode: 0o600 });
-    await fs.rename(tmp, this.file);
+    let handle;
+    try {
+      handle = await fs.open(tmp, "wx", 0o600);
+      await handle.writeFile(body, "utf8");
+      await handle.sync();
+      await handle.close();
+      handle = null;
+      await fs.rename(tmp, this.file);
+    } catch (error) {
+      if (handle) await handle.close().catch(() => {});
+      await fs.rm(tmp, { force: true }).catch(() => {});
+      throw error;
+    }
   }
 
   listProducts() {
@@ -111,10 +153,10 @@ class CommerceStore {
     return structuredClone(safe);
   }
 
-  async simulatePayment(id) {
+  async simulatePayment(id, customerId) {
     return this.exclusive(async () => {
       const o = this.orders.get(id);
-      if (!o) throw new Error("ORDER_NOT_FOUND");
+      if (!o || typeof customerId !== "string" || o.customerId !== customerId) throw new Error("ORDER_NOT_FOUND");
       if (o.paymentStatus === "paid") return this.publicOrder(o);
       if (o.status !== "awaiting_test_payment") throw new Error("ORDER_NOT_PAYABLE");
       const previous = structuredClone(o);
