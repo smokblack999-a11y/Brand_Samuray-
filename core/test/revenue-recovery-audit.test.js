@@ -121,13 +121,17 @@ test("calculates win rate only from closed outcomes, excluding open leads", () =
 
 
 test("rejects CSV rows with missing or extra fields instead of silently shifting data", () => {
+  const header = "lead_id,created_at,first_response_at,outcome";
+  const missingField = [header, "L-1,2026-10-01T09:00:00Z,"].join("\n");
+  const extraField = [header, "L-1,2026-10-01T09:00:00Z,,open,unexpected"].join("\n");
+
   assert.throws(
-    () => parseCsvLeads("lead_id,created_at,first_response_at,outcome\\nL-1,2026-10-01T09:00:00Z,"),
-    e => e.code === "INVALID_CSV"
+    () => parseCsvLeads(missingField),
+    error => error.code === "INVALID_CSV" && /has 3 fields; expected 4/.test(error.message)
   );
   assert.throws(
-    () => parseCsvLeads("lead_id,created_at,first_response_at,outcome\\nL-1,2026-10-01T09:00:00Z,,open,unexpected"),
-    e => e.code === "INVALID_CSV"
+    () => parseCsvLeads(extraField),
+    error => error.code === "INVALID_CSV" && /has 5 fields; expected 4/.test(error.message)
   );
 });
 
