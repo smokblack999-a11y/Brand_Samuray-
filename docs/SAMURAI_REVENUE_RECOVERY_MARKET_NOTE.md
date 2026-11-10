@@ -1,88 +1,155 @@
-# SAMURAI Revenue Recovery — market decision note
+# SAMURAI Revenue Recovery — Kazakhstan Market Decision Note
 
-**Research date:** 27 October 2026  
-**Decision status:** conditional test, not market-validated  
-**Category selected:** paid lead-response leakage audit + managed follow-up improvement for high-value B2B service businesses
+**Research snapshot:** 9 November 2026  
+**Decision:** run a bounded Kazakhstan validation experiment; no final product winner selected  
+**Primary experiment:** lead-response audit for HVAC / climate service companies  
+**Parallel research:** accounts-receivable workflow for engineering contractors and equipment suppliers
 
-## Decision
+## 1. Decision
 
-Do **not** position this as another generic AI chatbot or “AI employee.” Publicly advertised competition already exists in Kazakhstan and internationally. The testable wedge is narrower: a **read-only audit of a client's own lead export first**, followed by a capped, human-approved pilot only if the data shows a meaningful response gap. This lowers implementation risk and makes the first result independent of a long CRM integration.
+Do not position SAMURAI as another generic CRM, chatbot, AI receptionist or home-services marketplace.
 
-This is not a claim that the market is undiscovered. Public evidence cannot establish that no competitor serves this need.
+The existing code is a read-only audit of recorded first-response times and outcome groups. The first paid offer should be a fixed-scope diagnostic on a pseudonymized export. A broader lost-opportunity workflow (quote sent, no next action, overdue follow-up, job completed, invoice unpaid) is a product hypothesis that still requires additional fields, logic and customer evidence.
 
-## Public competitive evidence
+Lead Recovery is the primary experiment because it is closer to the existing code. AR Recovery should remain a parallel discovery track because Kazakhstan already has a direct receivables-management competitor.
 
-These are vendor-published offers checked on 27 October 2026, not independently audited customer results:
+## 2. Market signals — not proof of demand
 
-| Provider | Public offer shown | Implication |
+- A Kazakhstan SME survey reported demand for marketing tools/automation and CRM/ERP integration. This is a broad adoption signal, not evidence that HVAC firms will buy SAMURAI.
+- A 2026 Kazakhstan CRM study reported CRM use among surveyed businesses and a fragmented vendor mix. It does not establish the CRM penetration of the target HVAC segment.
+- Instant messaging is widely used in Kazakhstan, but public data does not establish the average HVAC response time or the percentage of WhatsApp inquiries lost.
+- Therefore the central problem hypothesis — missed or delayed follow-up after an inquiry or estimate — must be verified in discovery interviews and redacted customer exports.
+
+## 3. Primary ICP
+
+HVAC / climate installation, repair and maintenance companies in Almaty and Astana.
+
+Qualification hypotheses:
+- 30+ inbound inquiries per month;
+- multiple technicians or field teams;
+- a mix of installation, repair and maintenance work;
+- inquiries arrive through WhatsApp, Instagram, website and phone;
+- owner/director or sales/operations manager can approve a paid diagnostic;
+- CRM or lead inbox has creation time, first-response time and outcome;
+- company can provide a minimal pseudonymized export.
+
+Secondary cohorts: plumbing/heating and electrical/engineering contractors. Track each vertical separately; do not blend results.
+
+## 4. Competitive landscape
+
+| Provider | Category / public offer | Implication |
 |---|---|---|
-| Qantalupa (Kazakhstan) | Implementation packages of 79,000 ₸, 149,000 ₸ and 299,000 ₸; AI Lead Assistant is listed as a 14–21 day launch | Generic AI lead-assistant implementation already has local supply |
-| Keremet Labs | Basic: 100,000 ₸/month plus 400,000 ₸ setup; Extended: 250,000 ₸/month plus 700,000 ₸ setup | Some providers already charge meaningful setup and recurring fees |
-| HH BOT (Kazakhstan) | Published implementation packages from 99,000 ₸ through 699,000 ₸ and recurring options from 29,900 ₸/month | There are multiple local price points and direct substitutes |
-| AI Strike Force pricing survey | Reports published workflow prices of $400–$5,000 and support retainers of $200–$2,000/month; survey is from the agency's own commercial research | International services pricing can support higher-ticket implementation hypotheses, but this is not a neutral industry average |
+| Bitrix24 Kazakhstan | General CRM; published paid tiers | Broad CRM substitute; SAMURAI must not compete as another CRM |
+| SotaCRM | CRM for sales/service teams and messaging workflows | Direct workflow substitute |
+| Syntony | AI administrator and CRM for service businesses | Direct AI receptionist/automation substitute |
+| RemOnline | Service-business CRM, orders and communications | Direct operational-system substitute |
+| UWork / Jondey | Service-provider marketplaces | Compete for discovery and lead generation, not the same audit |
+| debitorka.kz | Kazakhstan receivables management, reminders, promises, integrations and analytics | Strong local substitute for generic AR management |
+| Qut Pay / 1C UNF | Invoice/payment tracking and accounting workflows | Adjacent AR substitutes |
 
-Sources:
-- https://qantalupa.kz/ai-assistent-dlya-biznesa-kazakhstan/
-- https://keremetlabs.com/en/lead-qualification
-- https://hhbot.kz/
-- https://aistrikeforce.com/ai-automation-agency-pricing
+Publicly listed prices and product claims change; re-check vendor pages before quoting them in a customer proposal. Vendor-published descriptions are not independent proof of customer outcomes.
 
-## Initial customer profile
+### Positioning
 
-Start with one segment: **B2B professional-services and specialist agencies in the US, UK or Australia**, roughly 10–100 employees, that already receive a meaningful stream of inbound requests and track deals in a CRM.
+**SAMURAI Lost Opportunity Scanner** — a read-only audit that finds response-time gaps and, after future product work, leads/quotes with no next action. It complements an existing CRM rather than replacing it.
 
-Qualify only when the prospect can show:
-- approximately 50 or more inbound leads per month;
-- creation timestamp, first-response timestamp and a consistent outcome per lead;
-- meaningful gross profit per sale (the client supplies the figure);
-- an owner, sales lead or operations lead willing to review a 14-day measured pilot.
+The defensible value, if validated, must come from trustworthy evidence, vertical-specific workflow knowledge, fast setup, data minimization and repeatable delivery — not from the generic use of AI.
 
-This segment is a hypothesis chosen for higher potential deal value and the ability to use CSV exports. The code does not yet confirm industry fit, ability to pay, or the count of such businesses.
+## 5. 200-company research plan
 
-## Differentiation to test
+Target list allocation (planning targets, not verified market counts):
 
-1. Start from a pseudonymized export; no switch of CRM and no production integration required for the audit.
-2. Show the actual response-time distribution and outcome groups, not generic “AI increases sales” claims.
-3. Make explicit when timestamps are missing. Missing data is not proof that the customer failed to respond.
-4. Run the intervention only after the client agrees to the baseline, SLA, message policy and cost.
-5. Keep all outbound messaging human-approved until a real channel integration, opt-in, suppression handling and audit trail have passed separate tests.
+| Segment | Companies |
+|---|---:|
+| HVAC / climate | 70 |
+| Plumbing / heating | 30 |
+| Electrical contractors | 20 |
+| Engineering contractors (AR discovery) | 40 |
+| HVAC suppliers / installers (AR discovery) | 20 |
+| Other B2B service firms (AR discovery) | 20 |
+| **Total** | **200** |
 
-Competitors can copy the concept. The defensible edge, if one emerges, must be delivery speed, trustworthy evidence, a repeatable vertical-specific workflow and retained customer relationships.
+Geographic allocation target:
+- Almaty: 100
+- Astana: 70
+- Shymkent: 30
 
-## First commercial experiment
+Use public company listings, company websites, business directories and public business profiles. Record source and date. Avoid unnecessary personal data and do not scrape private contact details. Each company remains an unqualified prospect until a human verifies segment, activity, volume and decision-maker.
 
-Target **100 individually qualified prospects**, not a mass blast. Use business-relevant, role-specific outreach and a manual review step. Do not send email automatically from this branch.
+Recommended fields: prospect_id, company, city, vertical, public website, public business contact/source, service mix, team-size signal, channel signals, CRM/export availability, decision-maker role, qualification status, last action, opt-out.
 
-Internal decision thresholds (planning targets, not industry benchmarks):
-- At least 10 genuine replies or meaningful conversations from 100 qualified prospects.
-- At least 3 prospects willing to share a redacted sample/export or review the audit process.
-- At least 1 paid audit or paid pilot within the first validation cycle.
+## 6. Lead Recovery offer
 
-If 100 qualified prospects produce no paid pilot, do not add more code to compensate. Change the vertical, offer or channel and run a new test. If prospects cannot provide the data required for measurement, the segment is a poor fit for this exact product.
+**Paid Lead Response Audit — 49,000 ₸ (price hypothesis)**
 
-## Unit economics target
+- one pseudonymized CSV export;
+- maximum 10,000 rows;
+- required fields only: lead_id, created_at, first_response_at, outcome;
+- response-time distribution, SLA compliance and outcome groups;
+- data-quality report and operational recommendations;
+- no CRM write access, no outbound messaging and no guaranteed revenue claim.
 
-Current pricing is a hypothesis:
-- $250 audit, credited toward implementation if the client proceeds.
-- $750 for a bounded 14-day pilot.
-- $300/week for capped managed monitoring after a successful pilot.
+Potential recurring offer after a successful audit: 39,900–59,900 ₸/month for repeat audits, overdue follow-up visibility and recovery tracking. Integrations and automated messaging are separately scoped.
 
-Five recurring accounts at $300/week would represent $1,500/week gross revenue. To reach $1,000/week in operating contribution, total direct delivery and tool costs would need to stay at or below $500/week, before taxes and founder compensation. This has not been demonstrated. Track actual sales, collection, support hours, tool spend and churn before calling the business profitable.
+## 7. AR Recovery parallel track
 
-## Payment and operational dependency
+Do not build a generic debt reminder product: debitorka.kz already offers a local receivables-management proposition with reminders, payment promises, analytics and integrations.
 
-As of the research date, Kazakhstan is not on Stripe's official list of supported account countries. Do not make the MVP dependent on a live Stripe account or treat a Stripe test-mode result as a real payment. An eligible Kazakhstan-based business may investigate local providers such as IOKA, whose public site says it supports cards issued in 50+ countries, but merchant eligibility, payout terms, fees and the exact business category must be confirmed directly before relying on it.
+Test a narrower workflow among engineering contractors and equipment suppliers:
+- staged payments and advances;
+- approved quote → completed job → invoice → unpaid balance;
+- payment promise dates;
+- project-level gross margin and overdue exposure.
 
-Sources:
-- https://stripe.com/global
-- https://ioka.kz/en/products/accept-payments
+Hypothesis: linking lead, quote, job and invoice may provide a better operational view than a standalone debt reminder tool. This is not validated. First conduct 5–10 interviews and inspect anonymized workflow examples before implementation.
 
-## Go / no-go gates
+## 8. Outbound validation
 
-- **Technical gate:** Core CI and new API tests pass on the PR head.
-- **Data gate:** audit reports are reproducible on at least two real, redacted sample exports.
-- **Value gate:** a buyer accepts the measured result and pays for an audit or pilot.
-- **Economics gate:** delivery hours and costs leave a path to the target margin.
-- **Scale gate:** at least three paying accounts renew or buy the next phase before attempting self-serve SaaS.
+Manual, individually reviewed sequence only:
+- Day 0 research and qualification;
+- Day 2–3 first business contact;
+- Day 5–6 one permitted follow-up;
+- Day 9–10 synthetic report example;
+- Day 14–15 close the loop and stop.
 
-Until these gates pass, this is an MVP and a commercial experiment—not a guaranteed business, not a verified 78% success probability, and not yet a $1,000/week income stream.
+No messages have been sent by this plan. Do not launch a bulk campaign. Respect opt-outs, channel rules and applicable Kazakhstan privacy/marketing requirements.
+
+## 9. Budget and founder capacity
+
+- MVP budget ceiling: $3,000.
+- Initial validation spend target: ≤$1,700.
+- Reserve the remaining $1,300 until a paid buyer or a documented delivery need exists.
+- Founder capacity: 10 hours/week.
+- Weekly allocation: 2h prospecting, 2h personalized preparation, 2h contact/follow-up, 2h interviews/demos, 2h product/data work.
+
+Do not spend on a mobile app, full CRM, voice AI, complex WhatsApp integration or public production deployment before paid validation.
+
+## 10. 90-day gates
+
+**Days 1–14:** technical audit, privacy-safe synthetic demo, 50 prospects, 5 discovery interviews, AR interview guide.
+
+**Days 15–30:** 100 qualified prospects, data availability checks, first paid-audit proposals.
+
+**Days 31–60:** 200 prospect target, 1–2 paid pilots sought, validate report accuracy and delivery hours.
+
+**Days 61–90:** measure outcomes, renewals, margin and support burden; decide whether to continue, narrow or stop.
+
+Planning estimates (low confidence; not empirical conversion rates):
+- Lead Recovery: 25–40% chance of at least one paid pilot; 15–25% chance of at least one MRR customer by day 90.
+- AR Recovery: 15–30% chance of at least one paid pilot; 10–20% chance of at least one MRR customer by day 90.
+
+These ranges must be replaced with observed funnel data as soon as outreach begins.
+
+## 11. Go / no-go gates
+
+- 10 interviews and no confirmed pain → revise ICP.
+- Confirmed pain but no usable data → redesign the audit.
+- Usable data but inaccurate findings → improve the algorithm.
+- Interest but no willingness to pay → do not expand development.
+- 2 paid pilots with measurable value → continue product work.
+- 2 renewals → prepare a repeatable MRR offer.
+- 3 paying accounts with renewals and positive contribution margin → consider scaling.
+
+## 12. Evidence boundary
+
+No paying customer, recovered revenue, MRR, causal uplift, live WhatsApp integration or production deployment is confirmed by this note. CI success and synthetic examples are technical evidence only.

@@ -120,6 +120,12 @@ function parseCsvLeads(csv) {
   if (new Set(headers).size !== headers.length) fail("INVALID_CSV", "CSV contains duplicate column names");
   const missing = REQUIRED_CSV_COLUMNS.filter((column) => !headers.includes(column));
   if (missing.length) fail("INVALID_CSV", "CSV is missing required columns: " + missing.join(", "));
+  // Privacy-first contract: accept only the four fields used by the audit.
+  // This prevents unused columns (which may contain direct identifiers) from
+  // being silently accepted and transmitted through the API.
+  if (headers.length !== REQUIRED_CSV_COLUMNS.length) {
+    fail("INVALID_CSV", "CSV must contain only the required columns: " + REQUIRED_CSV_COLUMNS.join(", "));
+  }
 
   const index = Object.fromEntries(headers.map((header, i) => [header, i]));
   return rows.slice(1).map((values, i) => {

@@ -1,123 +1,150 @@
-# SAMURAI Revenue Recovery — Sales Validation Kit
+# SAMURAI Revenue Recovery — Kazakhstan Sales Validation Kit
 
-Status: internal experiment kit; no customer demand or revenue has been validated yet.
+Status: controlled commercial experiment. No customer demand, paid pilot, recovered revenue, or MRR has been validated.
 
-## Objective
+## Primary offer to test
 
-Sell one paid, fixed-scope lead-response audit before spending on ads, paid data, or infrastructure.
+**SAMURAI Lead Response Audit — 49,000 ₸ (price hypothesis)**
 
-## Offer to test
-
-**Lead-response audit — $250**
-- Reviews one redacted CRM/lead CSV export, up to 10,000 rows.
+- One pseudonymized CSV export, up to 10,000 rows.
+- Required fields only: `lead_id`, `created_at`, `first_response_at`, `outcome`.
 - Measures recorded first-response times against the client's agreed SLA.
 - Separates within-SLA, late-response, and no-recorded-response cohorts.
-- Reports data-quality limitations and a short list of operational changes to test.
-- No CRM write access, no outbound messages, and no claim that every late/missing response caused lost revenue.
-- If the client buys a defined 14-day pilot, credit the audit fee toward the $750 pilot price.
+- Compares outcomes by response group, excluding open deals from closed-deal win-rate denominators.
+- Provides a data-quality note and operational recommendations.
+- No CRM write access, no messages, no automated follow-up, and no claim that every late or missing response caused lost revenue.
 
-Do not promise recovered revenue before the baseline and follow-up experiment are measured.
+This is a diagnostic service, not a guarantee of recovered sales.
 
-## Qualification checklist
+## Primary ICP — Kazakhstan home services
 
-A prospect is qualified only when the answer to all required points is yes:
-1. Receives roughly 50+ inbound leads per month.
-2. Has a CRM or lead inbox with created-at, first-response-at, and outcome fields.
-3. Has an owner / sales / operations contact who can approve the audit.
-4. Can provide a pseudonymized export without names, emails, phone numbers, message contents, or other direct identifiers.
-5. Can explain the approximate gross profit per closed sale.
-6. Is willing to pay for a diagnostic if the scope is clear.
+Start with HVAC / climate installation, repair and maintenance companies in Almaty and Astana.
 
-Disqualify if they cannot measure response time, have very low lead volume, demand guaranteed revenue, or require automated messaging as a condition of the first audit.
+Qualification hypotheses (must be confirmed in discovery):
+1. Approximately 30+ inbound inquiries per month.
+2. More than one field team or technician.
+3. Handles installation, repair and/or recurring maintenance.
+4. Receives inquiries through WhatsApp, Instagram, website and/or phone.
+5. Has a named owner, director or sales/operations manager.
+6. Can export pseudonymized lead records with creation time, first response time and outcome.
+7. Is willing to pay for a diagnostic if the scope and data handling are clear.
 
-## Short outreach template — English
+Secondary segments: plumbing/heating services and electrical/engineering contractors. Do not mix all segments in the first cohort without tracking them separately.
 
-Subject: Quick question about inbound lead response times
+Disqualify if the company has very low inquiry volume, no usable timestamps, cannot approve data processing, expects guaranteed revenue, or requires automatic outbound messaging for the first engagement.
 
-Hi {{first_name}},
+## Delivery procedure
 
-I’m testing a focused lead-response audit for {{company}}-type teams. It reviews a redacted CRM export to show response-time distribution, leads with no recorded first response, and how outcomes differ by response group.
+1. Confirm scope, lawful basis/permission, data owner, retention period and deletion procedure in writing.
+2. Ask the client to export only the four required columns. Replace customer identifiers with random or pseudonymous IDs before transfer.
+3. Reject files with additional columns. Do not request names, phone numbers, email addresses, message text, addresses or payment details.
+4. Validate timestamps, time zones, outcomes, duplicate IDs and row counts.
+5. Run the audit and record the exact input file hash, version, run time and operator.
+6. Review missing timestamps with the client. A missing timestamp can mean missing logging, not proof that no contact occurred.
+7. Deliver the aggregate report, limitations and a short list of process changes.
+8. Delete the input file according to the agreed retention schedule and record deletion.
 
-It does not require CRM access or send messages, and it does not label missing timestamps as proven lost revenue.
+## Follow-on offer
 
-Would a 15-minute conversation be useful to see whether your current lead data can support this kind of audit?
+Only after a paid audit identifies a measurable process gap, test a bounded 14-day human-operated follow-up improvement pilot.
 
-If this is not relevant, let me know and I won’t follow up.
+Possible subscription hypothesis after evidence:
+- 39,900–59,900 ₸ per month for recurring data-quality and response-gap reports, overdue follow-up visibility and recovery tracking.
+- CRM integration, WhatsApp Business Platform integration, custom workflows and automated messaging are separate scope and pricing.
+- Automatic sending stays disabled until the client approves the exact policy and separate integration/security tests pass.
 
-— SAMURAI Revenue Recovery
+Prices are experiments, not market averages or validated willingness-to-pay.
 
-## Follow-up template
+## Manual outbound sequence — draft only
 
-Hi {{first_name}},
+No outreach is authorized or sent by this document.
 
-One follow-up in case this is relevant: the audit is useful only if your team records lead creation time, first response time, and outcome. If those fields exist, I can explain the fixed scope and what the report can and cannot establish.
+- Day 0: research the company and identify a relevant public business contact.
+- Day 2–3: send one individually reviewed business email or use another permitted business channel.
+- Day 5–6: one appropriate follow-up by business phone, if permitted.
+- Day 9–10: share a synthetic example report.
+- Day 14–15: close the loop politely and stop unless the recipient asks to continue.
 
-Worth a brief look, or should I close the loop?
+Respect channel preferences, applicable Kazakhstan privacy/marketing requirements and opt-outs. Do not scrape personal contact data, mass-message WhatsApp users or automate sending from this MVP.
 
-## Discovery call — questions
+### Initial message — Russian draft
 
-1. About how many inbound leads do you receive in a typical month?
-2. Where are they recorded today?
-3. Are created-at, first-response-at, and outcome available for the same lead?
-4. What response-time SLA do you expect the team to meet?
-5. What is the approximate gross profit on a typical won deal?
-6. Who owns the process and can approve a paid diagnostic?
-7. What evidence would make the audit worth paying for?
-8. What data handling / retention requirements apply?
+Тема: Как вы контролируете скорость ответа на заявки?
+
+Здравствуйте!
+
+Изучаю, как HVAC-компании контролируют входящие заявки после обращения клиента. Мы тестируем узкий аудит: по обезличенному экспорту CRM он показывает время первого ответа, заявки без зафиксированного ответа и различия в исходах по группам.
+
+Мы не просим доступ к CRM, не отправляем сообщения и не утверждаем, что каждая задержка означает потерянную продажу.
+
+Подскажите, кто у вас отвечает за контроль заявок после первого обращения и отправки сметы? Если тема актуальна, могу показать короткий синтетический пример отчёта.
+
+Если это не относится к вашим задачам, больше писать не буду.
+
+SAMURAI Revenue Recovery
+
+## Discovery questions
+
+1. How many new inquiries arrive in a typical month?
+2. Which channels generate them?
+3. Where are inquiries recorded today?
+4. Are creation time, first response time and outcome stored for the same lead?
+5. What response SLA does the team use?
+6. How many technicians or field teams handle jobs?
+7. What happens after an estimate/quote is sent?
+8. Who owns overdue follow-up?
+9. Can the company provide a redacted export with only the four required fields?
+10. What evidence would make a paid audit worth 49,000 ₸?
 
 Do not collect customer-level personal data during initial qualification.
 
-## Pilot tracking sheet
+## Pilot tracking
 
-Track each prospect as one row with these fields:
-- prospect_id (pseudonymous internal ID)
-- company
-- website
-- segment
-- role
+Track one row per company:
+- prospect_id (internal pseudonymous ID)
+- company, city, vertical
+- website / public business source
 - qualification_reason
-- public_contact_source
-- contacted_date
-- channel
-- reply_type (positive / neutral / negative / none)
-- discovery_call (yes/no)
-- has_required_fields (yes/no/unknown)
-- redacted_sample_offered (yes/no)
-- paid_audit_offered (yes/no)
-- paid_audit_signed (yes/no)
-- cash_collected_usd
-- direct_cost_usd
-- delivery_hours
-- next_action
-- opt_out (yes/no)
-
-Respect applicable marketing/privacy rules and each recipient's channel preferences. Use a human review before sending; do not mass-blast or automate sending from this MVP.
+- public business contact source
+- CRM and export availability (yes/no/unknown)
+- inquiry_volume_band
+- decision_maker_role
+- contacted_date / channel / reply_type
+- discovery_call
+- redacted_sample_available
+- paid_audit_offered / accepted / paid
+- delivery_hours / direct_cost_kzt
+- result_delivered
+- renewal_or_next_step
+- opt_out
 
 ## Decision gates
 
-Initial planning thresholds, not industry benchmarks:
-- First 20 qualified prospects: review whether the segment understands the problem and replies are relevant.
-- By 50 qualified prospects: target at least 5 meaningful replies and 2 conversations about actual data availability.
-- By 100 qualified prospects: target at least 10 meaningful replies, 3 prospects willing to review a redacted sample/process, and at least 1 paid audit or paid pilot.
+Planning thresholds, not industry benchmarks:
+- 10 discovery conversations: verify the problem and data availability.
+- 20 qualified companies: inspect message relevance and objections.
+- 50 qualified companies: target at least 5 meaningful replies and 2 data-availability conversations.
+- 100 qualified companies: target at least 10 meaningful replies, 3 sample-data discussions and 1 paid audit.
+- 2 paid pilots with measurable client value: continue product development.
+- 2 renewals: consider a repeatable MRR offer.
 
-If the result misses the gate, diagnose the failure (wrong buyer, weak pain, poor channel, no data, or price) before spending more. Do not interpret 100 prospects as statistical proof of a 78% success probability.
+If there is interest but no usable data, redesign the audit. If data exists but findings are inaccurate, improve the algorithm. If the problem exists but nobody will pay, do not add more features to compensate.
 
-## Cash controls for the $300 experiment
+## Cash controls
 
-- Hard cap before the first paid customer: $50 total.
-- Keep the remaining $250 unspent unless a documented expense is required to deliver a paid engagement.
-- No paid ads, annual subscriptions, custom infrastructure, or live payment integration before a buyer commits.
-- Record every dollar spent and every dollar collected.
-- Calculate net contribution as cash collected minus refunds, payment fees, direct delivery costs, and acquisition spend. Track founder hours separately.
-- Revenue multiple is not profit multiple. A 5x net-return test requires net profit divided by invested capital to reach 5; define the measurement window before claiming success.
+- MVP spending cap: $3,000.
+- Initial validation spend target: no more than $1,700; retain the balance.
+- Do not buy annual tools, paid ads, complex WhatsApp integrations or production infrastructure before a buyer commits.
+- Record actual spend, cash collected, refunds, payment fees, direct delivery costs and founder hours.
+- Do not count pipeline, verbal interest or unpaid invoices as revenue.
 
 ## Evidence required before scaling
 
-1. A real prospect agreed to the scope.
+1. A qualified buyer agrees to the written scope.
 2. A signed or written acceptance of the paid audit/pilot.
-3. Cash actually received.
-4. Redacted client data processed and a report delivered.
+3. Cash is actually received.
+4. Redacted client data is processed and a report delivered.
 5. Client feedback and a documented next-step decision.
-6. Actual delivery hours, costs, and any repeat purchase/renewal.
+6. Actual delivery hours, costs, repeat purchase and renewal are tracked.
 
-A passing CI run proves code checks passed; it does not prove customer demand or business viability.
+A passing CI run proves code checks passed; it does not prove demand, customer outcomes or business viability.

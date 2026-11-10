@@ -34,6 +34,7 @@ test.before(async () => {
       AUTO_REPLY: "false",
       OPENAI_API_KEY: "",
       CORE_API_KEY: API_KEY,
+      LEAD_RATE_LIMIT_MAX: "3",
       TELEGRAM_WEBHOOK_SECRET: WEBHOOK_SECRET
     },
     stdio: ["ignore", "ignore", "pipe"]
@@ -112,5 +113,67 @@ test("revenue recovery audit endpoint rejects invalid CSV safely", async () => {
   const body = await response.json();
   assert.equal(body.ok, false);
   assert.equal(body.error.code, "INVALID_CSV");
+  assert.ok(body.error.requestId);
+});
+
+
+test("audit endpoint rejects unauthenticated malformed JSON before parsing", async () => {
+  const response = await request("/api/revenue-recovery/audit", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: "{"
+  }, false);
+  assert.equal(response.status, 401);
+  const body = await response.json();
+  assert.equal(body.error.code, "UNAUTHORIZED");
+  assert.ok(body.error.requestId);
+});
+
+test("audit endpoint returns structured error for malformed JSON", async () => {
+  const response = await request("/api/revenue-recovery/audit", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: "{"
+  });
+  assert.equal(response.status, 400);
+  const body = await response.json();
+  assert.equal(body.error.code, "INVALID_JSON");
+  assert.ok(body.error.requestId);
+});
+
+test("audit endpoint returns structured 413 for oversized JSON", async () => {
+  const oversized = JSON.stringify({ currency: "USD", csv: "x".repeat(16 * 1024 * 1024) });
+  const response = await request("/api/revenue-recovery/audit", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: oversized
+  });
+  assert.equal(response.status, 413);
+  const body = await response.json();
+  assert.equal(body.error.code, "REQUEST_BODY_TOO_LARGE");
+  assert.ok(body.error.requestId);
+});
+
+test("audit endpoint applies rate limiting and returns Retry-After", async () => {
+  const payload = JSON.stringify({
+    currency: "USD",
+    leads: [{ id: "rate-limit", createdAt: "2026-10-01T09:00:00Z", firstResponseAt: null, outcome: "open" }]
+  });
+  const allowed = await request("/api/revenue-recovery/audit", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: payload
+  });
+  assert.equal(allowed.status, 200);
+
+  const limited = await request("/api/revenue-recovery/audit", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: payload
+  });
+  assert.equal(limited.status, 429);
+  assert.ok(Number(limited.headers.get("retry-after")) >= 1);
+  const body = await limited.json();
+  assert.equal(body.error.code, "RATE_LIMITED");
   assert.ok(body.error.requestId);
 });
