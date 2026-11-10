@@ -13,6 +13,7 @@ const { createRateLimiter } = require("./rate-limit");
 const dualAI = require("./dual-ai/engine");
 const agentControl = require("./agent-control");
 const agentControlGithub = require("./agent-control-github");
+const runnerEvidenceGate = require("./agent-control-runner-gate");
 
 const app = express();
 const PORT = Number(process.env.PORT || 8787);
@@ -139,25 +140,11 @@ app.post("/api/agent-control/jobs/:id/propose", requireApiKey, (req, res) =>
   agentJobAction(agentControl.proposeRepair, req, res)
 );
 
-app.post("/api/agent-control/jobs/:id/sandbox", requireApiKey, (req, res) =>
-  agentJobAction(agentControl.recordSandbox, req, res)
-);
-
-app.post("/api/agent-control/jobs/:id/ci", requireApiKey, (req, res) =>
-  agentJobAction(agentControl.recordCI, req, res)
-);
-
-app.post("/api/agent-control/jobs/:id/proof", requireApiKey, (req, res) => {
-  try {
-    const job = agentControl.getJob(req.params.id);
-    if (!job) return res.status(404).json(errorBody("AGENT_JOB_NOT_FOUND", "Agent-control job not found", req.requestId));
-    const result = agentControl.finalizeProof(job, req.body || {});
-    return res.json({ ok: true, job: result.job, receipt: result.receipt, requestId: req.requestId });
-  } catch (error) {
-    const status = error.code === "JOB_NOT_FOUND" ? 404 : 400;
-    return res.status(status).json(errorBody(error.code || "AGENT_PROOF_FAILED", error.message, req.requestId));
-  }
-});
+// Fail closed: these public routes cannot accept caller-asserted PASS values.
+// A trusted runner adapter with signed, job-bound evidence is not wired yet.
+app.post("/api/agent-control/jobs/:id/sandbox", requireApiKey, runnerEvidenceGate.rejectUnverifiedEvidence);
+app.post("/api/agent-control/jobs/:id/ci", requireApiKey, runnerEvidenceGate.rejectUnverifiedEvidence);
+app.post("/api/agent-control/jobs/:id/proof", requireApiKey, runnerEvidenceGate.rejectUnverifiedEvidence);
 
 app.post("/api/agent-control/jobs/:id/diagnose", requireApiKey, (req, res) => {
   try {
