@@ -86,9 +86,9 @@ test("requires timezone-qualified timestamps and rejects invalid assumptions", (
 
 test("parses CSV headers, blank response timestamps, quoted commas, and CRLF", () => {
   const csv = [
-    "lead_id,created_at,first_response_at,outcome,source",
-    'L-1,2026-10-01T09:00:00Z,2026-10-01T09:03:00Z,won,"Google, Ads"',
-    "L-2,2026-10-01T09:00:00Z,,open,Telegram"
+    "lead_id,created_at,first_response_at,outcome",
+    "L-1,2026-10-01T09:00:00Z,2026-10-01T09:03:00Z,won",
+    "L-2,2026-10-01T09:00:00Z,,open"
   ].join("\r\n");
   const leads = parseCsvLeads(csv);
   assert.equal(leads.length, 2);
@@ -101,6 +101,17 @@ test("parses CSV headers, blank response timestamps, quoted commas, and CRLF", (
 test("rejects malformed CSV and missing required columns", () => {
   assert.throws(() => parseCsvLeads("lead_id,created_at\n1,2026-10-01T09:00:00Z"), e => e.code === "INVALID_CSV");
   assert.throws(() => parseCsvLeads('lead_id,created_at,first_response_at,outcome\n1,2026-10-01T09:00:00Z,,"open'), e => e.code === "INVALID_CSV");
+});
+
+test("rejects unused CSV columns to minimize accidental personal-data processing", () => {
+  const csv = [
+    "lead_id,created_at,first_response_at,outcome,customer_email",
+    "L-1,2026-10-01T09:00:00Z,,open,person@example.com"
+  ].join("\\n");
+  assert.throws(
+    () => parseCsvLeads(csv),
+    error => error.code === "INVALID_CSV" && /only the required columns/.test(error.message)
+  );
 });
 
 test("calculates win rate only from closed outcomes, excluding open leads", () => {
