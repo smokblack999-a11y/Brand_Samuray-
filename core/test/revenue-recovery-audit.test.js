@@ -107,7 +107,7 @@ test("rejects unused CSV columns to minimize accidental personal-data processing
   const csv = [
     "lead_id,created_at,first_response_at,outcome,customer_email",
     "L-1,2026-10-01T09:00:00Z,,open,person@example.com"
-  ].join("\\n");
+  ].join("\n");
   assert.throws(
     () => parseCsvLeads(csv),
     error => error.code === "INVALID_CSV" && /only the required columns/.test(error.message)
