@@ -1,13 +1,14 @@
 "use strict";
 
 function finiteNumber(value, field, { min = 0, max = Number.MAX_SAFE_INTEGER } = {}) {
-  const n = Number(value);
-  if (!Number.isFinite(n) || n < min || n > max) {
-    const error = new Error(field + " must be a number between " + min + " and " + max);
+  // Accept JSON numbers only. Coercion would silently turn true, false,
+  // null, and empty strings into plausible business metrics.
+  if (typeof value !== "number" || !Number.isFinite(value) || value < min || value > max) {
+    const error = new Error(field + " must be a JSON number between " + min + " and " + max);
     error.code = "INVALID_METRIC";
     throw error;
   }
-  return n;
+  return value;
 }
 
 function normalizePeriod(input, name) {
@@ -70,6 +71,7 @@ function evaluatePilotEconomics(input) {
   return {
     currency,
     evidenceWindowDays,
+    inputBasis: "monthly_run_rate",
     estimates: {
       baselineQualifiedLeads: round(baselineQualifiedLeads),
       pilotQualifiedLeads: round(pilotQualifiedLeads),

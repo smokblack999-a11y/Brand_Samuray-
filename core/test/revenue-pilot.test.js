@@ -51,3 +51,23 @@ test("allows zero gross profit without division by zero", () => {
   const result = evaluatePilotEconomics({ ...sample, grossProfitPerSale: 0 });
   assert.equal(result.estimates.breakEvenAdditionalSalesPerMonth, null);
 });
+
+
+test("rejects coerced non-number inputs instead of silently converting them", () => {
+  for (const value of [true, false, "", " ", "100", null]) {
+    assert.throws(
+      () => evaluatePilotEconomics({
+        ...sample,
+        baseline: { ...sample.baseline, monthlyLeads: value }
+      }),
+      error => error.code === "INVALID_METRIC"
+    );
+  }
+});
+
+test("marks metrics as monthly run rates and treats evidence window as metadata", () => {
+  const result = evaluatePilotEconomics({ ...sample, evidenceWindowDays: 14 });
+  assert.equal(result.inputBasis, "monthly_run_rate");
+  assert.equal(result.evidenceWindowDays, 14);
+  assert.equal(result.estimates.baselineSalesPerMonth, 2);
+});
