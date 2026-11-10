@@ -39,6 +39,8 @@ The authenticated endpoint is `POST /api/revenue-pilot/evaluate`. It uses the ex
 
 The figures are illustrative test data only. Replace them with client-provided figures before interpreting a result.
 
+**Input period contract:** `monthlyLeads` and `adminHoursPerMonth` must already be monthly run-rate estimates. `evidenceWindowDays` is metadata describing the observation window; the calculator does not annualize or extrapolate raw 14-day counts. If the client supplies raw counts from a 14-day window, normalize them to a defensible monthly run rate before calling this endpoint and document the method. Do not assume a short window is representative without checking seasonality, promotions, staffing and traffic. All numeric fields must be JSON numbers; numeric strings, booleans and empty values are rejected.
+
 ## Before accepting a client
 
 1. Screen for recurring Telegram text inquiries; an initial target is 40+ per month so the pilot can produce enough observations.
