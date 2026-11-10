@@ -35,7 +35,6 @@ if (process.env.NODE_ENV === "production") {
 app.disable("x-powered-by");
 app.set("trust proxy", process.env.TRUST_PROXY === "true" ? 1 : false);
 app.use(cors(CORS_ORIGIN ? { origin: CORS_ORIGIN } : { origin: false }));
-app.use(express.json({ limit: "16mb", verify: (req, _res, buf) => { req.rawBody = Buffer.from(buf); } }));
 
 function errorBody(code, message, requestId) {
   return { ok: false, error: { code, message, requestId } };
@@ -64,7 +63,15 @@ function requestId(req, res, next) {
   next();
 }
 
-app.use(requestId);
+// Assign a request ID and reject unauthenticated audit requests before parsing
+// their body. This avoids spending parser resources on unauthenticated uploads.
+app.use((req, res, next) => {
+  if (req.method === "POST" && req.path === "/api/revenue-recovery/audit") {
+    return requireApiKey(req, res, next);
+  }
+  return next();
+});
+app.use(express.json({ limit: "16mb", verify: (req, _res, buf) => { req.rawBody = Buffer.from(buf); } }));
 app.use((req, res, next) => {
   const timer = setTimeout(() => {
     if (!res.headersSent) res.status(503).json(errorBody("REQUEST_TIMEOUT", "Request timed out", req.requestId));
@@ -381,6 +388,25 @@ app.post("/api/telegram/webhook", requireWebhookSecret, async (req, res) => {
   } catch (error) {
     console.error(JSON.stringify({ event: "business_webhook_error", requestId: req.requestId, error: error.message }));
   }
+});
+
+app.use((error, req, res, next) => {
+  if (res.headersSent) return next(error);
+
+  if (error?.type === "entity.too.large") {
+    return res.status(413).json(errorBody("REQUEST_BODY_TOO_LARGE", "Request body exceeds the 16 MiB limit", req.requestId));
+  }
+  if (error?.type === "entity.parse.failed") {
+    return res.status(400).json(errorBody("INVALID_JSON", "Request body must contain valid JSON", req.requestId));
+  }
+  if (error?.type === "charset.unsupported" || error?.type === "encoding.unsupported") {
+    return res.status(415).json(errorBody("UNSUPPORTED_REQUEST_ENCODING", "Request encoding is not supported", req.requestId));
+  }
+
+  const status = Number.isInteger(error?.status) && error.status >= 400 && error.status < 500 ? error.status : 500;
+  const code = status === 500 ? "INTERNAL_SERVER_ERROR" : "INVALID_REQUEST";
+  console.error(JSON.stringify({ event: "request_failed", requestId: req.requestId, status, code }));
+  return res.status(status).json(errorBody(code, status === 500 ? "Internal server error" : "Request could not be processed", req.requestId));
 });
 
 app.use((req, res) => res.status(404).json(errorBody("NOT_FOUND", "Endpoint not found", req.requestId)));
