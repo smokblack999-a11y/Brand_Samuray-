@@ -4,14 +4,14 @@
 
 **Offer:** identify inbound leads with no recorded first response or a response outside the client's SLA, then run a measured, human-approved recovery pilot. The first version audits an exported CRM/lead CSV; it does not require a live integration to produce the initial evidence.
 
-**Best-fit customer hypothesis:** an agency, service company, or Telegram-led business with at least 50 inbound enquiries per month, high gross profit per sale, and timestamped lead/outcome data. Do not sell a revenue-lift promise to a business that cannot produce a usable baseline.
+**Best-fit customer hypothesis:** HVAC / climate installation, repair and maintenance companies in Almaty and Astana, with multiple field teams, roughly 30+ inbound enquiries per month, and timestamped lead/outcome data. Plumbing/heating and electrical contractors are secondary cohorts. Do not sell a revenue-lift promise to a business that cannot produce a usable baseline.
 
 This is an offer hypothesis, not proof of market demand. The code can validate data quality and response gaps; it cannot create paying customers or guarantee recovered revenue.
 
 ## What exists in this branch
 
 - Stateless, deterministic audit engine.
-- CSV import with required column checks, duplicate-ID checks, timestamp validation and size/row limits.
+- CSV import with an exact four-column allowlist, duplicate-ID checks, timestamp validation and size/row limits.
 - Authenticated Core endpoint: `POST /api/revenue-recovery/audit`.
 - Optional scenario calculator that only uses explicit operator-supplied assumptions.
 - Unit tests for metrics, edge cases and malformed CSV.
@@ -19,7 +19,7 @@ This is an offer hypothesis, not proof of market demand. The code can validate d
 
 ## API
 
-The endpoint requires the existing `CORE_API_KEY` in `X-API-Key`. Requests are rate-limited using the Core lead limiter.
+The endpoint requires the existing `CORE_API_KEY` in `X-API-Key`. Requests are authenticated before JSON body parsing and rate-limited using the Core lead limiter. Malformed JSON and oversized request bodies receive structured errors with a request ID.
 
 ### CSV request
 
@@ -37,7 +37,7 @@ L-003,2026-10-01T09:00:00Z,,lost
 - `first_response_at`: same format; blank means no response timestamp was recorded.
 - `outcome`: exactly `open`, `won`, or `lost`.
 - `currency`: an uppercase three-letter display code; this version validates its shape but does not verify membership in ISO 4217. Confirm the code with the client before presenting monetary figures.
-- Extra columns are ignored. Do not send message text, phone numbers, emails or other direct identifiers.
+- Extra columns are rejected. Remove every unused column before transfer; do not send message text, phone numbers, emails or other direct identifiers.
 - Group win rate is calculated only over closed outcomes (`won` + `lost`); open leads are reported separately and excluded from the denominator.
 - SLA timing currently uses elapsed clock minutes, not business hours or a holiday calendar.
 
@@ -76,20 +76,18 @@ The response labels the output as an *illustrative scenario*, not a forecast. Re
 
 ## Commercial test — hypotheses, not guarantees
 
-Initial pricing to test with prospects:
+Initial Kazakhstan pricing hypotheses:
 
-- **Lead-leak audit:** $250 fixed fee, credited to the pilot if the customer proceeds.
-- **14-day pilot implementation:** $750, limited to one lead source, agreed definitions, weekly evidence review and human approval before any outbound message.
-- **Managed monitoring after the pilot:** $300/week for a tightly capped scope, with tool/provider costs disclosed separately.
+- **Lead-response audit:** 49,000 ₸ fixed fee for one pseudonymized export.
+- **14-day human-operated follow-up pilot:** scoped and priced separately after the audit confirms a real workflow gap.
+- **Recurring monitoring:** 39,900–59,900 ₸/month as a hypothesis for repeat audits, overdue follow-up visibility and recovery tracking.
 
-At five retained customers, $300/week each equals $1,500 weekly gross revenue. To produce $1,000/week in operating contribution, direct delivery/tool costs would have to remain at or below $500/week before tax and founder compensation. This arithmetic is a target model, not a forecast. Actual margins, sales conversion, churn, taxes and support time remain unmeasured.
-
-A third-party agency pricing survey checked on 23 October 2026 reported published workflow prices of roughly $400–$5,000 and support retainers of $200–$2,000 per month; these are vendor-published examples, not a neutral market average: https://aistrikeforce.com/ai-automation-agency-pricing. Competitors already sell missed-call and lead-follow-up automation, so differentiation must come from a measured client-specific audit, clear economics, privacy, and a controlled implementation — not the claim that this category is undiscovered.
+These are test prices, not market averages or validated willingness-to-pay. CRM integration, WhatsApp Business Platform integration, custom workflow work and automated messaging are separate scope. The first audit does not send messages or write to the customer's CRM.
 
 ## Qualification and stop rules
 
 Proceed only if the prospect:
-1. has enough inbound volume to measure (starting qualification threshold: 50 leads/month);
+1. has enough inbound volume to measure (starting qualification threshold: approximately 30 leads/month for the HVAC experiment);
 2. can export pseudonymous lead IDs, creation timestamps, first-response timestamps and outcomes;
 3. has a sufficiently valuable sale to justify a paid intervention;
 4. agrees on baseline period, SLA, outcome definitions and handling of seasonality before the pilot;
