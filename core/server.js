@@ -65,6 +65,7 @@ function requestId(req, res, next) {
 
 // Assign a request ID and reject unauthenticated audit requests before parsing
 // their body. This avoids spending parser resources on unauthenticated uploads.
+app.use(requestId);
 app.use((req, res, next) => {
   if (req.method === "POST" && req.path === "/api/revenue-recovery/audit") {
     return requireApiKey(req, res, next);
