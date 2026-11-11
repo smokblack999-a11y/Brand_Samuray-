@@ -18,12 +18,14 @@ The integration branch already contains:
 - Courier/admin identity configuration and order notifications in the commerce bot.
 - Stripe TEST checkout paths and feature gates.
 
-Known limits from the branch review:
-- Existing AI reply generation is a generic single-turn prompt; seller-specific durable learning is not yet implemented.
-- Telegram bot flows, Commerce, Mini App, and courier logic require full end-to-end review as one product.
+Known limits and implementation status:
+- The base branch used a generic single-turn prompt. The isolated integration branch now retrieves only approved tenant-scoped Seller Memory and passes bounded context into AI generation; see `docs/SAMURAI_SELLER_AGENT_INTEGRATION_V1.md`.
+- Owner memory management is currently a token-protected backend API, not a finished owner dashboard or Telegram command flow.
+- Telegram webhook retry behavior is improved, but a durable outbound reply outbox and dead-letter workflow are still required.
+- Telegram bot flows, Commerce, Mini App, and courier logic still require full end-to-end review as one product.
 - Stripe TEST support is not live-money readiness.
-- SQLite storage is single-Core-instance storage; do not run multiple replicas against the same SQLite file.
-- No customer production deployment, independent security review, or paid pilot is established by this document.
+- Seller Memory and existing Commerce persistence are SQLite/single-Core-instance designs; do not run multiple replicas against the same SQLite file.
+- No customer production deployment, independent security review, live Telegram staging run, or paid pilot is established by this document.
 
 ## Product modules
 
@@ -140,15 +142,15 @@ Deliverables for a buyer:
 - License/assignment terms and support boundaries.
 - One-page offer describing outcomes, not unsupported AI claims.
 
-## Immediate implementation sequence
+## Implementation sequence and remaining work
 
-A. Audit and preserve the existing Commerce/Mini App/courier branch.
-B. Implement tenant-scoped SellerKnowledgeStore and feedback records.
-C. Integrate retrieval into AI reply generation with evidence IDs and freshness checks.
-D. Add seller approval/edit/reject workflow and learning ingestion.
-E. Add typed sales actions behind ActionPolicy.
-F. Complete courier role isolation and delivery proof.
-G. Build owner dashboard and onboarding.
-H. Run the release gates and prepare buyer demo.
+A. Read-only audit and isolated branch creation — completed for the current integration prototype.
+B. Tenant-scoped SellerKnowledgeStore, approval records, and owner-only API — implemented on the isolated branch; requires live configuration and test execution.
+C. Approved-memory retrieval in AI prompt — implemented with bounded fields and an additional approval-status filter.
+D. Owner edit/approve/reject and practice-correction APIs — backend endpoints implemented; dashboard UX and automatic correction capture remain.
+E. Typed sales actions behind ActionPolicy — not implemented.
+F. Complete courier role isolation and delivery proof — requires full integration and staging tests.
+G. Build owner dashboard and onboarding — not implemented.
+H. Run all release gates and prepare a buyer demo — not completed.
 
 Do not merge to main or enable production auto-reply until the release gates pass.
