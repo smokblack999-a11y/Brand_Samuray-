@@ -19,6 +19,8 @@ const commerce = require("./commerce");
 const commerceStripe = require("./commerce-stripe");
 const { stripeWebhookFailureStatus } = require("./stripe-webhook-policy");
 const commerceBot = require("./commerce-bot");
+const { createSellerLearningStore } = require("./seller-learning");
+const { resolveSellerTenant, authenticateSellerOwner } = require("./seller-tenant-context");
 
 const app = express();
 const PORT = Number(process.env.PORT || 8787);
@@ -72,6 +74,9 @@ function requestId(req, res, next) {
 
 app.use(requestId);
 app.use((req, res, next) => {
+  // Telegram retries webhook updates when processing fails. Do not send an early
+  // timeout response while the handler is still working on a claimed event.
+  if (req.path === "/api/telegram/webhook") return next();
   const timer = setTimeout(() => {
     if (!res.headersSent) res.status(503).json(errorBody("REQUEST_TIMEOUT", "Request timed out", req.requestId));
   }, REQUEST_TIMEOUT_MS);
@@ -80,6 +85,26 @@ app.use((req, res, next) => {
 });
 
 const leadRateLimit = createRateLimiter({ windowMs: LEAD_RATE_LIMIT_WINDOW_MS, max: LEAD_RATE_LIMIT_MAX });
+const sellerOwnerRateLimit = createRateLimiter({ windowMs: 60000, max: 12 });
+let sellerLearningStore = null;
+function getSellerLearningStore() {
+  if (!sellerLearningStore) sellerLearningStore = createSellerLearningStore();
+  return sellerLearningStore;
+}
+function requireSellerOwner(req, res, next) {
+  try {
+    const context = authenticateSellerOwner(
+      req.get("X-Telegram-Business-Connection-Id"),
+      req.get("X-Seller-Owner-Token")
+    );
+    if (!context) return res.status(401).json(errorBody("SELLER_OWNER_UNAUTHORIZED", "Seller owner authentication failed", req.requestId));
+    req.sellerTenant = context;
+    return next();
+  } catch (error) {
+    console.error(JSON.stringify({ event: "seller_owner_auth_config_failed", requestId: req.requestId, code: error.code || "CONFIG_ERROR" }));
+    return res.status(503).json(errorBody("SELLER_OWNER_AUTH_UNAVAILABLE", "Seller owner authentication is unavailable", req.requestId));
+  }
+}
 const dualRateLimit = createRateLimiter({ windowMs: Math.max(1000, Number(process.env.DUAL_AI_RATE_LIMIT_WINDOW_MS || 60000)), max: Math.max(1, Number(process.env.DUAL_AI_RATE_LIMIT_MAX || 10)) });
 const courierPhotoRateLimit = createRateLimiter({ windowMs: 60000, max: 8 });
 const activeCourierPhotoUploads = new Set();
@@ -548,7 +573,7 @@ app.get("/api/dual-ai/export/:id", requireApiKey, (req, res) => {
 });
 
 
-async function analyze(message, business) {
+async function analyze(message, business, tenantId = null) {
   const text = String(message || "").trim();
   if (!text) {
     const error = new Error("message обязателен");
@@ -561,9 +586,140 @@ async function analyze(message, business) {
     throw error;
   }
   const lead = scoreLead(text);
-  const reply = process.env.OPENAI_API_KEY ? await generateReply({ business: business || process.env.BUSINESS_NAME, customerMessage: text, lead }) : null;
+  const sellerContext = tenantId
+    ? getSellerLearningStore().retrieve({ tenantId, query: text, limit: 6 })
+    : [];
+  const reply = process.env.OPENAI_API_KEY
+    ? await generateReply({
+        business: business || process.env.BUSINESS_NAME,
+        customerMessage: text,
+        lead,
+        sellerContext
+      })
+    : null;
   return { lead, reply };
 }
+
+// Seller Memory APIs never accept tenantId or actorId from request bodies.
+// The tenant and owner identity are derived from a server-side Business Connection map
+// and a per-owner token supplied outside the browser bundle.
+app.get("/api/seller/knowledge", sellerOwnerRateLimit, requireSellerOwner, (req, res) => {
+  try {
+    const knowledge = getSellerLearningStore().listKnowledge({
+      tenantId: req.sellerTenant.tenantId,
+      status: req.query.status,
+      limit: req.query.limit
+    });
+    return res.json({ ok: true, knowledge, requestId: req.requestId });
+  } catch (error) {
+    return res.status(400).json(errorBody(error.code || "SELLER_KNOWLEDGE_LIST_FAILED", "Could not list seller knowledge", req.requestId));
+  }
+});
+
+app.post("/api/seller/knowledge", sellerOwnerRateLimit, requireSellerOwner, (req, res) => {
+  try {
+    const knowledge = getSellerLearningStore().addKnowledge({
+      tenantId: req.sellerTenant.tenantId,
+      actorId: req.sellerTenant.ownerId,
+      kind: req.body?.kind,
+      title: req.body?.title,
+      body: req.body?.body,
+      source: req.body?.source || "owner_api"
+    });
+    return res.status(201).json({ ok: true, knowledge, requestId: req.requestId });
+  } catch (error) {
+    return res.status(400).json(errorBody(error.code || "SELLER_KNOWLEDGE_CREATE_FAILED", "Could not create seller knowledge", req.requestId));
+  }
+});
+
+app.patch("/api/seller/knowledge/:id", sellerOwnerRateLimit, requireSellerOwner, (req, res) => {
+  try {
+    const knowledge = getSellerLearningStore().updateKnowledge({
+      tenantId: req.sellerTenant.tenantId,
+      actorId: req.sellerTenant.ownerId,
+      id: req.params.id,
+      title: req.body?.title,
+      body: req.body?.body,
+      source: req.body?.source
+    });
+    if (!knowledge) return res.status(404).json(errorBody("SELLER_KNOWLEDGE_NOT_FOUND", "Knowledge entry not found", req.requestId));
+    return res.json({ ok: true, knowledge, requestId: req.requestId });
+  } catch (error) {
+    return res.status(400).json(errorBody(error.code || "SELLER_KNOWLEDGE_UPDATE_FAILED", "Could not update seller knowledge", req.requestId));
+  }
+});
+
+app.post("/api/seller/knowledge/:id/review", sellerOwnerRateLimit, requireSellerOwner, (req, res) => {
+  try {
+    const knowledge = getSellerLearningStore().reviewKnowledge({
+      tenantId: req.sellerTenant.tenantId,
+      actorId: req.sellerTenant.ownerId,
+      id: req.params.id,
+      decision: req.body?.decision
+    });
+    if (!knowledge) return res.status(404).json(errorBody("SELLER_KNOWLEDGE_NOT_FOUND", "Knowledge entry not found", req.requestId));
+    return res.json({ ok: true, knowledge, requestId: req.requestId });
+  } catch (error) {
+    return res.status(400).json(errorBody(error.code || "SELLER_KNOWLEDGE_REVIEW_FAILED", "Could not review seller knowledge", req.requestId));
+  }
+});
+
+app.get("/api/seller/practice", sellerOwnerRateLimit, requireSellerOwner, (req, res) => {
+  try {
+    const examples = getSellerLearningStore().listPracticeExamples({
+      tenantId: req.sellerTenant.tenantId,
+      status: req.query.status,
+      limit: req.query.limit
+    });
+    return res.json({ ok: true, examples, requestId: req.requestId });
+  } catch (error) {
+    return res.status(400).json(errorBody(error.code || "SELLER_PRACTICE_LIST_FAILED", "Could not list seller practice examples", req.requestId));
+  }
+});
+
+app.post("/api/seller/practice", sellerOwnerRateLimit, requireSellerOwner, (req, res) => {
+  try {
+    const example = getSellerLearningStore().addPracticeExample({
+      tenantId: req.sellerTenant.tenantId,
+      actorId: req.sellerTenant.ownerId,
+      customerContext: req.body?.customerContext,
+      aiDraft: req.body?.aiDraft,
+      sellerFinal: req.body?.sellerFinal,
+      outcome: req.body?.outcome || "edited",
+      reason: req.body?.reason
+    });
+    return res.status(201).json({ ok: true, example, requestId: req.requestId });
+  } catch (error) {
+    return res.status(400).json(errorBody(error.code || "SELLER_PRACTICE_CREATE_FAILED", "Could not save seller correction", req.requestId));
+  }
+});
+
+app.post("/api/seller/practice/:id/review", sellerOwnerRateLimit, requireSellerOwner, (req, res) => {
+  try {
+    const example = getSellerLearningStore().reviewExample({
+      tenantId: req.sellerTenant.tenantId,
+      actorId: req.sellerTenant.ownerId,
+      id: req.params.id,
+      decision: req.body?.decision
+    });
+    if (!example) return res.status(404).json(errorBody("SELLER_PRACTICE_NOT_FOUND", "Practice example not found", req.requestId));
+    return res.json({ ok: true, example, requestId: req.requestId });
+  } catch (error) {
+    return res.status(400).json(errorBody(error.code || "SELLER_PRACTICE_REVIEW_FAILED", "Could not review seller correction", req.requestId));
+  }
+});
+
+app.get("/api/seller/audit", sellerOwnerRateLimit, requireSellerOwner, (req, res) => {
+  try {
+    const events = getSellerLearningStore().listAudit({
+      tenantId: req.sellerTenant.tenantId,
+      limit: req.query.limit
+    });
+    return res.json({ ok: true, events, requestId: req.requestId });
+  } catch (error) {
+    return res.status(400).json(errorBody(error.code || "SELLER_AUDIT_LIST_FAILED", "Could not read seller audit", req.requestId));
+  }
+});
 
 app.post("/api/lead/analyze", requireApiKey, leadRateLimit, async (req, res) => {
   try {
@@ -588,14 +744,15 @@ app.post("/api/telegram/webhook", requireWebhookSecret, async (req, res) => {
       await commerceBot.handleCommerceUpdate(update);
       return res.sendStatus(200);
     }
-    res.sendStatus(200);
     if (update.business_connection) {
       console.log(JSON.stringify({ event: "business_connection", id: update.business_connection.id, requestId: req.requestId }));
-      return;
+      return res.sendStatus(200);
     }
 
     const message = update.business_message;
-    if (!message?.business_connection_id || !message.chat?.id || !Number.isInteger(message.message_id)) return;
+    if (!message?.business_connection_id || !message.chat?.id || !Number.isInteger(message.message_id)) {
+      return res.sendStatus(200);
+    }
 
     const eventKey = "telegram:" + message.business_connection_id + ":" + message.chat.id + ":" + message.message_id;
     const claim = claimEvent(eventKey, {
@@ -608,13 +765,18 @@ app.post("/api/telegram/webhook", requireWebhookSecret, async (req, res) => {
     });
 
     if (!claim.claimed) {
+      if (claim.item?.status === "processing") {
+        res.setHeader("Retry-After", "2");
+        return res.status(503).json(errorBody("WEBHOOK_EVENT_IN_PROGRESS", "Webhook event is still processing", req.requestId));
+      }
       console.log(JSON.stringify({ event: "duplicate_telegram_event", eventKey, requestId: req.requestId }));
-      return;
+      return res.sendStatus(200);
     }
 
     try {
       const text = message.text || message.caption || "Медиа-сообщение";
-      const result = await analyze(text, process.env.BUSINESS_NAME);
+      const sellerTenant = resolveSellerTenant(message.business_connection_id);
+      const result = await analyze(text, process.env.BUSINESS_NAME, sellerTenant?.tenantId || null);
 
       let attachments = { media: null, location: null };
       try {
@@ -685,6 +847,7 @@ app.post("/api/telegram/webhook", requireWebhookSecret, async (req, res) => {
       updateLead(claim.item.id, { status: "failed", error: error.message });
       throw error;
     }
+    return res.sendStatus(200);
   } catch (error) {
     console.error(JSON.stringify({
       event: "business_webhook_error",

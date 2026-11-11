@@ -71,3 +71,22 @@ test("tenant ID is mandatory and cannot retrieve another seller's records", () =
     assert.throws(() => f.store.retrieve({ query: "anything" }), { code: "INVALID_TENANTID" });
   } finally { f.cleanup(); }
 });
+
+test("audit log rejects update and delete operations", () => {
+  const f = fixture();
+  try {
+    const item = f.store.addKnowledge({
+      tenantId: "seller-a", actorId: "owner-a", kind: "faq",
+      title: "Returns", body: "Contact the seller", source: "owner"
+    });
+    assert.ok(item.id);
+    const dbPath = path.join(f.dir, "learning.sqlite");
+    assert.equal(fs.statSync(dbPath).mode & 0o777, 0o600);
+    const { DatabaseSync } = require("node:sqlite");
+    const db = new DatabaseSync(dbPath);
+    assert.throws(() => db.prepare("UPDATE seller_learning_audit SET action='tampered' WHERE tenant_id=?").run("seller-a"));
+    assert.throws(() => db.prepare("DELETE FROM seller_learning_audit WHERE tenant_id=?").run("seller-a"));
+    db.close();
+    assert.equal(f.store.listAudit({ tenantId: "seller-a" }).length, 1);
+  } finally { f.cleanup(); }
+});
