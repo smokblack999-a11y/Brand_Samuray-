@@ -13,7 +13,7 @@ test("seller prompt formatter accepts only bounded approved context fields", () 
         kind: "policy",
         title: "Delivery",
         body: "Delivery only in configured zones",
-        status: "pending",
+        status: "approved",
         approvedBy: "private-owner-id"
       }
     },
@@ -24,6 +24,7 @@ test("seller prompt formatter accepts only bounded approved context fields", () 
         sellerFinal: "The listed price is fixed",
         reason: "Discounts are disabled",
         outcome: "edited",
+        status: "approved",
         tenantId: "must-not-be-sent"
       }
     }
@@ -39,6 +40,15 @@ test("seller prompt formatter accepts only bounded approved context fields", () 
   assert.equal(result[1].preferred_reply, "The listed price is fixed");
   assert.equal(JSON.stringify(result).includes("must-not-be-sent"), false);
   assert.equal(JSON.stringify(result).includes("private-owner-id"), false);
+  const withPending = sellerMemoryForPrompt([
+    { type: "knowledge", record: { status: "pending", title: "Unapproved", body: "Never include" } },
+    { type: "unknown", record: { status: "approved", title: "Unknown type", body: "Never include" } },
+    ...[
+      { type: "knowledge", record: { status: "approved", title: "Approved", body: "Use this" } }
+    ]
+  ]);
+  assert.equal(withPending.length, 1);
+  assert.equal(withPending[0].title, "Approved");
 });
 
 test("seller prompt formatter bounds every retrieved text field", () => {
