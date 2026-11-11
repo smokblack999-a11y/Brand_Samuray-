@@ -81,6 +81,7 @@ test("audit log rejects update and delete operations", () => {
     });
     assert.ok(item.id);
     const dbPath = path.join(f.dir, "learning.sqlite");
+    assert.equal(fs.statSync(dbPath).mode & 0o777, 0o600);
     const { DatabaseSync } = require("node:sqlite");
     const db = new DatabaseSync(dbPath);
     assert.throws(() => db.prepare("UPDATE seller_learning_audit SET action='tampered' WHERE tenant_id=?").run("seller-a"));
