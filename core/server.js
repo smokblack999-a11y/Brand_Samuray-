@@ -74,6 +74,9 @@ function requestId(req, res, next) {
 
 app.use(requestId);
 app.use((req, res, next) => {
+  // Telegram retries webhook updates when processing fails. Do not send an early
+  // timeout response while the handler is still working on a claimed event.
+  if (req.path === "/api/telegram/webhook") return next();
   const timer = setTimeout(() => {
     if (!res.headersSent) res.status(503).json(errorBody("REQUEST_TIMEOUT", "Request timed out", req.requestId));
   }, REQUEST_TIMEOUT_MS);
@@ -762,6 +765,10 @@ app.post("/api/telegram/webhook", requireWebhookSecret, async (req, res) => {
     });
 
     if (!claim.claimed) {
+      if (claim.item?.status === "processing") {
+        res.setHeader("Retry-After", "2");
+        return res.status(503).json(errorBody("WEBHOOK_EVENT_IN_PROGRESS", "Webhook event is still processing", req.requestId));
+      }
       console.log(JSON.stringify({ event: "duplicate_telegram_event", eventKey, requestId: req.requestId }));
       return res.sendStatus(200);
     }
