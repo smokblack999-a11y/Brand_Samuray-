@@ -35,9 +35,13 @@ async function checkOpenAI() {
 }
 
 function sellerMemoryForPrompt(items) {
-  return (Array.isArray(items) ? items : []).slice(0, 8).map(item => {
-    const record = item && item.record ? item.record : {};
-    if (item?.type === "knowledge") {
+  const approvedItems = (Array.isArray(items) ? items : []).filter(item =>
+    item && item.record && item.record.status === "approved" &&
+    (item.type === "knowledge" || item.type === "practice")
+  ).slice(0, 8);
+  return approvedItems.map(item => {
+    const record = item.record;
+    if (item.type === "knowledge") {
       return {
         type: "approved_business_reference",
         kind: String(record.kind || "").slice(0, 32),
