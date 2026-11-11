@@ -39,6 +39,10 @@ function createSellerLearningStore(options = {}) {
     try { fs.chmodSync(path.dirname(path.resolve(dbPath)), 0o700); } catch {}
   }
   const db = new DatabaseSync(dbPath);
+  if (dbPath !== ":memory:") {
+    try { fs.chmodSync(path.resolve(dbPath), 0o600); }
+    catch (error) { db.close(); throw error; }
+  }
   db.exec("PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000; PRAGMA journal_mode = WAL; PRAGMA synchronous = FULL;");
   db.exec(
     "CREATE TABLE IF NOT EXISTS seller_knowledge (" +
