@@ -35,9 +35,13 @@ test("owner token is required and cannot authorize another tenant", () => {
   assert.equal(authenticateSellerOwner("business-connection-b", "test-owner-token-with-more-than-32-characters", config), null);
 });
 
-test("invalid tenant mapping fails closed", () => {
+test("invalid or reused owner tokens fail closed", () => {
   assert.throws(() => parseSellerTenantMap("{"), { code: "SELLER_TENANT_CONFIG_INVALID" });
   assert.throws(() => parseSellerTenantMap(JSON.stringify({
     "connection": { tenantId: "tenant-a", ownerId: "owner-a", ownerToken: "short" }
+  })), { code: "SELLER_TENANT_CONFIG_INVALID" });
+  assert.throws(() => parseSellerTenantMap(JSON.stringify({
+    "connection-a": { tenantId: "tenant-a", ownerId: "owner-a", ownerToken: "same-owner-token-01234567890123456789" },
+    "connection-b": { tenantId: "tenant-b", ownerId: "owner-b", ownerToken: "same-owner-token-01234567890123456789" }
   })), { code: "SELLER_TENANT_CONFIG_INVALID" });
 });
