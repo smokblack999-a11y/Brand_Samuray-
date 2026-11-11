@@ -14,6 +14,7 @@ process.env.COMMERCE_COURIER_IDS = '777';
 process.env.COMMERCE_COURIER_TOKENS_JSON = JSON.stringify({ '777': 'test-courier-token-that-is-not-secret' });
 process.env.COMMERCE_ADMIN_IDS = '888';
 const commerce = require('../commerce');
+const leadStore = require('../store');
 const port = 18000 + Math.floor(Math.random() * 1000);
 const API_KEY = 'test-core-api-key-123456';
 const WEBHOOK_SECRET = 'test-webhook-secret-123456';
@@ -221,6 +222,38 @@ test('Telegram webhook requires secret and deduplicates business messages', asyn
   assert.equal(stats.stats.processing, 0);
   assert.equal(stats.stats.failed, 0);
   assert.equal(stats.stats.hot + stats.stats.warm + stats.stats.cold, 2);
+});
+
+test('Telegram webhook asks Telegram to retry while an identical event is still processing', async () => {
+  const eventKey = 'telegram:bc-pending:987:88';
+  const claim = leadStore.claimEvent(eventKey, {
+    source: 'telegram_business',
+    businessConnectionId: 'bc-pending',
+    chatId: 987,
+    messageId: 88
+  });
+  assert.equal(claim.claimed, true);
+
+  const response = await fetch(`http://127.0.0.1:${port}/api/telegram/webhook`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'X-Telegram-Bot-Api-Secret-Token': WEBHOOK_SECRET
+    },
+    body: JSON.stringify({
+      business_message: {
+        business_connection_id: 'bc-pending',
+        message_id: 88,
+        chat: { id: 987 },
+        from: { id: 654 },
+        text: 'Повторная доставка события'
+      }
+    })
+  });
+  assert.equal(response.status, 503);
+  assert.equal(response.headers.get('retry-after'), '2');
+  assert.equal((await response.json()).error.code, 'WEBHOOK_EVENT_IN_PROGRESS');
+  leadStore.updateLead(claim.item.id, { status: 'completed' });
 });
 
 test('commerce endpoints require API key and expose only configured catalog', async () => {
