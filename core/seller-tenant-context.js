@@ -26,6 +26,7 @@ function parseSellerTenantMap(raw = process.env.SELLER_TENANT_MAP_JSON || "{}") 
     throw error;
   }
   const result = Object.create(null);
+  const seenTokens = new Set();
   for (const [connectionId, item] of Object.entries(parsed)) {
     const connection = requiredId(connectionId, "business connection ID");
     if (!item || typeof item !== "object" || Array.isArray(item)) {
@@ -36,11 +37,12 @@ function parseSellerTenantMap(raw = process.env.SELLER_TENANT_MAP_JSON || "{}") 
     const tenantId = requiredId(item.tenantId, "tenant ID");
     const ownerId = requiredId(item.ownerId, "owner ID");
     const ownerToken = String(item.ownerToken || "");
-    if (ownerToken.length < 32 || ownerToken.length > 512) {
-      const error = new Error("Each seller owner token must contain at least 32 characters");
+    if (ownerToken.length < 32 || ownerToken.length > 512 || seenTokens.has(ownerToken)) {
+      const error = new Error("Each seller owner token must be unique and contain 32–512 characters");
       error.code = "SELLER_TENANT_CONFIG_INVALID";
       throw error;
     }
+    seenTokens.add(ownerToken);
     result[connection] = Object.freeze({ tenantId, ownerId, ownerToken });
   }
   return Object.freeze(result);
