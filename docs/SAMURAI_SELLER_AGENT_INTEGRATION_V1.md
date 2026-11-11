@@ -11,6 +11,7 @@ Status: isolated integration prototype on `feat/samurai-seller-agent-integration
 - Seller-owner API operations derive `tenantId` and `actorId` from server configuration. Request JSON fields with those names are ignored.
 - Knowledge and practice examples are created as pending and require explicit owner approval before retrieval.
 - Seller learning audit rows reject SQL UPDATE and DELETE through database triggers.
+- The Seller Memory SQLite database file is set to owner-only mode (0600) after opening.
 - The Telegram Business webhook now acknowledges a valid business message after successful processing. A processing error returns a non-2xx response so Telegram can retry; failed lead claims can be reclaimed by the existing `claimEvent` behavior.
 
 ## Server-only configuration
