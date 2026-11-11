@@ -54,6 +54,8 @@ jobs:
           node --check server.js
           node --check rate-limit.js
           node --check openai.js
+          node --check seller-learning.js
+          node --check seller-tenant-context.js
           node --check business-bot.js
           node --check store.js
           node --check lead-engine.js
