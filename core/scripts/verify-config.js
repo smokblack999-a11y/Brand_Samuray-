@@ -1,5 +1,6 @@
 "use strict";
 require("dotenv").config();
+const { parseSellerTenantMap } = require("../seller-tenant-context");
 
 const required = ["CORE_API_KEY", "TELEGRAM_WEBHOOK_SECRET", "TELEGRAM_WEBHOOK_URL"];
 const missing = required.filter(name => !String(process.env[name] || "").trim());
@@ -10,4 +11,5 @@ if (!/^https:\/\//i.test(webhook)) throw new Error("TELEGRAM_WEBHOOK_URL must us
 if (String(process.env.TELEGRAM_WEBHOOK_SECRET).length < 16) throw new Error("TELEGRAM_WEBHOOK_SECRET must be at least 16 characters");
 if (String(process.env.CORE_API_KEY).length < 16) throw new Error("CORE_API_KEY must be at least 16 characters");
 
-console.log(JSON.stringify({ ok: true, checked: required }, null, 2));
+const sellerTenantCount = Object.keys(parseSellerTenantMap()).length;
+console.log(JSON.stringify({ ok: true, checked: required, sellerTenantsConfigured: sellerTenantCount }, null, 2));
