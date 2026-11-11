@@ -17,6 +17,7 @@ const commerce = require('../commerce');
 const port = 18000 + Math.floor(Math.random() * 1000);
 const API_KEY = 'test-core-api-key-123456';
 const WEBHOOK_SECRET = 'test-webhook-secret-123456';
+const SELLER_OWNER_TOKEN = 'test-seller-owner-token-with-at-least-32-characters';
 
 let child;
 let childStdout = "";
@@ -26,6 +27,17 @@ async function api(pathname, options = {}) {
   return fetch(`http://127.0.0.1:${port}${pathname}`, {
     ...options,
     headers: { 'X-API-Key': API_KEY, ...(options.headers || {}) }
+  });
+}
+
+async function sellerApi(pathname, options = {}) {
+  return fetch(`http://127.0.0.1:${port}${pathname}`, {
+    ...options,
+    headers: {
+      'X-Telegram-Business-Connection-Id': 'bc-seller-a',
+      'X-Seller-Owner-Token': SELLER_OWNER_TOKEN,
+      ...(options.headers || {})
+    }
   });
 }
 
@@ -47,7 +59,20 @@ test.before(async () => {
       COMMERCE_COURIER_IDS: '777',
       COMMERCE_COURIER_TOKENS_JSON: JSON.stringify({ '777': 'test-courier-token-that-is-not-secret' }),
       COMMERCE_ADMIN_IDS: '888',
-      MAX_MESSAGE_CHARS: '4000'
+      MAX_MESSAGE_CHARS: '4000',
+      SELLER_LEARNING_DB_PATH: path.join(dataDir, 'seller-learning.sqlite'),
+      SELLER_TENANT_MAP_JSON: JSON.stringify({
+        'bc-seller-a': {
+          tenantId: 'seller-a',
+          ownerId: 'owner-100',
+          ownerToken: SELLER_OWNER_TOKEN
+        },
+        'bc-seller-b': {
+          tenantId: 'seller-b',
+          ownerId: 'owner-200',
+          ownerToken: 'test-second-seller-owner-token-has-at-least-32-chars'
+        }
+      })
     },
     stdio: ['ignore', 'pipe', 'pipe']
   });
@@ -313,6 +338,91 @@ test('courier orders API requires the individual token and returns only that cou
   assert.equal(body.orders[0].id, assignedToCaller.id);
   assert.equal(body.orders[0].address, 'Private address for 500');
   assert.equal(JSON.stringify(body).includes('Private address for 600'), false);
+});
+
+test('Seller Memory owner API is tenant-bound and requires the mapped owner token', async () => {
+  const denied = await fetch(`http://127.0.0.1:${port}/api/seller/knowledge`, {
+    headers: { 'X-Telegram-Business-Connection-Id': 'bc-seller-a' }
+  });
+  assert.equal(denied.status, 401);
+
+  const createdResponse = await sellerApi('/api/seller/knowledge', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      tenantId: 'attacker-selected-tenant',
+      actorId: 'attacker-selected-actor',
+      kind: 'policy',
+      title: 'Delivery policy',
+      body: 'Deliver within the configured Almaty service zone',
+      source: 'owner'
+    })
+  });
+  assert.equal(createdResponse.status, 201);
+  const created = await createdResponse.json();
+  assert.equal(created.knowledge.tenantId, 'seller-a');
+  assert.equal(created.knowledge.status, 'pending');
+
+  const pendingResponse = await sellerApi('/api/seller/knowledge?status=pending');
+  const pending = await pendingResponse.json();
+  assert.equal(pending.knowledge.length, 1);
+  assert.equal(pending.knowledge[0].tenantId, 'seller-a');
+
+  const approveResponse = await sellerApi('/api/seller/knowledge/' + created.knowledge.id + '/review', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ decision: 'approved', tenantId: 'seller-b', actorId: 'attacker' })
+  });
+  assert.equal(approveResponse.status, 200);
+  assert.equal((await approveResponse.json()).knowledge.approvedBy, 'owner-100');
+
+  const foreign = await sellerApi('/api/seller/knowledge', {
+    headers: {
+      'X-Telegram-Business-Connection-Id': 'bc-seller-b',
+      'X-Seller-Owner-Token': SELLER_OWNER_TOKEN
+    }
+  });
+  assert.equal(foreign.status, 401);
+});
+
+test('Seller Memory stores corrections pending until owner approval', async () => {
+  const createdResponse = await sellerApi('/api/seller/practice', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      tenantId: 'seller-b',
+      customerContext: 'Customer asks for a discount',
+      aiDraft: 'I can give you a discount',
+      sellerFinal: 'The price is fixed; pickup is available',
+      outcome: 'edited',
+      reason: 'Discounts are not permitted'
+    })
+  });
+  assert.equal(createdResponse.status, 201);
+  const created = await createdResponse.json();
+  assert.equal(created.example.tenantId, 'seller-a');
+  assert.equal(created.example.status, 'pending');
+
+  const before = await sellerApi('/api/seller/practice?status=approved');
+  assert.equal((await before.json()).examples.length, 0);
+
+  const review = await sellerApi('/api/seller/practice/' + created.example.id + '/review', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ decision: 'approved' })
+  });
+  assert.equal(review.status, 200);
+
+  const after = await sellerApi('/api/seller/practice?status=approved');
+  const approved = await after.json();
+  assert.equal(approved.examples.length, 1);
+  assert.equal(approved.examples[0].sellerFinal, 'The price is fixed; pickup is available');
+
+  const audit = await sellerApi('/api/seller/audit');
+  const events = await audit.json();
+  assert.equal(events.events.length, 4);
+  assert.ok(events.events.every(event => event.tenantId === 'seller-a'));
+  assert.ok(events.events.every(event => event.actorId === 'owner-100'));
 });
 
 test('unknown route returns JSON 404', async () => {
