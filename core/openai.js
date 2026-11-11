@@ -88,4 +88,4 @@ async function generateReply({ business, customerMessage, lead, sellerContext = 
     throw publicOpenAIError(error);
   }
 }
-module.exports = { generateReply, checkOpenAI };
+module.exports = { generateReply, checkOpenAI, sellerMemoryForPrompt };
