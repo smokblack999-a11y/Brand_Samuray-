@@ -1,4 +1,4 @@
-name: Build SamuraiOS APK
+name: Build SamuraiOS and SAMURAI WhatsApp APKs
 
 on:
   push:
@@ -12,7 +12,7 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
 
     steps:
       - name: Checkout
@@ -44,20 +44,24 @@ jobs:
         working-directory: android
         run: chmod +x gradlew
 
-      - name: Build Debug APK
+      - name: Build both Android applications
         working-directory: android
-        run: ./gradlew clean assembleDebug --stacktrace
+        run: ./gradlew clean assembleDebug :samurai-whatsapp:assembleDebug --stacktrace
 
-      - name: Verify APK
+      - name: Verify APKs
         working-directory: android
         run: |
           set -euo pipefail
           test -f app/build/outputs/apk/debug/app-debug.apk
+          test -f samurai-whatsapp/build/outputs/apk/debug/samurai-whatsapp-debug.apk
           ls -lh app/build/outputs/apk/debug/app-debug.apk
+          ls -lh samurai-whatsapp/build/outputs/apk/debug/samurai-whatsapp-debug.apk
 
-      - name: Upload APK
+      - name: Upload APKs
         uses: actions/upload-artifact@v4
         with:
-          name: SamuraiOS-debug-apk
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          name: SamuraiOS-and-SAMURAI-WhatsApp-debug-apks
+          path: |
+            android/app/build/outputs/apk/debug/app-debug.apk
+            android/samurai-whatsapp/build/outputs/apk/debug/samurai-whatsapp-debug.apk
           if-no-files-found: error
