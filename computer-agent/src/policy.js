@@ -1,14 +1,14 @@
 "use strict";
 
 const BLOCKED_ACTION_PATTERNS = [
-  /\\b(bet|wager|stake|place bet|ставк|поставить|удвоить|all.?in)\\b/i,
-  /\\b(deposit|withdraw|cash.?out|payment|purchase|pay now)\\b/i,
-  /\\b(delete|remove account|close account|send money|transfer)\\b/i
+  /\b(bet|wager|stake|place bet|ставк|поставить|удвоить|all.?in)\b/i,
+  /\b(deposit|withdraw|cash.?out|payment|purchase|pay now)\b/i,
+  /\b(delete|remove account|close account|send money|transfer)\b/i
 ];
 
 function validateTask(task) {
   if (!task || typeof task !== "object") throw new Error("TASK_REQUIRED");
-  if (typeof task.url !== "string" || !/^https:\\/\\//i.test(task.url)) throw new Error("HTTPS_URL_REQUIRED");
+  if (typeof task.url !== "string" || !/^https:\/\//i.test(task.url)) throw new Error("HTTPS_URL_REQUIRED");
   const parsed = new URL(task.url);
   if (parsed.username || parsed.password) throw new Error("URL_CREDENTIALS_FORBIDDEN");
   if (!Array.isArray(task.steps) || task.steps.length < 1 || task.steps.length > 30) throw new Error("INVALID_STEPS");
