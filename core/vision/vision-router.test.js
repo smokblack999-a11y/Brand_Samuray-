@@ -40,13 +40,13 @@ test("Vision endpoint accepts a consented JPEG and returns analysis", async (t) 
   await withServer(t, createVisionRouter({ enabled: true, rateLimiter: passRateLimit, service }), async (base) => {
     const response = await fetch(base + "/api/vision/analyze", {
       method: "POST",
-      headers: { "Content-Type": "image/jpeg", "X-Vision-Consent": "true", "X-Vision-Prompt": "Опиши предмет." },
+      headers: { "Content-Type": "image/jpeg", "X-Vision-Consent": "true", "X-Vision-Prompt": "Describe the object." },
       body: jpeg
     });
     assert.equal(response.status, 200);
     assert.equal((await response.json()).analysis, "Вижу коробку.");
     assert.equal(received.contentType, "image/jpeg");
-    assert.equal(received.prompt, "Опиши предмет.");
+    assert.equal(received.prompt, "Describe the object.");
     assert.deepEqual(received.buffer, jpeg);
   });
 });

@@ -383,7 +383,6 @@ class MainActivity : ComponentActivity() {
                     setRequestProperty("Accept", "application/json")
                     setRequestProperty("X-API-Key", apiKey)
                     setRequestProperty("X-Vision-Consent", "true")
-                    setRequestProperty("X-Vision-Prompt", "Опиши видимую сцену, объекты и читаемый текст. Отделяй факты от предположений.")
                     setRequestProperty("X-Request-ID", UUID.randomUUID().toString())
                 }
                 connection.outputStream.use { stream -> stream.write(bytes); stream.flush() }
