@@ -1,6 +1,7 @@
 package com.samuraios.app
 
 import android.Manifest
+import android.app.AlertDialog
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -30,6 +31,7 @@ import androidx.activity.ComponentActivity
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
+import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
@@ -51,6 +53,7 @@ import java.net.URLEncoder
 import java.util.UUID
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import org.json.JSONObject
 import kotlin.concurrent.thread
 
 class MainActivity : ComponentActivity() {
@@ -62,10 +65,12 @@ class MainActivity : ComponentActivity() {
     private lateinit var previewView: PreviewView
     private lateinit var statusText: TextView
     private lateinit var outputText: TextView
+    private lateinit var visionText: TextView
     private lateinit var chatIdInput: EditText
     private lateinit var messageInput: EditText
     private lateinit var galleryContainer: LinearLayout
     private var imageCapture: ImageCapture? = null
+    private var localVisionAnalyzer: LocalVisionAnalyzer? = null
     private var boundCamera: androidx.camera.core.Camera? = null
     private var selectedPhoto: File? = null
     private var cameraExecutor: ExecutorService? = null
@@ -84,7 +89,7 @@ class MainActivity : ComponentActivity() {
         checkCoreStatus()
     }
 
-    override fun onDestroy() { cameraExecutor?.shutdown(); super.onDestroy() }
+    override fun onDestroy() { localVisionAnalyzer?.close(); cameraExecutor?.shutdown(); super.onDestroy() }
 
     private fun hasPermissions(): Boolean =
         ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED &&
@@ -146,6 +151,9 @@ class MainActivity : ComponentActivity() {
         cameraFrame.addView(zoomControls, FrameLayout.LayoutParams(-2, -2, Gravity.END or Gravity.TOP))
         root.addView(cameraFrame, LinearLayout.LayoutParams(-1, 520))
         root.addView(Button(this).apply { text = "СНЯТЬ ФОТО + GPS"; setOnClickListener { capturePhoto() } })
+        visionText = TextView(this).apply { text = "Локальное зрение: инициализация..."; textSize = 14f; setTextColor(Color.CYAN); setPadding(0, 10, 0, 10) }
+        root.addView(visionText)
+        root.addView(Button(this).apply { text = "АНАЛИЗИРОВАТЬ В OPENAI"; setOnClickListener { confirmCloudVision() } })
         root.addView(TextView(this).apply { text = "Проектная галерея — приватное хранилище"; textSize = 18f; setTextColor(Color.WHITE); setPadding(0, 18, 0, 8) })
         galleryContainer = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         root.addView(galleryContainer)
@@ -171,9 +179,14 @@ class MainActivity : ComponentActivity() {
                 val provider = future.get()
                 val preview = Preview.Builder().build().also { it.setSurfaceProvider(previewView.surfaceProvider) }
                 imageCapture = ImageCapture.Builder().setJpegQuality(95).build()
+                val analysis = ImageAnalysis.Builder().setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST).build()
+                val executor = cameraExecutor ?: throw IllegalStateException("Camera executor is unavailable")
+                localVisionAnalyzer = LocalVisionAnalyzer { result -> mainHandler.post { visionText.text = result } }
+                analysis.setAnalyzer(executor, localVisionAnalyzer!!)
                 provider.unbindAll()
-                boundCamera = provider.bindToLifecycle(this, CameraSelector.DEFAULT_BACK_CAMERA, preview, imageCapture)
-                statusText.text = "Камера готова · JPEG 95%"
+                boundCamera = provider.bindToLifecycle(this, CameraSelector.DEFAULT_BACK_CAMERA, preview, imageCapture, analysis)
+                statusText.text = "Камера готова · локальное зрение активно"
+                visionText.text = "Локальное зрение: анализ кадров на устройстве"
             } catch (e: Exception) { statusText.text = "Ошибка камеры: " + e.javaClass.simpleName + ": " + (e.message ?: "без подробностей") }
         }, ContextCompat.getMainExecutor(this))
     }
@@ -230,6 +243,7 @@ class MainActivity : ComponentActivity() {
 
 
     private fun finalizePhoto(photo: File, location: Location?, timestamp: Long, noGpsMessage: String? = null) {
+        selectedPhoto = photo
         val executor = cameraExecutor
         if (executor == null) {
             Vault.saveMetadata(photo, location?.latitude, location?.longitude, location?.accuracy, timestamp)
@@ -333,6 +347,60 @@ class MainActivity : ComponentActivity() {
         dialog.setContentView(content)
         dialog.show()
         dialog.window?.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+    }
+
+
+    private fun confirmCloudVision() {
+        val photo = selectedPhoto ?: run { showToast("Сначала сделайте фото или выберите его в галерее"); return }
+        if (coreUrl.isBlank() || coreApiKey.isBlank()) {
+            showToast("Сначала настройте Core URL и X-API-Key")
+            return
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Передать фотографию на облачный анализ?")
+            .setMessage("Фото будет отправлено в SAMURAI Core и затем в OpenAI. Видимая отметка GPS/времени, если она есть, тоже будет передана. Локальное распознавание не отправляет кадры. Продолжить?")
+            .setNegativeButton("Отмена", null)
+            .setPositiveButton("Отправить") { _, _ -> analyzeSelectedPhotoWithCloud(photo) }
+            .show()
+    }
+
+    private fun analyzeSelectedPhotoWithCloud(photo: File) {
+        val baseUrl = coreUrl
+        val apiKey = coreApiKey
+        outputText.text = "Отправка выбранного фото на облачный анализ..."
+        thread {
+            var connection: HttpURLConnection? = null
+            try {
+                val bytes = photo.readBytes()
+                if (bytes.size > 8 * 1024 * 1024) throw IllegalArgumentException("Фото больше лимита 8 MB")
+                connection = (URL(baseUrl + "/api/vision/analyze").openConnection() as HttpURLConnection).apply {
+                    requestMethod = "POST"
+                    connectTimeout = 5000
+                    readTimeout = 60000
+                    useCaches = false
+                    doOutput = true
+                    setRequestProperty("Content-Type", "image/jpeg")
+                    setRequestProperty("Accept", "application/json")
+                    setRequestProperty("X-API-Key", apiKey)
+                    setRequestProperty("X-Vision-Consent", "true")
+                    setRequestProperty("X-Request-ID", UUID.randomUUID().toString())
+                }
+                connection.outputStream.use { stream -> stream.write(bytes); stream.flush() }
+                val code = connection.responseCode
+                val stream = if (code in 200..299) connection.inputStream else connection.errorStream
+                val body = stream?.bufferedReader()?.use { it.readText() } ?: ""
+                val result = if (code in 200..299) {
+                    runCatching { JSONObject(body).optString("analysis", body) }.getOrDefault(body)
+                } else {
+                    "ERROR: HTTP $code\n$body"
+                }
+                mainHandler.post { outputText.text = result }
+            } catch (error: Exception) {
+                mainHandler.post { outputText.text = "ERROR: ${error.javaClass.simpleName}: ${error.message}" }
+            } finally {
+                connection?.disconnect()
+            }
+        }
     }
 
     private fun checkCoreStatus() {
