@@ -1,0 +1,29 @@
+name: SAMURAI Computer Agent CI
+
+on:
+  push:
+    branches: [feat/samurai-computer-agent-v1]
+    paths:
+      - "computer-agent/**"
+      - ".github/workflows/computer-agent.yml"
+  pull_request:
+    paths:
+      - "computer-agent/**"
+      - ".github/workflows/computer-agent.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: computer-agent
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install --ignore-scripts
+      - run: npm test
