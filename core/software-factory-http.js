@@ -147,11 +147,20 @@ function assertFactoryWorkerReady(options = {}) {
 
 function validateHttpContract(contract) {
   if (!contract || typeof contract !== "object" || Array.isArray(contract) ||
-      Object.keys(contract).length !== 1 || !Array.isArray(contract.cases) ||
-      contract.cases.length < 1 || contract.cases.length > 20) {
+      Object.keys(contract).length !== 1 || !Array.isArray(contract.cases)) {
     const error = new Error("CONTRACT_INVALID");
-    error.code = Array.isArray(contract?.cases) && contract.cases.length > 20 ? "CONTRACT_CASE_LIMIT" : "CONTRACT_INVALID";
-    return (() => { throw error; })();
+    error.code = error.message;
+    throw error;
+  }
+  if (contract.cases.length === 0) {
+    const error = new Error("CONTRACT_CASES_REQUIRED");
+    error.code = error.message;
+    throw error;
+  }
+  if (contract.cases.length > 20) {
+    const error = new Error("CONTRACT_CASE_LIMIT");
+    error.code = error.message;
+    throw error;
   }
   for (const testCase of contract.cases) {
     if (!testCase || typeof testCase !== "object" || Array.isArray(testCase) ||
