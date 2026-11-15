@@ -136,12 +136,16 @@ try:
 finally:
     sys.stdout = real_stdout
 
-encoded = json.dumps(result, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
-raw = encoded.encode("utf-8")
-if len(raw) > 32768:
-    real_stdout.write('{"ok":false,"error":"MODULE_OUTPUT_TOO_LARGE"}')
+try:
+    encoded = json.dumps(result, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
+except (TypeError, ValueError, RecursionError):
+    real_stdout.write('{"ok":false,"error":"MODULE_OUTPUT_INVALID"}')
 else:
-    real_stdout.write(json.dumps({"ok": True, "result": result}, ensure_ascii=False, separators=(",", ":"), allow_nan=False))
+    raw = encoded.encode("utf-8")
+    if len(raw) > 32768:
+        real_stdout.write('{"ok":false,"error":"MODULE_OUTPUT_TOO_LARGE"}')
+    else:
+        real_stdout.write(json.dumps({"ok": True, "result": result}, ensure_ascii=False, separators=(",", ":"), allow_nan=False))
 real_stdout.flush()
 """
         cmd = [
@@ -221,7 +225,7 @@ real_stdout.flush()
             raise RuntimeError("MODULE_OUTPUT_INVALID")
         if not response["ok"]:
             code = response.get("error")
-            if code == "MODULE_OUTPUT_TOO_LARGE":
+            if code in {"MODULE_OUTPUT_TOO_LARGE", "MODULE_OUTPUT_INVALID"}:
                 raise RuntimeError(code)
             raise RuntimeError("MODULE_OUTPUT_INVALID")
         return response.get("result")
