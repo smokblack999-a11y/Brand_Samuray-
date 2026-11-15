@@ -6,6 +6,7 @@ const express = require("express");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const { spawnSync } = require("node:child_process");
 const {
   FactoryBridgeError,
   createFactoryBridge,
@@ -179,4 +180,62 @@ test("worker error status map uses conflict and service-unavailable classes", ()
   assert.equal(statusForCode("MODULE_ALREADY_EXISTS"), 409);
   assert.equal(statusForCode("SANDBOX_TIMEOUT"), 503);
   assert.equal(statusForCode("SOURCE_SYNTAX_INVALID"), 400);
+});
+
+
+test("HTTP route completes create/promote/rollback/delete through Python worker and Docker", {
+  skip: (() => {
+    const result = spawnSync("docker", ["info"], { stdio: "ignore", timeout: 5000 });
+    return Boolean(result.error || result.status !== 0);
+  })()
+}, async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "samurai-factory-http-e2e-"));
+  const runWorker = createFactoryBridge({
+    python: process.env.SOFTWARE_FACTORY_PYTHON || "python3",
+    root,
+    timeoutMs: 30000
+  });
+  const server = await startTestServer(runWorker);
+  const headers = {
+    "content-type": "application/json",
+    "X-API-Key": "test-admin-key"
+  };
+  const sourceV1 = ["def run(data):", "    return list(data)", ""].join("\\n");
+  const sourceV2 = ["def run(data):", "    return data[:]", ""].join("\\n");
+  try {
+    const created = await fetch(`${server.base}/modules`, {
+      method: "POST", headers, body: JSON.stringify({ name: "http_processor", source: sourceV1 })
+    });
+    const createdBody = await created.json();
+    assert.equal(created.status, 201);
+    assert.equal(createdBody.module.version, 1);
+
+    const promoted = await fetch(`${server.base}/modules/http_processor/promote`, {
+      method: "POST", headers, body: JSON.stringify({ source: sourceV2 })
+    });
+    const promotedBody = await promoted.json();
+    assert.equal(promoted.status, 200);
+    assert.equal(promotedBody.module.version, 2);
+
+    const rolledBack = await fetch(`${server.base}/modules/http_processor/rollback`, {
+      method: "POST", headers, body: JSON.stringify({})
+    });
+    const rollbackBody = await rolledBack.json();
+    assert.equal(rolledBack.status, 200);
+    assert.equal(rollbackBody.module.version, 1);
+    assert.equal(rollbackBody.module.rolledBack, true);
+
+    const listed = await fetch(`${server.base}/modules`, { headers: { "X-API-Key": "test-admin-key" } });
+    const listBody = await listed.json();
+    assert.equal(listBody.modules.http_processor.version, 1);
+
+    const deleted = await fetch(`${server.base}/modules/http_processor`, {
+      method: "DELETE", headers: { "X-API-Key": "test-admin-key" }
+    });
+    assert.equal(deleted.status, 200);
+    assert.equal((await deleted.json()).deleted, true);
+  } finally {
+    await server.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });
