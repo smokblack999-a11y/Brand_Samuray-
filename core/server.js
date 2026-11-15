@@ -30,13 +30,13 @@ const WEBAPP_MEDIA_DIR = process.env.MEDIA_DIR || path.join(process.env.DATA_DIR
 const SOFTWARE_FACTORY_ENABLED = String(process.env.SOFTWARE_FACTORY_ENABLED || "false").trim().toLowerCase() === "true";
 
 if (SOFTWARE_FACTORY_ENABLED) {
-  if (!API_KEY) throw new Error("Software Factory requires CORE_API_KEY");
-  if (process.env.SOFTWARE_FACTORY_MODE !== "docker") {
-    throw new Error("Software Factory startup blocked: SOFTWARE_FACTORY_MODE must be exactly docker");
-  }
-  if (REQUEST_TIMEOUT_MS < 30000) {
-    throw new Error("Software Factory requires REQUEST_TIMEOUT_MS of at least 30000");
-  }
+  const { assertSoftwareFactoryConfig } = require("./software-factory-http");
+  assertSoftwareFactoryConfig({
+    enabled: true,
+    mode: process.env.SOFTWARE_FACTORY_MODE,
+    apiKey: API_KEY,
+    requestTimeoutMs: REQUEST_TIMEOUT_MS
+  });
 }
 
 if (process.env.NODE_ENV === "production") {
