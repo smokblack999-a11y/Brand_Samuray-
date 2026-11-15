@@ -185,7 +185,7 @@ class MainActivity : Activity() {
         root.addView(sectionLabel("ЗАЩИЩЁННОЕ МЕДИА-ХРАНИЛИЩЕ"))
 
         val vaultNote = TextView(this).apply {
-            text = "Выбирай фото, видео и аудио через системный выбор Android. Файлы шифруются и хранятся локально. Лимит одного файла — 250 МиБ, максимум — 100 файлов. View Once не обходится."
+            text = "Выбирай фото, видео и аудио через системный выбор Android. Файлы шифруются и хранятся локально. Лимит одного файла — 250 МиБ, общий лимит — 1 ГиБ, максимум — 100 файлов. View Once не обходится."
             textSize = 12f
             setTextColor(0xFF9AA8B5.toInt())
             setPadding(0, 0, 0, 10)
