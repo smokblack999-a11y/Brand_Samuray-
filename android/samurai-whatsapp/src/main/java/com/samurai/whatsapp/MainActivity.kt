@@ -1,11 +1,11 @@
 package com.samurai.whatsapp
 
-import android.app.Activity
 import android.app.AlertDialog
 import android.content.ComponentName
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.os.SystemClock
 import android.provider.Settings
 import android.provider.OpenableColumns
 import android.text.format.DateFormat
@@ -18,22 +18,91 @@ import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
 import java.util.Date
+import androidx.fragment.app.FragmentActivity
 
-class MainActivity : Activity() {
+class MainActivity : FragmentActivity() {
     private lateinit var status: TextView
     private lateinit var archiveView: TextView
     private lateinit var vaultContainer: LinearLayout
     private lateinit var importedChatContainer: LinearLayout
+    private lateinit var statusContainer: LinearLayout
+    private lateinit var timelineContainer: LinearLayout
     private var pendingExportId: String? = null
+    private var contentRendered = false
+    private var authInProgress = false
+    private var backgroundedAt = 0L
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        render()
+        if (AppLock.isEnabled(this)) {
+            authenticateAndRender()
+        } else {
+            render()
+        }
     }
 
     override fun onResume() {
         super.onResume()
+        if (contentRendered && AppLock.isEnabled(this) &&
+            backgroundedAt > 0L &&
+            SystemClock.elapsedRealtime() - backgroundedAt >= APP_LOCK_TIMEOUT_MS
+        ) {
+            backgroundedAt = 0L
+            authenticateAndRender()
+            return
+        }
         if (::status.isInitialized) refresh()
+        if (::statusContainer.isInitialized) refreshStatusSaver()
+    }
+
+    override fun onStop() {
+        if (contentRendered && !isFinishing && !isChangingConfigurations) {
+            backgroundedAt = SystemClock.elapsedRealtime()
+        }
+        super.onStop()
+    }
+
+    private fun authenticateAndRender() {
+        if (authInProgress) return
+        authInProgress = true
+        val lockScreen = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            setPadding(32, 32, 32, 32)
+            setBackgroundColor(0xFF080D13.toInt())
+        }
+        lockScreen.addView(TextView(this).apply {
+            text = "SAMURAI LOCK"
+            textSize = 24f
+            setTextColor(0xFF00E68A.toInt())
+            gravity = Gravity.CENTER
+        })
+        lockScreen.addView(TextView(this).apply {
+            text = "Подтверди личность биометрией или PIN-кодом устройства."
+            textSize = 14f
+            setTextColor(0xFFE3EAF0.toInt())
+            gravity = Gravity.CENTER
+            setPadding(0, 16, 0, 20)
+        })
+        val retry = actionButton("РАЗБЛОКИРОВАТЬ") { authenticateAndRender() }
+        lockScreen.addView(retry)
+        setContentView(lockScreen)
+
+        AppLock.authenticate(
+            this,
+            "SAMURAI WhatsApp",
+            "Разблокируй локальное хранилище",
+            onSuccess = {
+                authInProgress = false
+                backgroundedAt = 0L
+                render()
+            },
+            onError = { _, message ->
+                authInProgress = false
+                Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+                retry.isEnabled = true
+            }
+        )
     }
 
     @Deprecated("Uses the platform document picker result callback for broad Android compatibility")
@@ -98,6 +167,18 @@ class MainActivity : Activity() {
                 }
             }
 
+            REQUEST_SELECT_STATUS_FOLDER -> {
+                val flags = data?.flags ?: 0
+                runCatching {
+                    StatusSaver.setSelectedTree(this, uri, flags)
+                }.onSuccess {
+                    Toast.makeText(this, "Папка статусов подключена", Toast.LENGTH_SHORT).show()
+                    refreshStatusSaver()
+                }.onFailure { error ->
+                    Toast.makeText(this, error.message ?: "Не удалось открыть папку", Toast.LENGTH_LONG).show()
+                }
+            }
+
             REQUEST_IMPORT_CHAT -> {
                 val sourceName = queryDisplayName(uri)
                 Thread({
@@ -127,6 +208,13 @@ class MainActivity : Activity() {
                                         }
                                         runOnUiThread {
                                             saved.onSuccess { item ->
+                                                runCatching {
+                                                    MessageTimeline.recordChatExportImported(
+                                                        applicationContext,
+                                                        parsed.sourceHash,
+                                                        item.messageCount
+                                                    )
+                                                }
                                                 Toast.makeText(
                                                     this,
                                                     "Импортировано: ${item.messageCount} сообщений",
@@ -304,6 +392,98 @@ class MainActivity : Activity() {
         }
         root.addView(importedChatContainer)
 
+        root.addView(sectionLabel("STATUS SAVER · ЛОКАЛЬНЫЕ СТАТУСЫ"))
+        val statusNote = TextView(this).apply {
+            text = "Подключи папку WhatsApp/Media через системный выбор Android. SAMURAI покажет только доступные на устройстве фото и видео статусов; сохранение копирует выбранный файл в зашифрованный Media Vault."
+            textSize = 12f
+            setTextColor(0xFF9AA8B5.toInt())
+            setPadding(0, 0, 0, 10)
+        }
+        root.addView(statusNote)
+        root.addView(actionButton("ВЫБРАТЬ ПАПКУ WHATSAPP / MEDIA") {
+            openStatusFolderPicker()
+        })
+        root.addView(actionButton("ОБНОВИТЬ СПИСОК СТАТУСОВ") {
+            refreshStatusSaver()
+        })
+        root.addView(actionButton("ОТКЛЮЧИТЬ ДОСТУП К ПАПКЕ") {
+            StatusSaver.clearSelectedTree(this)
+            refreshStatusSaver()
+        })
+        statusContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(12, 12, 12, 12)
+            setBackgroundColor(0xFF101923.toInt())
+        }
+        root.addView(statusContainer)
+
+        root.addView(sectionLabel("MESSAGE TIMELINE · ЖУРНАЛ ДОКАЗАТЕЛЬНЫХ СОБЫТИЙ"))
+        val timelineNote = TextView(this).apply {
+            text = "Показываются только события, которые SAMURAI реально наблюдал: уведомления и импорт истории. Отсутствие отметки о прочтении не означает, что сообщение не прочитано."
+            textSize = 12f
+            setTextColor(0xFF9AA8B5.toInt())
+            setPadding(0, 0, 0, 10)
+        }
+        root.addView(timelineNote)
+        root.addView(actionButton("ОЧИСТИТЬ ЖУРНАЛ СОБЫТИЙ") {
+            AlertDialog.Builder(this)
+                .setTitle("Удалить журнал событий?")
+                .setMessage("Будут удалены зашифрованные события и ключ журнала.")
+                .setNegativeButton("Отмена", null)
+                .setPositiveButton("Удалить") { _, _ ->
+                    MessageTimeline.clear(this)
+                    refresh()
+                }
+                .show()
+        })
+        timelineContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(12, 12, 12, 12)
+            setBackgroundColor(0xFF101923.toInt())
+        }
+        root.addView(timelineContainer)
+
+        root.addView(sectionLabel("APP LOCK · ЗАЩИТА ПРИЛОЖЕНИЯ"))
+        root.addView(actionButton(
+            if (AppLock.isEnabled(this)) "ОТКЛЮЧИТЬ APP LOCK" else "ВКЛЮЧИТЬ БИОМЕТРИЮ / PIN"
+        ) {
+            val enableAfterAuth = !AppLock.isEnabled(this)
+            AppLock.authenticate(
+                this,
+                "SAMURAI App Lock",
+                "Подтверди изменение защиты",
+                onSuccess = {
+                    runCatching { AppLock.setEnabled(this, enableAfterAuth) }
+                        .onSuccess {
+                            Toast.makeText(
+                                this,
+                                if (enableAfterAuth) "App Lock включён" else "App Lock отключён",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        }
+                        .onFailure { error ->
+                            Toast.makeText(this, error.message ?: "Не удалось сохранить настройку", Toast.LENGTH_LONG).show()
+                        }
+                    refreshSecurityLabel()
+                },
+                onError = { _, message ->
+                    Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+                }
+            )
+        })
+        val appLockNote = TextView(this).apply {
+            text = if (AppLock.isEnabled(this@MainActivity)) {
+                "Защита активна: при запуске и после 30 секунд в фоне потребуется системная биометрия или PIN/пароль устройства."
+            } else {
+                "Защита выключена. Включение потребует настроенный системный PIN/пароль или биометрию."
+            }
+            textSize = 12f
+            setTextColor(0xFF9AA8B5.toInt())
+            setPadding(0, 0, 0, 12)
+            tag = APP_LOCK_NOTE_TAG
+        }
+        root.addView(appLockNote)
+
         val note = TextView(this).apply {
             text = "ОГРАНИЧЕНИЯ: One Tick, read receipts, скрытые статусы и удаление сообщений у всех не контролируются этим прототипом. Для One Tick нужна отдельная лабораторная проверка на тестовом аккаунте."
             textSize = 12f
@@ -313,7 +493,116 @@ class MainActivity : Activity() {
         root.addView(note)
 
         setContentView(ScrollView(this).apply { addView(root) })
+        contentRendered = true
         refresh()
+        refreshStatusSaver()
+    }
+
+    private fun openStatusFolderPicker() {
+        startActivityForResult(StatusSaver.createPickerIntent(), REQUEST_SELECT_STATUS_FOLDER)
+    }
+
+    private fun refreshStatusSaver() {
+        if (!::statusContainer.isInitialized) return
+        val selected = StatusSaver.selectedTree(this)
+        if (selected == null) {
+            renderStatusItems(emptyList(), "Папка ещё не выбрана. Нажми «Выбрать папку WhatsApp / Media».")
+            return
+        }
+        renderStatusItems(emptyList(), "Читаю доступную папку статусов…")
+        Thread({
+            val result = runCatching { StatusSaver.list(applicationContext) }
+            runOnUiThread {
+                result.onSuccess { items ->
+                    renderStatusItems(
+                        items,
+                        if (items.isEmpty()) "Доступная папка подключена, но видимые файлы статусов не найдены."
+                        else null
+                    )
+                }.onFailure { error ->
+                    renderStatusItems(emptyList(), error.message ?: "Папка статусов недоступна")
+                }
+            }
+        }, "samurai-status-refresh").start()
+    }
+
+    private fun renderStatusItems(items: List<CachedStatusFile>, emptyMessage: String?) {
+        if (!::statusContainer.isInitialized) return
+        statusContainer.removeAllViews()
+        statusContainer.addView(TextView(this).apply {
+            text = "Найдено файлов: ${items.size} / 300"
+            textSize = 13f
+            setTextColor(0xFF00E68A.toInt())
+            setPadding(0, 0, 0, 8)
+        })
+        if (items.isEmpty()) {
+            statusContainer.addView(TextView(this).apply {
+                text = emptyMessage ?: "Статусов не найдено."
+                textSize = 13f
+                setTextColor(0xFFE3EAF0.toInt())
+            })
+            return
+        }
+        items.forEach { item ->
+            val entry = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(0, 10, 0, 10)
+            }
+            entry.addView(TextView(this).apply {
+                val time = if (item.modifiedAt > 0) {
+                    DateFormat.format("dd.MM.yyyy HH:mm", Date(item.modifiedAt)).toString()
+                } else "время неизвестно"
+                text = "${item.displayName}\n${item.mimeType} · ${formatBytes(item.sizeBytes)} · $time"
+                textSize = 13f
+                setTextColor(0xFFE3EAF0.toInt())
+            })
+            entry.addView(actionButton("СОХРАНИТЬ В ЗАШИФРОВАННЫЙ VAULT") {
+                Thread({
+                    val result = runCatching {
+                        StatusSaver.saveToVault(applicationContext, item)
+                    }
+                    runOnUiThread {
+                        result.onSuccess { saved ->
+                            Toast.makeText(
+                                this,
+                                "Сохранено в Media Vault: ${saved.displayName}",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                            refresh()
+                        }.onFailure { error ->
+                            Toast.makeText(
+                                this,
+                                error.message ?: "Не удалось сохранить статус",
+                                Toast.LENGTH_LONG
+                            ).show()
+                        }
+                    }
+                }, "samurai-status-save").start()
+            })
+            statusContainer.addView(entry)
+        }
+    }
+
+    private fun refreshSecurityLabel() {
+        val root = (findViewById<android.view.ViewGroup>(android.R.id.content))
+        // Refresh the status note without rebuilding the full archive screen.
+        val note = findViewByTag(root, APP_LOCK_NOTE_TAG) as? TextView ?: return
+        note.text = if (AppLock.isEnabled(this)) {
+            "Защита активна: при запуске и после 30 секунд в фоне потребуется системная биометрия или PIN/пароль устройства."
+        } else {
+            "Защита выключена. Включение потребует настроенный системный PIN/пароль или биометрию."
+        }
+    }
+
+    private fun findViewByTag(parent: android.view.View?, targetTag: String): android.view.View? {
+        if (parent == null) return null
+        if (parent.tag == targetTag) return parent
+        if (parent is android.view.ViewGroup) {
+            for (index in 0 until parent.childCount) {
+                findViewByTag(parent.getChildAt(index), targetTag)?.let { return it }
+            }
+        }
+        return null
     }
 
     private fun openMediaPicker() {
@@ -544,11 +833,49 @@ class MainActivity : Activity() {
         }
         if (::vaultContainer.isInitialized) renderVault()
         if (::importedChatContainer.isInitialized) renderImportedChats()
+        if (::timelineContainer.isInitialized) renderTimeline()
+    }
+
+    private fun renderTimeline() {
+        timelineContainer.removeAllViews()
+        val events = MessageTimeline.list(this)
+        timelineContainer.addView(TextView(this).apply {
+            text = "Событий: ${events.size} / 500"
+            textSize = 13f
+            setTextColor(0xFF00E68A.toInt())
+            setPadding(0, 0, 0, 8)
+        })
+        if (events.isEmpty()) {
+            timelineContainer.addView(TextView(this).apply {
+                text = "Пока нет подтверждённых событий."
+                textSize = 13f
+                setTextColor(0xFFE3EAF0.toInt())
+            })
+            return
+        }
+        events.take(60).forEach { event ->
+            val sourceTime = event.eventTime?.let {
+                DateFormat.format("dd.MM.yyyy HH:mm:ss", Date(it)).toString()
+            } ?: "время источника не предоставлено"
+            val observedTime = DateFormat.format(
+                "dd.MM.yyyy HH:mm:ss",
+                Date(event.observedAt)
+            )
+            timelineContainer.addView(TextView(this).apply {
+                text = "${event.eventType}\nИсточник: ${event.source}\nСобытие: $sourceTime\nНаблюдение SAMURAI: $observedTime\n${event.summary}"
+                textSize = 12f
+                setTextColor(0xFFE3EAF0.toInt())
+                setPadding(0, 8, 0, 14)
+            })
+        }
     }
 
     companion object {
         private const val REQUEST_IMPORT_MEDIA = 4101
         private const val REQUEST_EXPORT_MEDIA = 4102
         private const val REQUEST_IMPORT_CHAT = 4103
+        private const val REQUEST_SELECT_STATUS_FOLDER = 4104
+        private const val APP_LOCK_TIMEOUT_MS = 30_000L
+        private const val APP_LOCK_NOTE_TAG = "samurai_app_lock_note"
     }
 }
