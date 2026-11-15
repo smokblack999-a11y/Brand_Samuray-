@@ -43,3 +43,47 @@ class FactoryTests(unittest.TestCase):
             self.factory.destroy("processor")
 if __name__ == "__main__":
     unittest.main()
+
+
+class DockerRunnerIntegrationTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        import shutil
+        if not shutil.which("docker"):
+            raise unittest.SkipTest("Docker is not installed")
+        import subprocess
+        try:
+            subprocess.run(["docker", "info"], check=True, capture_output=True, timeout=5)
+        except Exception:
+            raise unittest.SkipTest("Docker daemon is unavailable")
+
+    def test_real_docker_runner_executes_valid_module(self):
+        from software_factory_x10.runner import DockerSandboxRunner
+        with tempfile.TemporaryDirectory() as tmp:
+            module = Path(tmp) / "module.py"
+            module.write_text("def run(data):\\n    return list(data)\\n")
+            DockerSandboxRunner(timeout=15).run_smoke_test(module)
+
+    def test_real_docker_runner_denies_network(self):
+        from software_factory_x10.runner import DockerSandboxRunner
+        source = (
+            "import socket\\n"
+            "def run(data):\\n"
+            "    try:\\n"
+            "        socket.create_connection(('1.1.1.1', 80), timeout=1)\\n"
+            "    except OSError:\\n"
+            "        return data\\n"
+            "    raise AssertionError('NETWORK_AVAILABLE')\\n"
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            module = Path(tmp) / "module.py"
+            module.write_text(source)
+            DockerSandboxRunner(timeout=15).run_smoke_test(module)
+
+    def test_real_docker_runner_rejects_wrong_output(self):
+        from software_factory_x10.runner import DockerSandboxRunner
+        with tempfile.TemporaryDirectory() as tmp:
+            module = Path(tmp) / "module.py"
+            module.write_text("def run(data):\\n    return ['wrong']\\n")
+            with self.assertRaises(RuntimeError):
+                DockerSandboxRunner(timeout=15).run_smoke_test(module)
