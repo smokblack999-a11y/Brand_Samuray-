@@ -24,6 +24,44 @@ class FactoryTests(unittest.TestCase):
         self.factory.create("processor", GOOD)
         with self.assertRaises(FileExistsError):
             self.factory.create("processor", GOOD)
+
+    def test_promote_creates_immutable_version_and_keeps_history(self):
+        source_v2 = "def run(data):\n    return data[:]\n"
+        first = self.factory.create("processor", GOOD)
+        second = self.factory.promote("processor", source_v2)
+        self.assertEqual(second["version"], 2)
+        self.assertEqual(len(second["versions"]), 2)
+        self.assertEqual(self.factory.registry.list()["processor"]["sha256"], second["sha256"])
+        version_dir = Path(self.tmp.name) / "versions/processor"
+        self.assertEqual(len(list(version_dir.glob("v*.py"))), 2)
+        self.assertTrue((Path(self.tmp.name) / "modules/processor.py").is_file())
+        self.assertNotEqual(first["sha256"], second["sha256"])
+
+    def test_rollback_restores_previous_version(self):
+        source_v2 = "def run(data):\n    return list(reversed(list(reversed(data))))\n"
+        first = self.factory.create("processor", GOOD)
+        self.factory.promote("processor", source_v2)
+        restored = self.factory.rollback("processor")
+        self.assertTrue(restored["rolledBack"])
+        self.assertEqual(restored["version"], 1)
+        self.assertEqual(restored["sha256"], first["sha256"])
+        self.assertEqual(self.factory._hash(Path(self.tmp.name) / "modules/processor.py"), first["sha256"])
+
+    def test_promote_refuses_tampered_active_file(self):
+        self.factory.create("processor", GOOD)
+        target = Path(self.tmp.name) / "modules/processor.py"
+        target.chmod(0o600)
+        target.write_text("def run(data): return data")
+        with self.assertRaises(RuntimeError):
+            self.factory.promote("processor", "def run(data):\n    return data[:]\n")
+
+    def test_destroy_removes_version_history(self):
+        self.factory.create("processor", GOOD)
+        self.factory.promote("processor", "def run(data):\n    return data[:]\n")
+        self.assertTrue(self.factory.destroy("processor"))
+        self.assertFalse((Path(self.tmp.name) / "modules/processor.py").exists())
+        self.assertFalse((Path(self.tmp.name) / "versions/processor").exists())
+
     def test_rejects_path_traversal(self):
         with self.assertRaises(ValidationError):
             validate_name("../escape")
@@ -86,6 +124,18 @@ class DockerRunnerIntegrationTests(unittest.TestCase):
             module = Path(tmp) / "module.py"
             module.write_text("def run(data):\n    return list(data)\n")
             DockerSandboxRunner(timeout=15).run_smoke_test(module)
+
+
+    def test_factory_promote_and_rollback_runs_real_docker(self):
+        from software_factory_x10.runner import DockerSandboxRunner
+        with tempfile.TemporaryDirectory() as tmp:
+            factory = SoftwareFactory(tmp, runner=DockerSandboxRunner(timeout=15))
+            first = factory.create("release_candidate", GOOD)
+            second = factory.promote("release_candidate", "def run(data):\n    return data[:]\n")
+            self.assertEqual(second["version"], 2)
+            rolled = factory.rollback("release_candidate")
+            self.assertEqual(rolled["sha256"], first["sha256"])
+            self.assertTrue(factory.destroy("release_candidate"))
 
     def test_real_docker_runner_denies_network(self):
         from software_factory_x10.runner import DockerSandboxRunner
