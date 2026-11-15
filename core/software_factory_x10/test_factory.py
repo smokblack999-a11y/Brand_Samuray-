@@ -43,6 +43,19 @@ class FactoryTests(unittest.TestCase):
         restored = self.factory.rollback("processor")
         self.assertEqual(restored["contract"], contract_v1)
 
+    def test_contract_only_change_creates_new_version(self):
+        contract_v1 = {"cases": [{"input": [1], "expected": [1]}]}
+        contract_v2 = {"cases": [{"input": [2], "expected": [2]}]}
+        first = self.factory.create("processor", GOOD, contract_v1)
+        second = self.factory.promote("processor", GOOD, contract_v2)
+        self.assertEqual(first["sha256"], second["sha256"])
+        self.assertEqual(second["version"], 2)
+        self.assertEqual(second["contract"], contract_v2)
+        self.assertEqual(len(second["versions"]), 2)
+        restored = self.factory.rollback("processor")
+        self.assertEqual(restored["version"], 1)
+        self.assertEqual(restored["contract"], contract_v1)
+
     def test_promote_creates_immutable_version_and_keeps_history(self):
         source_v2 = "def run(data):\n    return data[:]\n"
         first = self.factory.create("processor", GOOD)
