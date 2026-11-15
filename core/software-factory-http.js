@@ -6,7 +6,7 @@ const express = require("express");
 
 const MAX_SOURCE_BYTES = 64 * 1024;
 const MAX_WORKER_OUTPUT_BYTES = 1024 * 1024;
-const DEFAULT_WORKER_TIMEOUT_MS = 45000;
+const DEFAULT_WORKER_TIMEOUT_MS = 25000;
 
 class FactoryBridgeError extends Error {
   constructor(code, status = 500) {
@@ -28,7 +28,7 @@ function statusForCode(code) {
   return 500;
 }
 
-function createWorkerBridge(options = {}) {
+function createFactoryBridge(options = {}) {
   const python = options.python || process.env.SOFTWARE_FACTORY_PYTHON || "python3";
   const workerPath = path.join(__dirname, "software_factory_x10", "worker.py");
   const dataDir = process.env.DATA_DIR || path.join(__dirname, "data");
@@ -113,7 +113,7 @@ function assertFactoryWorkerReady(options = {}) {
 
 function createSoftwareFactoryRouter(options = {}) {
   if (typeof options.requireApiKey !== "function") throw new TypeError("requireApiKey middleware is required");
-  const runWorker = options.runWorker || createWorkerBridge(options);
+  const runWorker = options.runWorker || createFactoryBridge(options);
   const router = express.Router();
   router.use(options.requireApiKey);
 
