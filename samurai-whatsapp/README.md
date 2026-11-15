@@ -9,12 +9,14 @@ An isolated Android companion app alongside the existing SamuraiOS app. It does 
 - Filters notifications to WhatsApp and WhatsApp Business package IDs
 - Reads visible notification text, including AndroidX `MessagingStyle` conversations
 - AES-256-GCM encryption for every archived notification record; key stored in Android Keystore
-- Local notification archive capped at 200 records
-- User can pause/resume archiving and clear the archive; clearing also retires the old Keystore key
-- **Encrypted Media Vault:** import images, videos and audio through Android's system document picker; store files and index metadata encrypted in app-private storage using AES-GCM and Android Keystore; export, delete individual items or clear the vault
-- Media Vault guardrails: up to 100 items, 250 MiB per item and 1 GiB total, import/export off the UI thread, no broad storage permission, no network permission, no server upload
-- Instrumentation tests cover Media Vault encrypted round-trip, plaintext absence, unsupported MIME rejection, delete and clear/re-key behavior (CI pending)
-- App backup disabled
+- Local notification archive capped at 200 records, with pause/resume and clear/key retirement
+- **Encrypted Media Vault:** import user-selected images, videos and audio via Android's system document picker; AES-GCM/Android Keystore; encrypted metadata; app-private files; export, delete, clear
+- Media Vault guardrails: 100 items, 250 MiB per file and 1 GiB total; import/export on background threads; no broad storage permission
+- **Official chat-export importer:** import the user's own WhatsApp `.txt` or `.zip` chat export; inspect a preview and message count before saving; duplicate-safe re-import based on source hash; encrypted conversation archive; list, read and delete imported chats
+- Export-import guardrails: compressed/input source up to 20 MiB, normalized transcript up to 24 MiB, 20,000 messages per export, 100 imported conversations
+- ZIP import currently reads the chat TXT entry only. Media attachments bundled in the ZIP are not extracted automatically; they can be added separately through the user-selected Media Vault.
+- Instrumentation tests cover Media Vault encryption/round-trip/delete/re-key and chat export parsing, ZIP TXT extraction, locale-aware timestamp parsing, deduplication and encrypted restore (CI pending)
+- No network permission, analytics, backend or cloud sync; app backup disabled
 
 ## Honest capability boundary
 
@@ -26,19 +28,23 @@ It cannot:
 - guarantee recovery of messages deleted for everyone;
 - capture content when notification previews are disabled, suppressed, or not posted;
 - save or reopen View Once media;
-- hide WhatsApp online, typing, or recording state.
+- hide WhatsApp online, typing, or recording state;
+- read another user's hidden last-seen/read state.
 
 Anti-Delete is partial: a notification copy may remain in SAMURAI after a later deletion, but only if Android delivered the message text in a notification first.
 
-Media Vault imports files the user selects through the Android document picker. It does not bypass View Once or scrape another application's private media directory.
+Media Vault imports files the user selects through Android's document picker. It does not bypass View Once or scrape another application's private media directory.
+
+The chat-export importer reads files that the user explicitly exports from WhatsApp. It does not inspect WhatsApp's private database or infer the user's identity in a group transcript; participant names are retained as present in the export.
 
 The experimental modified-client track is not installed, signed, or enabled. It must remain isolated from the primary account until a separate security and account-risk review is approved.
 
 ## Research and planned tracks
 
-See [competitive research and build plan](docs/research-and-build-plan.md) for the public projects reviewed, feature feasibility, license notes, One Tick lab acceptance tests, Message Timeline model, and phased build order.
+See [competitive research and build plan](docs/research-and-build-plan.md) for the reviewed public projects, feature feasibility, licensing notes, One Tick lab acceptance tests, Read Intelligence provenance rules, and phased build order.
 
-- **Safe companion:** complete CI and validate notification archive and Media Vault on the Galaxy A54.
+- **Safe companion:** complete CI and validate the notification archive, Media Vault and chat-export import on a physical device.
+- **Status Saver:** add a separate SAF-based browser for status media already cached and user-accessible after viewing; no hidden-status access or broad all-files permission.
 - **Read Intelligence:** record only verifiable events with source provenance. Missing read/presence events remain unknown.
 - **Official Business mode:** optionally receive Meta Business Platform status webhooks for messages sent through that API. This does not track a personal WhatsApp account.
 - **One Tick lab:** separate research build only, requiring a dedicated test number, spare rooted device and second-device validation. Do not root or modify the primary phone.
@@ -59,7 +65,7 @@ APK output:
 android/samurai-whatsapp/build/outputs/apk/debug/samurai-whatsapp-debug.apk
 ```
 
-GitHub Actions builds both SAMURAI Android apps, checks required Kotlin classes in DEX, runs archive and Media Vault tests on an Android emulator, and uploads APKs only if all checks pass.
+GitHub Actions builds both SAMURAI Android apps, checks required Kotlin classes in DEX, runs notification archive, Media Vault and export-import tests on an Android emulator, and uploads APKs only if all checks pass.
 
 ## Install and setup on Samsung
 
@@ -69,10 +75,11 @@ GitHub Actions builds both SAMURAI Android apps, checks required Kotlin classes 
 4. Grant Notification Access only if you accept that visible WhatsApp notification text will be copied to a local archive.
 5. Ensure WhatsApp notifications and message previews are enabled for the conversations you want archived.
 6. Send a test text message to the phone and check that it appears in the local archive.
-7. Test the pause switch: send another message while paused and confirm the archive count does not increase.
+7. Test the pause switch and clear operation.
 8. Import a user-selected media file, export it to a different folder, and compare the exported file with the original.
-9. Test deletion and Clear Media Vault. Re-import a test file to confirm the new Keystore key is usable.
-10. Revoke Notification Access in Android settings whenever desired.
+9. In WhatsApp, export a test chat as `.txt` or `.zip`; import it into SAMURAI, inspect the preview, then verify the saved message count and transcript.
+10. Test individual deletion and Clear Media Vault / Clear Imported Chats.
+11. Revoke Notification Access in Android settings whenever desired.
 
 Do not grant accessibility, root, VPN, device-admin, contacts, SMS, camera, or microphone access for this prototype.
 
