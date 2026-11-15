@@ -56,11 +56,35 @@ jobs:
           test -f samurai-whatsapp/build/outputs/apk/debug/samurai-whatsapp-debug.apk
           ls -lh app/build/outputs/apk/debug/app-debug.apk
           ls -lh samurai-whatsapp/build/outputs/apk/debug/samurai-whatsapp-debug.apk
-          DEX_CONTENT="$(unzip -p samurai-whatsapp/build/outputs/apk/debug/samurai-whatsapp-debug.apk classes.dex | strings)"
-          grep -Fq 'Lcom/samurai/whatsapp/MainActivity;' <<< "$DEX_CONTENT"
-          grep -Fq 'Lcom/samurai/whatsapp/WhatsAppNotificationListener;' <<< "$DEX_CONTENT"
-          grep -Fq 'Lcom/samurai/whatsapp/NotificationArchive;' <<< "$DEX_CONTENT"
-          echo "WhatsApp Kotlin classes present in APK: PASS"
+          APK="samurai-whatsapp/build/outputs/apk/debug/samurai-whatsapp-debug.apk"
+          DEX_LIST="$(unzip -Z1 "$APK" | grep -E '^classes([0-9]+)?\\.dex
+
+      - name: Run SAMURAI WhatsApp archive tests on Android emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: default
+          arch: x86_64
+          profile: pixel_6
+          emulator-options: -no-window -no-audio -no-boot-anim
+          script: cd android && ./gradlew :samurai-whatsapp:connectedDebugAndroidTest --stacktrace
+
+      - name: Upload APKs
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: SamuraiOS-and-SAMURAI-WhatsApp-debug-apks
+          path: |
+            android/app/build/outputs/apk/debug/app-debug.apk
+            android/samurai-whatsapp/build/outputs/apk/debug/samurai-whatsapp-debug.apk
+          if-no-files-found: error
+)"
+          test -n "$DEX_LIST"
+          DEX_CONTENT="$(while IFS= read -r dex; do unzip -p "$APK" "$dex"; done <<< "$DEX_LIST" | strings)"
+          grep -Fq 'com/samurai/whatsapp/MainActivity' <<< "$DEX_CONTENT"
+          grep -Fq 'com/samurai/whatsapp/WhatsAppNotificationListener' <<< "$DEX_CONTENT"
+          grep -Fq 'com/samurai/whatsapp/NotificationArchive' <<< "$DEX_CONTENT"
+          echo "WhatsApp Kotlin classes present in APK DEX: PASS"
 
       - name: Upload APKs
         uses: actions/upload-artifact@v4
