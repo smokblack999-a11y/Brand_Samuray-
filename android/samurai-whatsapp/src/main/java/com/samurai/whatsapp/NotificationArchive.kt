@@ -6,11 +6,11 @@ import android.security.keystore.KeyProperties
 import android.util.Base64
 import org.json.JSONObject
 import java.security.KeyStore
+import java.util.UUID
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
-import java.util.UUID
 
 internal data class ArchivedNotification(
     val packageName: String,
@@ -22,13 +22,24 @@ internal data class ArchivedNotification(
 internal object NotificationArchive {
     private const val PREFS = "samurai_notification_archive"
     private const val KEY_ALIAS = "samurai_whatsapp_archive_v1"
+    private const val ENABLED_KEY = "archive_enabled"
     private const val MAX_ENTRIES = 200
     private const val TRANSFORMATION = "AES/GCM/NoPadding"
     private const val IV_LENGTH_BYTES = 12
     private const val TAG_LENGTH_BITS = 128
 
+    fun isEnabled(context: Context): Boolean =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getBoolean(ENABLED_KEY, true)
+
+    fun setEnabled(context: Context, enabled: Boolean) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit().putBoolean(ENABLED_KEY, enabled).apply()
+    }
+
     @Synchronized
     fun save(context: Context, packageName: String, title: String, body: String, timestamp: Long) {
+        if (!isEnabled(context)) return
         val json = JSONObject()
             .put("package", packageName)
             .put("title", title)
@@ -55,7 +66,8 @@ internal object NotificationArchive {
             .sortedBy { it.key }
             .mapNotNull { entry ->
                 runCatching {
-                    val json = JSONObject(decrypt(entry.value as String))
+                    val encrypted = entry.value as? String ?: return@runCatching null
+                    val json = JSONObject(decrypt(encrypted))
                     ArchivedNotification(
                         packageName = json.optString("package"),
                         title = json.optString("title"),
@@ -68,8 +80,9 @@ internal object NotificationArchive {
     }
 
     fun clear(context: Context) {
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .edit().clear().apply()
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val enabled = prefs.getBoolean(ENABLED_KEY, true)
+        prefs.edit().clear().putBoolean(ENABLED_KEY, enabled).apply()
     }
 
     private fun encrypt(plainText: String): String {
