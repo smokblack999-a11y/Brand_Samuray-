@@ -134,6 +134,24 @@ class WhatsAppExportImporterTest {
     }
 
     @Test
+    fun modifiedCiphertextFailsAuthentication() {
+        val parsed = WhatsAppExportImporter.parse(
+            "2026-11-15, 09:08:12 - Alice: authenticated payload".toByteArray(),
+            "chat.txt"
+        )
+        val item = WhatsAppExportArchive.save(context, parsed)
+        val file = WhatsAppExportArchive.ciphertextFileForTest(context, item.id)
+        val tampered = file.readBytes()
+        tampered[tampered.lastIndex] = (tampered.last().toInt() xor 0x01).toByte()
+        file.writeBytes(tampered)
+
+        val result = runCatching {
+            WhatsAppExportArchive.readMessages(context, item.id)
+        }
+        assertTrue("AES-GCM must reject modified ciphertext", result.isFailure)
+    }
+
+    @Test
     fun deleteAndClearRemoveImportedConversations() {
         val parsed = WhatsAppExportImporter.parse(
             "2026-11-15, 09:08:12 - Alice: test".toByteArray(),
