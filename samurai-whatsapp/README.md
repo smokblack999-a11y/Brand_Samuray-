@@ -10,7 +10,7 @@ An isolated Android companion app alongside the existing SamuraiOS app. It does 
 - Reads visible notification text, including AndroidX `MessagingStyle` conversations
 - AES-256-GCM encryption for every archived record; key stored in Android Keystore
 - Local archive capped at 200 records
-- User can pause/resume archiving and clear the archive
+- User can pause/resume archiving and clear the archive; clearing also retires the old Keystore key
 - No network permission, analytics, backend, or cloud sync
 - App backup disabled
 - CI verifies the APK contains the three required Kotlin classes
