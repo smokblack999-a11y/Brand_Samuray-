@@ -6,6 +6,8 @@ const express = require("express");
 const { createRateLimiter } = require("./rate-limit");
 
 const MAX_SOURCE_BYTES = 64 * 1024;
+const MAX_CONTRACT_BYTES = 32 * 1024;
+const MAX_WORKER_INPUT_BYTES = 112 * 1024;
 const MAX_WORKER_OUTPUT_BYTES = 1024 * 1024;
 const DEFAULT_WORKER_TIMEOUT_MS = 25000;
 const DEFAULT_SANDBOX_IMAGE = "python:3.12-slim@sha256:5e2bdb1b0d542d5039cffb8181c65930093949194a65c365dfb1b0fe13a4fa5b";
@@ -27,7 +29,10 @@ function statusForCode(code) {
        "IMPORT_TIME_DEFAULT_CALL", "IMPORT_TIME_ANNOTATION_CALL",
        "FORBIDDEN_DYNAMIC_OR_IO_CALL", "FORBIDDEN_OS_PROCESS_CALL",
        "FORBIDDEN_PROCESS_EXIT", "FORBIDDEN_DYNAMIC_IMPORT",
-       "FORBIDDEN_DYNAMIC_EXECUTION", "FORBIDDEN_PATH_WRITE"].includes(code) || code.startsWith("SOURCE_")) return 400;
+       "FORBIDDEN_DYNAMIC_EXECUTION", "FORBIDDEN_PATH_WRITE",
+       "CONTRACT_INVALID", "CONTRACT_CASES_REQUIRED", "CONTRACT_CASE_LIMIT",
+       "CONTRACT_CASE_INVALID"].includes(code) || code.startsWith("SOURCE_")) return 400;
+  if (code === "CONTRACT_TOO_LARGE" || code === "REQUEST_TOO_LARGE") return 413;
   if (["MODULE_ALREADY_EXISTS", "MODULE_HASH_MISMATCH", "NO_PREVIOUS_VERSION",
        "TARGET_VERSION_INVALID", "ACTIVE_MODULE_MISSING_OR_INVALID"].includes(code)) return 409;
   if (["MODULE_NOT_REGISTERED", "ORDER_NOT_FOUND"].includes(code)) return 404;
@@ -45,7 +50,7 @@ function createFactoryBridge(options = {}) {
 
   return function runFactoryWorker(payload) {
     const input = Buffer.from(JSON.stringify(payload), "utf8");
-    if (input.length > 96 * 1024) {
+    if (input.length > MAX_WORKER_INPUT_BYTES) {
       return Promise.reject(new FactoryBridgeError("REQUEST_TOO_LARGE", 413));
     }
 
@@ -140,6 +145,40 @@ function assertFactoryWorkerReady(options = {}) {
   }
 }
 
+function validateHttpContract(contract) {
+  if (!contract || typeof contract !== "object" || Array.isArray(contract) ||
+      Object.keys(contract).length !== 1 || !Array.isArray(contract.cases) ||
+      contract.cases.length < 1 || contract.cases.length > 20) {
+    const error = new Error("CONTRACT_INVALID");
+    error.code = Array.isArray(contract?.cases) && contract.cases.length > 20 ? "CONTRACT_CASE_LIMIT" : "CONTRACT_INVALID";
+    return (() => { throw error; })();
+  }
+  for (const testCase of contract.cases) {
+    if (!testCase || typeof testCase !== "object" || Array.isArray(testCase) ||
+        Object.keys(testCase).length !== 2 ||
+        !Object.hasOwn(testCase, "input") || !Object.hasOwn(testCase, "expected")) {
+      const error = new Error("CONTRACT_CASE_INVALID");
+      error.code = error.message;
+      throw error;
+    }
+  }
+  let encoded;
+  try {
+    encoded = Buffer.from(JSON.stringify(contract), "utf8");
+  } catch (_error) {
+    const error = new Error("CONTRACT_INVALID");
+    error.code = error.message;
+    throw error;
+  }
+  if (encoded.length > MAX_CONTRACT_BYTES) {
+    const error = new Error("CONTRACT_TOO_LARGE");
+    error.code = error.message;
+    error.status = 413;
+    throw error;
+  }
+  return JSON.parse(encoded.toString("utf8"));
+}
+
 function createSoftwareFactoryRouter(options = {}) {
   if (typeof options.requireApiKey !== "function") throw new TypeError("requireApiKey middleware is required");
   const runWorker = options.runWorker || createFactoryBridge(options);
@@ -170,7 +209,18 @@ function createSoftwareFactoryRouter(options = {}) {
     if (Buffer.byteLength(source, "utf8") > MAX_SOURCE_BYTES) {
       return res.status(413).json({ ok: false, error: { code: "SOURCE_TOO_LARGE", message: "source exceeds 64 KiB", requestId: req.requestId } });
     }
-    return dispatch(req, res, { action: "create", name, source }, 201);
+    let contract;
+    if (req.body.contract !== undefined) {
+      try {
+        contract = validateHttpContract(req.body.contract);
+      } catch (error) {
+        return res.status(error.status || 400).json({
+          ok: false,
+          error: { code: error.code || "CONTRACT_INVALID", message: "test contract is invalid", requestId: req.requestId }
+        });
+      }
+    }
+    return dispatch(req, res, { action: "create", name, source, ...(contract ? { contract } : {}) }, 201);
   });
   router.post("/modules/:name/promote", (req, res) => {
     const source = req.body?.source;
@@ -180,7 +230,18 @@ function createSoftwareFactoryRouter(options = {}) {
     if (Buffer.byteLength(source, "utf8") > MAX_SOURCE_BYTES) {
       return res.status(413).json({ ok: false, error: { code: "SOURCE_TOO_LARGE", message: "source exceeds 64 KiB", requestId: req.requestId } });
     }
-    return dispatch(req, res, { action: "promote", name: req.params.name, source });
+    let contract;
+    if (req.body?.contract !== undefined) {
+      try {
+        contract = validateHttpContract(req.body.contract);
+      } catch (error) {
+        return res.status(error.status || 400).json({
+          ok: false,
+          error: { code: error.code || "CONTRACT_INVALID", message: "test contract is invalid", requestId: req.requestId }
+        });
+      }
+    }
+    return dispatch(req, res, { action: "promote", name: req.params.name, source, ...(contract ? { contract } : {}) });
   });
   router.post("/modules/:name/rollback", (req, res) => {
     const version = req.body?.version;
@@ -201,5 +262,6 @@ module.exports = {
   assertFactoryWorkerReady,
   createFactoryBridge,
   createSoftwareFactoryRouter,
-  statusForCode
+  statusForCode,
+  validateHttpContract
 };
