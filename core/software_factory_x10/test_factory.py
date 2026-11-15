@@ -62,6 +62,11 @@ class FactoryTests(unittest.TestCase):
         self.assertFalse((Path(self.tmp.name) / "modules/processor.py").exists())
         self.assertFalse((Path(self.tmp.name) / "versions/processor").exists())
 
+    def test_runner_rejects_mutable_image_tag(self):
+        from software_factory_x10.runner import DockerSandboxRunner
+        with self.assertRaisesRegex(ValueError, "SANDBOX_IMAGE_DIGEST_REQUIRED"):
+            DockerSandboxRunner(image="python:3.12-slim")
+
     def test_rejects_path_traversal(self):
         with self.assertRaises(ValidationError):
             validate_name("../escape")
