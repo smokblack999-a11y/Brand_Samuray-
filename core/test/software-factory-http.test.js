@@ -250,7 +250,7 @@ test("worker bridge invokes the Python JSON protocol without a shell", async () 
 test("worker bridge refuses oversized input without spawning", async () => {
   const runWorker = createFactoryBridge({ python: "python3", root: os.tmpdir() });
   await assert.rejects(
-    runWorker({ action: "create", name: "processor", source: "x".repeat(100 * 1024) }),
+    runWorker({ action: "list", padding: "x".repeat(113 * 1024) }),
     error => error instanceof FactoryBridgeError && error.code === "REQUEST_TOO_LARGE"
   );
 });
