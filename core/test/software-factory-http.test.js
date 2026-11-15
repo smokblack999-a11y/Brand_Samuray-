@@ -9,6 +9,7 @@ const path = require("node:path");
 const { spawnSync } = require("node:child_process");
 const {
   FactoryBridgeError,
+  assertFactoryWorkerReady,
   createFactoryBridge,
   createSoftwareFactoryRouter,
   statusForCode
@@ -264,4 +265,45 @@ test("Software Factory routes rate-limit authenticated callers", async () => {
   } finally {
     await server.close();
   }
+});
+
+
+const PINNED_IMAGE = "python:3.12-slim@sha256:5e2bdb1b0d542d5039cffb8181c65930093949194a65c365dfb1b0fe13a4fa5b";
+
+test("Factory startup readiness accepts Python, Docker daemon and preloaded pinned image", () => {
+  const calls = [];
+  assert.doesNotThrow(() => assertFactoryWorkerReady({
+    env: { SOFTWARE_FACTORY_PYTHON: "python3", SAMURAI_FACTORY_IMAGE: PINNED_IMAGE },
+    spawnSync(command, args) {
+      calls.push([command, args]);
+      if (command === "python3") return { status: 0 };
+      if (args[0] === "info") return { status: 0, stdout: "27.0.1\\n" };
+      if (args[0] === "image") return { status: 0 };
+      return { status: 1 };
+    }
+  }));
+  assert.equal(calls.length, 3);
+});
+
+test("Factory startup refuses mutable sandbox image tags", () => {
+  assert.throws(() => assertFactoryWorkerReady({
+    env: { SAMURAI_FACTORY_IMAGE: "python:3.12-slim" },
+    spawnSync(command, args) {
+      if (command === "python3") return { status: 0 };
+      if (args[0] === "info") return { status: 0, stdout: "27.0.1\\n" };
+      return { status: 0 };
+    }
+  }), /digest-pinned/);
+});
+
+test("Factory startup refuses a sandbox image that is not preloaded", () => {
+  assert.throws(() => assertFactoryWorkerReady({
+    env: { SAMURAI_FACTORY_IMAGE: PINNED_IMAGE },
+    spawnSync(command, args) {
+      if (command === "python3") return { status: 0 };
+      if (args[0] === "info") return { status: 0, stdout: "27.0.1\\n" };
+      if (args[0] === "image") return { status: 1 };
+      return { status: 1 };
+    }
+  }), /not preloaded/);
 });
