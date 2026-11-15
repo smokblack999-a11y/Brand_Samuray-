@@ -290,6 +290,7 @@ test("HTTP route completes create/promote/rollback/delete through Python worker 
     ]
   };
   const contractV2 = { cases: [{ input: [1, 2], expected: [3, 6] }] };
+  try {
     const blocked = await fetch(`${server.base}/modules`, {
       method: "POST",
       headers,
