@@ -12,6 +12,8 @@ GOOD = "\n".join(["def run(data):", "    return list(data)", ""])
 class FakeRunner:
     def run_smoke_test(self, path, contract=None):
         compile(path.read_text("utf-8"), str(path), "exec")
+    def run_module(self, path, value):
+        return {"received": value}
 
 
 class WorkerProtocolTests(unittest.TestCase):
