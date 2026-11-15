@@ -14,14 +14,15 @@ Status labels:
 | Requirement | Current status | Evidence / limitation |
 |---|---|---|
 | Independent app identity | Implemented | `com.samurai.whatsapp`; does not replace official WhatsApp |
-| Custom interface | Implemented foundation | Local control screen, status and archive viewer |
+| Custom interface | Implemented foundation | Local control screen, status, notification archive and Media Vault list/actions |
 | Explicit notification consent | Implemented | Opens Android Notification Access settings |
 | WhatsApp / Business filtering | Implemented | Package allowlist in listener |
 | MessagingStyle text extraction | Implemented | AndroidX NotificationCompat MessagingStyle plus standard text fallbacks |
-| Local encrypted archive | Implemented; CI validation pending | AES-256-GCM, Android Keystore key |
+| Local encrypted notification archive | Implemented; CI validation pending | AES-256-GCM, Android Keystore key |
 | Pause/resume archiving | Implemented | Local switch; listener checks flag before persistence |
-| Clear archive | Implemented | User-confirmed local deletion and archive-key retirement |
-| Retention limit | Implemented; CI validation pending | Maximum 200 records |
+| Clear notification archive | Implemented | User-confirmed local deletion and archive-key retirement |
+| Notification retention limit | Implemented | Maximum 200 records |
+| **Encrypted Media Vault** | **Implemented in branch; CI pending** | Android system document picker; app-private encrypted file storage; AES-GCM and Android Keystore; encrypted metadata; image/video/audio only; export/delete/clear; max 100 files and 250 MiB per file; no broad storage permission |
 | Anti-Delete | Partial | A notification copy may survive later deletion, but only if Android posts visible text first; no guarantee for hidden previews, muted/suppressed notifications, truncation or absent notifications |
 | **One Tick / Hide Delivered** | **Experimental candidate; not implemented** | Public Xposed projects claim Hide Delivered / receipt control. This cannot be delivered by the current companion app. Research hypothesis: a recipient-side client module changes acknowledgements sent by the local account. It requires a separate rooted lab device, dedicated test number, exact host-version checks and second-device validation. No anti-ban guarantee. |
 | Read Tracker for personal outgoing messages | Partial / signal-dependent | Unofficial Web-session engines document SERVER, DEVICE, READ and PLAYED acknowledgements. Missing READ is UNKNOWN, not proof of unread; privacy settings and protocol changes can suppress or remove signals. |
@@ -32,7 +33,6 @@ Status labels:
 | Hide Typing / Recording | Companion-blocked; experimental candidate | Notification access cannot alter WhatsApp's internal presence state. Public Xposed projects list related controls, but functionality is version-dependent. |
 | Anti-View Once | Not implemented; protected-media bypass excluded | NotificationListenerService does not receive View Once media bytes. SAMURAI may import media the user can normally access or share; it will not claim to bypass View Once protections. |
 | Status Saver | Future; feasible with user-granted access | Public projects demonstrate browsing media already cached locally after the user viewed a status. Implement using Storage Access Framework, not broad all-files permission. |
-| Media Vault | Future; feasible | Encrypted local storage for imported/user-accessible files, with explicit export and delete controls. |
 | Per-app Internet Kill Switch | Future; technically feasible with explicit VPN consent | A local VPN can filter app traffic but is disruptive and does not guarantee a particular tick or receipt state. It may interrupt messaging, calls and backups. |
 | Themes / fonts / app lock | Future | Fully feasible inside the SAMURAI companion app; does not restyle the official WhatsApp client without a separate hook module. |
 | Network/backend sync | Intentionally absent in current app | No Internet permission or backend integration in the companion. |
@@ -49,17 +49,17 @@ Status labels:
 ## Verification gates
 
 1. Gradle compiles both Android applications.
-2. WhatsApp companion APK contains MainActivity, WhatsAppNotificationListener and NotificationArchive DEX classes.
-3. Android emulator tests verify encryption round-trip, absence of plaintext in preferences, pause behavior and 200-record cap.
+2. WhatsApp companion APK contains MainActivity, WhatsAppNotificationListener, NotificationArchive and MediaVault DEX classes.
+3. Android emulator tests verify notification archive encryption/retention plus Media Vault encryption round-trip, plaintext absence, MIME rejection, delete and clear.
 4. The latest Actions run finishes emulator instrumentation tests and uploads artifacts. A previous build-only success is not sufficient.
-5. Real Samsung Galaxy A54 test verifies notification access, actual WhatsApp preview delivery, archive display, pause and clear.
+5. Real Samsung Galaxy A54 test verifies notification access, actual WhatsApp preview delivery, archive display, pause/clear, Media Vault import/export/delete.
 6. Any future One Tick research is tested on a separate lab device/account against a second physical device; no primary-account install or root.
 
 Do not mark gate 5 or 6 successful based on CI or emulator evidence.
 
 ## Research decision
 
-**GO:** continue the independent companion, encrypted notification archive, event ledger with explicit provenance, user-selected Status Saver/Media Vault, and optional official Business API webhook connector.
+**GO:** continue the independent companion, encrypted notification archive, encrypted user-selected Media Vault, event ledger with explicit provenance, user-selected Status Saver, and optional official Business API webhook connector.
 
 **LAB-ONLY:** investigate One Tick / Hide Delivered through public Xposed/LSPosed research. Keep it a separate build identity and test branch. Require rooted spare hardware, dedicated number, compatibility guard, source/dependency/license audit and rollback plan.
 
