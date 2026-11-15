@@ -200,8 +200,8 @@ test("HTTP route completes create/promote/rollback/delete through Python worker 
     "content-type": "application/json",
     "X-API-Key": "test-admin-key"
   };
-  const sourceV1 = ["def run(data):", "    return list(data)", ""].join("\\n");
-  const sourceV2 = ["def run(data):", "    return data[:]", ""].join("\\n");
+  const sourceV1 = ["def run(data):", "    return list(data)", ""].join("\n");
+  const sourceV2 = ["def run(data):", "    return data[:]", ""].join("\n");
   try {
     const created = await fetch(`${server.base}/modules`, {
       method: "POST", headers, body: JSON.stringify({ name: "http_processor", source: sourceV1 })
@@ -237,5 +237,31 @@ test("HTTP route completes create/promote/rollback/delete through Python worker 
   } finally {
     await server.close();
     fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+
+test("Software Factory routes rate-limit authenticated callers", async () => {
+  let calls = 0;
+  const server = await startTestServer(async () => {
+    calls += 1;
+    return { modules: {} };
+  });
+  try {
+    let response;
+    for (let i = 0; i < 10; i += 1) {
+      response = await fetch(`${server.base}/modules`, {
+        headers: { "X-API-Key": "test-admin-key" }
+      });
+      assert.equal(response.status, 200);
+    }
+    response = await fetch(`${server.base}/modules`, {
+      headers: { "X-API-Key": "test-admin-key" }
+    });
+    assert.equal(response.status, 429);
+    assert.equal((await response.json()).error.code, "RATE_LIMITED");
+    assert.equal(calls, 10);
+  } finally {
+    await server.close();
   }
 });
