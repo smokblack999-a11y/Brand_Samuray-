@@ -1,5 +1,7 @@
 import tempfile
 import unittest
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from software_factory_x10.factory import SoftwareFactory
 from software_factory_x10.validation import validate_name, validate_source, ValidationError
@@ -88,6 +90,29 @@ class FactoryTests(unittest.TestCase):
             self.assertFalse((Path(self.tmp.name) / "modules/processor.py").exists())
         finally:
             self.factory.registry.put = original_put
+
+    def test_parallel_create_same_name_preserves_single_registry_entry(self):
+        root = self.tmp.name
+        first_factory = SoftwareFactory(root, runner=FakeRunner())
+        second_factory = SoftwareFactory(root, runner=FakeRunner())
+        barrier = threading.Barrier(2)
+        def attempt(factory, source):
+            barrier.wait()
+            try:
+                return factory.create("contended", source)
+            except FileExistsError:
+                return None
+        source_a = "def run(data):\\n    return list(data)\\n"
+        source_b = "def run(data):\\n    return data[:]\\n"
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            a = pool.submit(attempt, first_factory, source_a)
+            b = pool.submit(attempt, second_factory, source_b)
+            results = [a.result(), b.result()]
+        successes = [item for item in results if item is not None]
+        self.assertEqual(len(successes), 1)
+        metadata = first_factory.registry.list()["contended"]
+        target = Path(root) / "modules/contended.py"
+        self.assertEqual(first_factory._hash(target), metadata["sha256"])
 
     def test_rejects_symlinked_module_workspace(self):
         import os
