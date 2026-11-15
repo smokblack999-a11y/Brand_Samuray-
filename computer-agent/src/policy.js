@@ -2,7 +2,7 @@
 
 const BLOCKED_ACTION_PATTERNS = [
   /\b(bet|wager|stake|place bet|gamble|deposit|withdraw|cash.?out|payment|purchase|pay now|delete|remove account|close account|send money|transfer funds)\b/i,
-  /\b(ставк|поставить|удвоить|депозит|вывод средств|оплат|перевод денег|удалить аккаунт)\b/i
+  /ставк|поставить|удвоить|депозит|вывод средств|оплат|перевод денег|удалить аккаунт/i
 ];
 
 function validateTask(task) {
