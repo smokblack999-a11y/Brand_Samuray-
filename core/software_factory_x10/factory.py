@@ -315,6 +315,9 @@ class SoftwareFactory:
             metadata = self.registry.list().get(name)
             if not metadata:
                 raise FileNotFoundError("MODULE_NOT_REGISTERED")
+            review = metadata.get("sourceReview", LEGACY_REVIEW)
+            if review.get("decision") != "APPROVED":
+                raise RuntimeError("MODULE_REVIEW_REQUIRED")
             target = self._verify_active(name, metadata)
             run_module = getattr(self.runner, "run_module", None)
             if not callable(run_module):
