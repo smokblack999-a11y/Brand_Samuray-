@@ -27,6 +27,7 @@ class MainActivity : FragmentActivity() {
     private lateinit var importedChatContainer: LinearLayout
     private lateinit var statusContainer: LinearLayout
     private lateinit var timelineContainer: LinearLayout
+    private lateinit var vpnContainer: LinearLayout
     private var pendingExportId: String? = null
     private var contentRendered = false
     private var authInProgress = false
@@ -53,6 +54,7 @@ class MainActivity : FragmentActivity() {
         }
         if (::status.isInitialized) refresh()
         if (::statusContainer.isInitialized) refreshStatusSaver()
+        if (::vpnContainer.isInitialized) refreshVpnControl()
     }
 
     override fun onStop() {
@@ -108,6 +110,15 @@ class MainActivity : FragmentActivity() {
     @Deprecated("Uses the platform document picker result callback for broad Android compatibility")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == REQUEST_VPN_PERMISSION) {
+            if (resultCode == RESULT_OK) {
+                startWhatsAppKillSwitch()
+            } else {
+                Toast.makeText(this, "Разрешение VPN не предоставлено. Сеть WhatsApp не изменена.", Toast.LENGTH_LONG).show()
+            }
+            refreshVpnControl()
+            return
+        }
         if (resultCode != RESULT_OK) {
             pendingExportId = null
             return
@@ -484,8 +495,23 @@ class MainActivity : FragmentActivity() {
         }
         root.addView(appLockNote)
 
+        root.addView(sectionLabel("PER-APP INTERNET KILL SWITCH"))
+        val vpnNote = TextView(this).apply {
+            text = "Опциональная локальная VPN-блокировка только для WhatsApp и WhatsApp Business. Пока блокировка активна, сообщения и звонки не будут работать. Остальные приложения используют обычную сеть. Это не One Tick и не скрывает подтверждения доставки."
+            textSize = 12f
+            setTextColor(0xFFFFC66D.toInt())
+            setPadding(0, 0, 0, 10)
+        }
+        root.addView(vpnNote)
+        vpnContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(12, 12, 12, 12)
+            setBackgroundColor(0xFF101923.toInt())
+        }
+        root.addView(vpnContainer)
+
         val note = TextView(this).apply {
-            text = "ОГРАНИЧЕНИЯ: One Tick, read receipts, скрытые статусы и удаление сообщений у всех не контролируются этим прототипом. Для One Tick нужна отдельная лабораторная проверка на тестовом аккаунте."
+            text = "ОГРАНИЧЕНИЯ: One Tick, read receipts и скрытые статусы не контролируются безопасным Android-компаньоном. Для One Tick нужна отдельная лабораторная проверка на тестовом аккаунте."
             textSize = 12f
             setTextColor(0xFFFFC66D.toInt())
             setPadding(0, 18, 0, 8)
@@ -581,6 +607,62 @@ class MainActivity : FragmentActivity() {
             })
             statusContainer.addView(entry)
         }
+    }
+
+    private fun requestWhatsAppKillSwitch() {
+        val consent = android.net.VpnService.prepare(this)
+        if (consent != null) {
+            startActivityForResult(consent, REQUEST_VPN_PERMISSION)
+        } else {
+            startWhatsAppKillSwitch()
+        }
+    }
+
+    private fun startWhatsAppKillSwitch() {
+        runCatching {
+            val intent = Intent(this, WhatsAppKillSwitchService::class.java)
+                .setAction(WhatsAppKillSwitchService.ACTION_START)
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                startForegroundService(intent)
+            } else {
+                startService(intent)
+            }
+        }.onSuccess {
+            Toast.makeText(this, "Запрос на блокировку WhatsApp отправлен", Toast.LENGTH_SHORT).show()
+        }.onFailure { error ->
+            Toast.makeText(this, error.message ?: "Не удалось запустить блокировку", Toast.LENGTH_LONG).show()
+        }
+        refreshVpnControl()
+    }
+
+    private fun stopWhatsAppKillSwitch() {
+        runCatching {
+            startService(
+                Intent(this, WhatsAppKillSwitchService::class.java)
+                    .setAction(WhatsAppKillSwitchService.ACTION_STOP)
+            )
+        }.onFailure { error ->
+            Toast.makeText(this, error.message ?: "Не удалось восстановить сеть", Toast.LENGTH_LONG).show()
+        }
+        WhatsAppKillSwitchService.markDisabled(this)
+        refreshVpnControl()
+    }
+
+    private fun refreshVpnControl() {
+        if (!::vpnContainer.isInitialized) return
+        vpnContainer.removeAllViews()
+        val blocked = WhatsAppKillSwitchService.isEnabled(this)
+        vpnContainer.addView(TextView(this).apply {
+            text = if (blocked) "СОСТОЯНИЕ: WHATSAPP ИНТЕРНЕТ ЗАБЛОКИРОВАН" else "СОСТОЯНИЕ: ОБЫЧНАЯ СЕТЬ"
+            textSize = 13f
+            setTextColor(if (blocked) 0xFFFFC66D.toInt() else 0xFF00E68A.toInt())
+            setPadding(0, 0, 0, 8)
+        })
+        vpnContainer.addView(actionButton(
+            if (blocked) "ВОССТАНОВИТЬ ИНТЕРНЕТ WHATSAPP" else "ЗАБЛОКИРОВАТЬ ИНТЕРНЕТ WHATSAPP"
+        ) {
+            if (blocked) stopWhatsAppKillSwitch() else requestWhatsAppKillSwitch()
+        })
     }
 
     private fun refreshSecurityLabel() {
@@ -834,6 +916,7 @@ class MainActivity : FragmentActivity() {
         if (::vaultContainer.isInitialized) renderVault()
         if (::importedChatContainer.isInitialized) renderImportedChats()
         if (::timelineContainer.isInitialized) renderTimeline()
+        if (::vpnContainer.isInitialized) refreshVpnControl()
     }
 
     private fun renderTimeline() {
@@ -875,6 +958,7 @@ class MainActivity : FragmentActivity() {
         private const val REQUEST_EXPORT_MEDIA = 4102
         private const val REQUEST_IMPORT_CHAT = 4103
         private const val REQUEST_SELECT_STATUS_FOLDER = 4104
+        private const val REQUEST_VPN_PERMISSION = 4105
         private const val APP_LOCK_TIMEOUT_MS = 30_000L
         private const val APP_LOCK_NOTE_TAG = "samurai_app_lock_note"
     }
