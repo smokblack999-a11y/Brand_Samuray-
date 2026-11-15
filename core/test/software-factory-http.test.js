@@ -181,6 +181,8 @@ test("worker error status map uses conflict and service-unavailable classes", ()
   assert.equal(statusForCode("MODULE_ALREADY_EXISTS"), 409);
   assert.equal(statusForCode("SANDBOX_TIMEOUT"), 503);
   assert.equal(statusForCode("SOURCE_SYNTAX_INVALID"), 400);
+  assert.equal(statusForCode("TOP_LEVEL_EXECUTION"), 400);
+  assert.equal(statusForCode("FORBIDDEN_PATH_WRITE"), 400);
 });
 
 
@@ -204,6 +206,18 @@ test("HTTP route completes create/promote/rollback/delete through Python worker 
   const sourceV1 = ["def run(data):", "    return list(data)", ""].join("\n");
   const sourceV2 = ["def run(data):", "    return data[:]", ""].join("\n");
   try {
+    const blocked = await fetch(`${server.base}/modules`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        name: "blocked_processor",
+        source: ["print('top-level side effect')", "def run(data):", "    return list(data)", ""].join("\\n")
+      })
+    });
+    const blockedBody = await blocked.json();
+    assert.equal(blocked.status, 400);
+    assert.equal(blockedBody.error.code, "TOP_LEVEL_EXECUTION");
+
     const created = await fetch(`${server.base}/modules`, {
       method: "POST", headers, body: JSON.stringify({ name: "http_processor", source: sourceV1 })
     });
