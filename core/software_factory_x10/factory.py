@@ -185,7 +185,8 @@ class SoftwareFactory:
                 raise FileNotFoundError("MODULE_NOT_REGISTERED")
             validated_contract = validate_contract(contract if contract is not None else metadata.get("contract", DEFAULT_CONTRACT))
             target = self._verify_active(name, metadata)
-            if digest == metadata["sha256"]:
+            current_contract = validate_contract(metadata.get("contract", DEFAULT_CONTRACT))
+            if digest == metadata["sha256"] and validated_contract == current_contract:
                 return {"name": name, **metadata, "unchanged": True}
 
             current_version = int(metadata.get("version", 1))
