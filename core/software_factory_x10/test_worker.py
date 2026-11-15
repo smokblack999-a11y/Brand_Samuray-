@@ -24,7 +24,7 @@ class WorkerProtocolTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             contract_v1 = {"cases": [{"input": [1, 2], "expected": [2, 4]}]}
             contract_v2 = {"cases": [{"input": [1, 2], "expected": [3, 6]}]}
-            source_v1 = "\\n".join(["def run(data):", "    return [x * 2 for x in data]", ""])
+            source_v1 = "\n".join(["def run(data):", "    return [x * 2 for x in data]", ""])
             created = handle_request(
                 {"action": "create", "name": "processor", "source": source_v1, "contract": contract_v1},
                 tmp, runner=FakeRunner()
@@ -33,12 +33,13 @@ class WorkerProtocolTests(unittest.TestCase):
             self.assertEqual(created["module"]["contract"], contract_v1)
             self.assertIn("processor", handle_request({"action": "list"}, tmp)["modules"])
 
-            source_v2 = "\n".join(["def run(data):", "    return data[:]", ""])
+            source_v2 = "\n".join(["def run(data):", "    return [x * 3 for x in data]", ""])
             promoted = handle_request(
-                {"action": "promote", "name": "processor", "source": source_v2},
+                {"action": "promote", "name": "processor", "source": source_v2, "contract": contract_v2},
                 tmp, runner=FakeRunner()
             )
             self.assertEqual(promoted["module"]["version"], 2)
+            self.assertEqual(promoted["module"]["contract"], contract_v2)
 
             rolled = handle_request(
                 {"action": "rollback", "name": "processor"},
