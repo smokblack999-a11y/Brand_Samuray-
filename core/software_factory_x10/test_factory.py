@@ -289,6 +289,20 @@ class DockerRunnerIntegrationTests(unittest.TestCase):
                 factory.run("large_output_module", "large")
             self.assertTrue(factory.destroy("large_output_module"))
 
+    def test_run_rejects_non_json_result(self):
+        from software_factory_x10.runner import DockerSandboxRunner
+        with tempfile.TemporaryDirectory() as tmp:
+            factory = SoftwareFactory(tmp, runner=DockerSandboxRunner(timeout=15))
+            source = "\n".join([
+                "def run(data):",
+                "    return float('nan')",
+                ""
+            ])
+            factory.create("non_json_module", source)
+            with self.assertRaisesRegex(RuntimeError, "MODULE_OUTPUT_INVALID"):
+                factory.run("non_json_module", [1])
+            self.assertTrue(factory.destroy("non_json_module"))
+
     def test_real_docker_runner_denies_network(self):
         from software_factory_x10.runner import DockerSandboxRunner
         source = (
