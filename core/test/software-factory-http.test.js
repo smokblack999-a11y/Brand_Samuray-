@@ -104,7 +104,7 @@ test("Software Factory create route dispatches a bounded source payload", async 
     const response = await fetch(`${server.base}/modules`, {
       method: "POST",
       headers: { "content-type": "application/json", "X-API-Key": "test-admin-key" },
-      body: JSON.stringify({ name: "processor", source: "def run(data):\\n    return list(data)\\n" })
+      body: JSON.stringify({ name: "processor", source: "def run(data):\n    return list(data)\n" })
     });
     const body = await response.json();
     assert.equal(response.status, 201);
@@ -144,7 +144,7 @@ test("Software Factory worker errors are normalized without exposing filesystem 
     const response = await fetch(`${server.base}/modules/processor/promote`, {
       method: "POST",
       headers: { "content-type": "application/json", "X-API-Key": "test-admin-key" },
-      body: JSON.stringify({ source: "def run(data):\\n    return list(data)\\n" })
+      body: JSON.stringify({ source: "def run(data):\n    return list(data)\n" })
     });
     const body = await response.json();
     assert.equal(response.status, 409);
