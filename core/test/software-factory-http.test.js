@@ -203,7 +203,7 @@ test("Software Factory run route forwards JSON input to the isolated worker", as
     return { module: { name: "processor", version: 2, result: [6, 8] } };
   });
   try {
-    const response = await fetch(\`${server.base}/modules/processor/run\`, {
+    const response = await fetch(`${server.base}/modules/processor/run`, {
       method: "POST",
       headers: { "content-type": "application/json", "X-API-Key": "test-admin-key" },
       body: JSON.stringify({ input: [3, 4] })
@@ -225,7 +225,7 @@ test("Software Factory run route requires an input field", async () => {
     return {};
   });
   try {
-    const response = await fetch(\`${server.base}/modules/processor/run\`, {
+    const response = await fetch(`${server.base}/modules/processor/run`, {
       method: "POST",
       headers: { "content-type": "application/json", "X-API-Key": "test-admin-key" },
       body: JSON.stringify({})
@@ -245,7 +245,7 @@ test("Software Factory run route rejects oversized input before worker invocatio
     return {};
   });
   try {
-    const response = await fetch(\`${server.base}/modules/processor/run\`, {
+    const response = await fetch(`${server.base}/modules/processor/run`, {
       method: "POST",
       headers: { "content-type": "application/json", "X-API-Key": "test-admin-key" },
       body: JSON.stringify({ input: "x".repeat(33 * 1024) })
@@ -377,7 +377,7 @@ test("HTTP route completes create/promote/rollback/delete through Python worker 
     assert.equal(createdBody.module.sourceReview.decision, "APPROVED");
     assert.deepEqual(createdBody.module.contract, contractV1);
 
-    const runV1 = await fetch(\`${server.base}/modules/http_processor/run\`, {
+    const runV1 = await fetch(`${server.base}/modules/http_processor/run`, {
       method: "POST", headers, body: JSON.stringify({ input: [1, 2] })
     });
     const runV1Body = await runV1.json();
@@ -393,7 +393,7 @@ test("HTTP route completes create/promote/rollback/delete through Python worker 
     assert.equal(promotedBody.module.sourceReview.decision, "APPROVED");
     assert.deepEqual(promotedBody.module.contract, contractV2);
 
-    const runV2 = await fetch(\`${server.base}/modules/http_processor/run\`, {
+    const runV2 = await fetch(`${server.base}/modules/http_processor/run`, {
       method: "POST", headers, body: JSON.stringify({ input: [1, 2] })
     });
     const runV2Body = await runV2.json();
@@ -410,7 +410,7 @@ test("HTTP route completes create/promote/rollback/delete through Python worker 
     assert.equal(rollbackBody.module.sourceReview.decision, "APPROVED");
     assert.deepEqual(rollbackBody.module.contract, contractV1);
 
-    const runV1Again = await fetch(\`${server.base}/modules/http_processor/run\`, {
+    const runV1Again = await fetch(`${server.base}/modules/http_processor/run`, {
       method: "POST", headers, body: JSON.stringify({ input: [1, 2] })
     });
     const runV1AgainBody = await runV1Again.json();
