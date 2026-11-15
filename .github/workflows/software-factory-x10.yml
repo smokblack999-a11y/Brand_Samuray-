@@ -32,6 +32,7 @@ jobs:
       - name: Verify Docker daemon and pull sandbox image
         run: |
           docker info
-          docker pull python:3.12-slim\n      - name: Run unit and real Docker integration tests
+          docker pull python:3.12-slim
+      - name: Run unit and real Docker integration tests
         run: python -m unittest discover -s software_factory_x10 -p "test_*.py" -v
         working-directory: core
