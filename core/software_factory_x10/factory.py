@@ -148,10 +148,10 @@ class SoftwareFactory:
                 # at the same complete inode. Both links are exclusive.
                 os.link(staged, version_file, follow_symlinks=False)
                 version_published = True
-                os.chmod(version_file, 0o440, follow_symlinks=False)
+                os.chmod(version_file, 0o444, follow_symlinks=False)
                 os.link(version_file, target, follow_symlinks=False)
                 published = True
-                os.chmod(target, 0o440, follow_symlinks=False)
+                os.chmod(target, 0o444, follow_symlinks=False)
                 _fsync_dir(version_dir)
                 _fsync_dir(self.modules)
                 registry_write_started = True
@@ -207,7 +207,7 @@ class SoftwareFactory:
             if not previous_version_file.exists():
                 # One-time migration path for metadata created before versioned storage.
                 os.link(target, previous_version_file, follow_symlinks=False)
-                os.chmod(previous_version_file, 0o440, follow_symlinks=False)
+                os.chmod(previous_version_file, 0o444, follow_symlinks=False)
                 _fsync_dir(version_dir)
 
             staged = self._stage_candidate(name, source)
@@ -218,7 +218,7 @@ class SoftwareFactory:
                 self.runner.run_smoke_test(staged, validated_contract)
                 os.link(staged, new_version_file, follow_symlinks=False)
                 new_version_created = True
-                os.chmod(new_version_file, 0o440, follow_symlinks=False)
+                os.chmod(new_version_file, 0o444, follow_symlinks=False)
                 _fsync_dir(version_dir)
                 self._switch_active(new_version_file, target)
                 switched = True
