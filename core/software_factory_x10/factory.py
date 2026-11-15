@@ -27,6 +27,8 @@ class SoftwareFactory:
         self.modules = self.root / "modules"
         self.staging.mkdir(exist_ok=True)
         self.modules.mkdir(exist_ok=True)
+        os.chmod(self.staging, 0o700)
+        os.chmod(self.modules, 0o750)
         # Reject symlinked workspaces: staging/modules must remain under the selected root.
         if self.staging.is_symlink() or self.modules.is_symlink():
             raise ValueError("FACTORY_DIRECTORY_SYMLINK")
@@ -53,6 +55,9 @@ class SoftwareFactory:
                 f.flush()
                 os.fsync(f.fileno())
 
+            # Keep the staging directory private on the host, but make the candidate
+            # readable to the container's non-root UID through a read-only bind mount.
+            os.chmod(staged, 0o444)
             # Generated code is executed only by the configured isolated runner.
             self.runner.run_smoke_test(staged)
 
