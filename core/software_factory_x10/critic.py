@@ -137,6 +137,19 @@ def review_source(source: str) -> dict[str, Any]:
             if isinstance(node.func, ast.Name):
                 if node.func.id in FORBIDDEN_CALLS or node.func.id in imported_dangerous_calls:
                     _add(findings, "FORBIDDEN_DYNAMIC_OR_IO_CALL")
+            if isinstance(node.func, ast.Attribute) and isinstance(node.func.value, ast.Call):
+                receiver = node.func.value.func
+                if isinstance(receiver, ast.Name) and receiver.id in imported_path_classes and node.func.attr in {
+                    "open", "write_text", "write_bytes", "unlink", "rename", "replace",
+                    "mkdir", "rmdir", "touch", "symlink_to", "hardlink_to", "chmod",
+                }:
+                    _add(findings, "FORBIDDEN_PATH_WRITE")
+                receiver_path = _attribute_path(receiver)
+                if receiver_path and receiver_path[0] in module_aliases and module_aliases[receiver_path[0]] == "pathlib" and "Path" in receiver_path[1] and node.func.attr in {
+                    "open", "write_text", "write_bytes", "unlink", "rename", "replace",
+                    "mkdir", "rmdir", "touch", "symlink_to", "hardlink_to", "chmod",
+                }:
+                    _add(findings, "FORBIDDEN_PATH_WRITE")
             path = _attribute_path(node.func)
             if path:
                 root, attrs = path
