@@ -211,7 +211,7 @@ test("HTTP route completes create/promote/rollback/delete through Python worker 
       headers,
       body: JSON.stringify({
         name: "blocked_processor",
-        source: ["print('top-level side effect')", "def run(data):", "    return list(data)", ""].join("\\n")
+        source: ["print('top-level side effect')", "def run(data):", "    return list(data)", ""].join("\n")
       })
     });
     const blockedBody = await blocked.json();
