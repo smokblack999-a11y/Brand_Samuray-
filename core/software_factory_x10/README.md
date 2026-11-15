@@ -9,7 +9,7 @@ This package is deliberately **not wired into the Express Core** and does not au
 4. Publish with exclusive file creation (never overwrite).
 5. Register SHA-256 metadata only. Generated modules are not imported into Core.
 
-## Requirements
+## CI verification\n\nGitHub Actions verifies the actual Docker runner (not only a fake runner): valid module execution, denied outbound networking, and rejection of incorrect output. Local unit tests skip these integration cases when Docker is unavailable. The default image tag is configurable through `SAMURAI_FACTORY_IMAGE`; pin it to a verified image digest before production.\n\n## Requirements
 - Python 3.10+
 - Docker Engine available to the host running the factory.
 - A pre-pulled, pinned Python image is recommended. Before production, pin image by digest and scan/update it.
