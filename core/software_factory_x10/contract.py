@@ -31,7 +31,7 @@ def validate_contract(contract: Any = None) -> dict[str, Any]:
     result = {"cases": normalized}
     try:
         encoded = json.dumps(result, ensure_ascii=False, separators=(",", ":"), allow_nan=False).encode("utf-8")
-    except (TypeError, ValueError, UnicodeEncodeError) as exc:
+    except (TypeError, ValueError, UnicodeEncodeError, RecursionError) as exc:
         raise ValueError("CONTRACT_INVALID") from exc
     if len(encoded) > MAX_CONTRACT_BYTES:
         raise ValueError("CONTRACT_TOO_LARGE")
