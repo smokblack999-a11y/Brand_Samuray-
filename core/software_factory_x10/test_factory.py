@@ -32,8 +32,9 @@ class FactoryTests(unittest.TestCase):
     def test_contract_is_persisted_per_version_and_restored_on_rollback(self):
         contract_v1 = {"cases": [{"input": [1, 2], "expected": [2, 4]}]}
         contract_v2 = {"cases": [{"input": [1, 2], "expected": [3, 6]}]}
-        first = self.factory.create("processor", GOOD.replace("return list(data)", "return [x * 2 for x in data]"), contract_v1)
-        source_v2 = "\\n".join(["def run(data):", "    return [x * 3 for x in data]", ""])
+        source_v1 = GOOD.replace("return list(data)", "return [x * 2 for x in data]")
+        source_v2 = "\n".join(["def run(data):", "    return [x * 3 for x in data]", ""])
+        first = self.factory.create("processor", source_v1, contract_v1)
         second = self.factory.promote("processor", source_v2, contract_v2)
         self.assertEqual(first["contract"], contract_v1)
         self.assertEqual(second["contract"], contract_v2)
@@ -45,7 +46,7 @@ class FactoryTests(unittest.TestCase):
     def test_promote_creates_immutable_version_and_keeps_history(self):
         source_v2 = "def run(data):\n    return data[:]\n"
         first = self.factory.create("processor", GOOD)
-        source_v2 = "\\n".join(["def run(data):", "    return [x * 3 for x in data]", ""])
+        second = self.factory.promote("processor", source_v2)
         self.assertEqual(second["version"], 2)
         self.assertEqual(second["sourceReview"]["decision"], "APPROVED")
         self.assertEqual(second["versions"][1]["sourceReview"]["decision"], "APPROVED")
