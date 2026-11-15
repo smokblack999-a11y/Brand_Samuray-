@@ -27,7 +27,7 @@ const LEAD_RATE_LIMIT_WINDOW_MS = Math.max(1000, Number(process.env.LEAD_RATE_LI
 const LEAD_RATE_LIMIT_MAX = Math.max(1, Number(process.env.LEAD_RATE_LIMIT_MAX || 20));
 const WEBAPP_MAX_MEDIA_BYTES = Math.max(1024 * 1024, Number(process.env.WEBAPP_MAX_MEDIA_BYTES || 50 * 1024 * 1024));
 const WEBAPP_MEDIA_DIR = process.env.MEDIA_DIR || path.join(process.env.DATA_DIR || path.join(__dirname, "data"), "media");
-const SOFTWARE_FACTORY_ENABLED = String(process.env.SOFTWARE_FACTORY_ENABLED || "false").toLowerCase() === "true";
+const SOFTWARE_FACTORY_ENABLED = String(process.env.SOFTWARE_FACTORY_ENABLED || "false").trim().toLowerCase() === "true";
 
 if (SOFTWARE_FACTORY_ENABLED) {
   if (!API_KEY) throw new Error("Software Factory requires CORE_API_KEY");
