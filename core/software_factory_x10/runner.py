@@ -137,8 +137,9 @@ finally:
 encoded = json.dumps(result, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
 raw = encoded.encode("utf-8")
 if len(raw) > 32768:
-    raise ValueError("MODULE_OUTPUT_TOO_LARGE")
-real_stdout.write(encoded)
+    real_stdout.write('{"ok":false,"error":"MODULE_OUTPUT_TOO_LARGE"}')
+else:
+    real_stdout.write(json.dumps({"ok": True, "result": result}, ensure_ascii=False, separators=(",", ":"), allow_nan=False))
 real_stdout.flush()
 """
         cmd = [
@@ -167,9 +168,17 @@ real_stdout.flush()
         except subprocess.CalledProcessError as exc:
             raise RuntimeError("SANDBOX_RUN_FAILED") from exc
 
-        if len(completed.stdout) > MAX_CONTRACT_BYTES:
+        if len(completed.stdout) > MAX_CONTRACT_BYTES + 256:
             raise RuntimeError("MODULE_OUTPUT_TOO_LARGE")
         try:
-            return json.loads(completed.stdout.decode("utf-8"))
+            response = json.loads(completed.stdout.decode("utf-8"))
         except (UnicodeDecodeError, json.JSONDecodeError) as exc:
             raise RuntimeError("MODULE_OUTPUT_INVALID") from exc
+        if not isinstance(response, dict) or "ok" not in response:
+            raise RuntimeError("MODULE_OUTPUT_INVALID")
+        if not response["ok"]:
+            code = response.get("error")
+            if code == "MODULE_OUTPUT_TOO_LARGE":
+                raise RuntimeError(code)
+            raise RuntimeError("MODULE_OUTPUT_INVALID")
+        return response.get("result")
