@@ -8,6 +8,8 @@ import tempfile
 import threading
 from typing import Any
 
+from .contract import validate_contract
+
 try:
     import fcntl
 except ImportError:  # pragma: no cover - supported POSIX targets provide fcntl
@@ -44,6 +46,8 @@ def _validate_metadata(meta: Any) -> None:
         raise ValueError("REGISTRY_METADATA_INVALID")
     if "sourceReview" in meta:
         _validate_source_review(meta["sourceReview"])
+    if "contract" in meta and validate_contract(meta["contract"]) != meta["contract"]:
+        raise ValueError("REGISTRY_CONTRACT_INVALID")
     if "version" in meta or "versions" in meta:
         if not isinstance(meta.get("version"), int) or meta["version"] < 1:
             raise ValueError("REGISTRY_VERSION_INVALID")
@@ -62,10 +66,14 @@ def _validate_metadata(meta: Any) -> None:
             seen.add(number)
             if "sourceReview" in entry:
                 _validate_source_review(entry["sourceReview"])
+            if "contract" in entry and validate_contract(entry["contract"]) != entry["contract"]:
+                raise ValueError("REGISTRY_CONTRACT_INVALID")
             if number == meta["version"] and digest == meta["sha256"]:
                 active_found = True
                 if "sourceReview" in meta and entry.get("sourceReview", meta["sourceReview"]) != meta["sourceReview"]:
                     raise ValueError("REGISTRY_ACTIVE_SOURCE_REVIEW_MISMATCH")
+                if "contract" in meta and entry.get("contract", meta["contract"]) != meta["contract"]:
+                    raise ValueError("REGISTRY_ACTIVE_CONTRACT_MISMATCH")
         if not active_found:
             raise ValueError("REGISTRY_ACTIVE_VERSION_INVALID")
 
