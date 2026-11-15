@@ -123,7 +123,7 @@ function assertFactoryWorkerReady(options = {}) {
     throw new Error("Software Factory is enabled but the Docker daemon is unavailable");
   }
   const image = env.SAMURAI_FACTORY_IMAGE || DEFAULT_SANDBOX_IMAGE;
-  if (!/^[^@\\s]+@sha256:[0-9a-f]{64}$/.test(image)) {
+  if (!/^[^@\s]+@sha256:[0-9a-f]{64}$/.test(image)) {
     throw new Error("Software Factory requires a digest-pinned SAMURAI_FACTORY_IMAGE");
   }
   const imageCheck = run("docker", ["image", "inspect", image], {
