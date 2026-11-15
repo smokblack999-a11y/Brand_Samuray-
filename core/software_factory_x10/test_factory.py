@@ -311,12 +311,14 @@ class DockerRunnerIntegrationTests(unittest.TestCase):
             factory = SoftwareFactory(tmp, runner=DockerSandboxRunner(timeout=15))
             source = "\n".join([
                 "def run(data):",
-                "    return float('nan')",
+                "    if data == 'nan':",
+                "        return float('nan')",
+                "    return list(data)",
                 ""
             ])
             factory.create("non_json_module", source)
             with self.assertRaisesRegex(RuntimeError, "MODULE_OUTPUT_INVALID"):
-                factory.run("non_json_module", [1])
+                factory.run("non_json_module", "nan")
             self.assertTrue(factory.destroy("non_json_module"))
 
     def test_real_docker_runner_denies_network(self):
