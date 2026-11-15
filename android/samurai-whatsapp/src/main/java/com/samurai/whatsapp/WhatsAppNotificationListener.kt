@@ -41,14 +41,22 @@ class WhatsAppNotificationListener : NotificationListenerService() {
         if (visibleMessages.isNotEmpty()) {
             visibleMessages.forEach { message ->
                 runCatching {
-                    NotificationArchive.save(
-                        applicationContext,
-                        packageName = sbn.packageName,
-                        title = title.take(MAX_FIELD_LENGTH),
-                        body = message.body,
-                        timestamp = message.timestamp,
-                        dedupeKey = message.dedupeKey
-                    )
+                    if (NotificationArchive.isEnabled(applicationContext)) {
+                        NotificationArchive.save(
+                            applicationContext,
+                            packageName = sbn.packageName,
+                            title = title.take(MAX_FIELD_LENGTH),
+                            body = message.body,
+                            timestamp = message.timestamp,
+                            dedupeKey = message.dedupeKey
+                        )
+                        MessageTimeline.recordNotificationCaptured(
+                            applicationContext,
+                            sbn.packageName,
+                            sbn.key,
+                            message.timestamp
+                        )
+                    }
                 }
             }
             return
@@ -58,14 +66,22 @@ class WhatsAppNotificationListener : NotificationListenerService() {
         if (title.isBlank() && fallbackBody.isBlank()) return
 
         runCatching {
-            NotificationArchive.save(
-                applicationContext,
-                packageName = sbn.packageName,
-                title = title.take(MAX_FIELD_LENGTH),
-                body = fallbackBody.take(MAX_FIELD_LENGTH),
-                timestamp = sbn.postTime,
-                dedupeKey = "${sbn.key}|${sbn.postTime}|$title|$fallbackBody"
-            )
+            if (NotificationArchive.isEnabled(applicationContext)) {
+                NotificationArchive.save(
+                    applicationContext,
+                    packageName = sbn.packageName,
+                    title = title.take(MAX_FIELD_LENGTH),
+                    body = fallbackBody.take(MAX_FIELD_LENGTH),
+                    timestamp = sbn.postTime,
+                    dedupeKey = "${sbn.key}|${sbn.postTime}|$title|$fallbackBody"
+                )
+                MessageTimeline.recordNotificationCaptured(
+                    applicationContext,
+                    sbn.packageName,
+                    sbn.key,
+                    sbn.postTime
+                )
+            }
         }
     }
 
