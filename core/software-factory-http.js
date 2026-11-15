@@ -32,7 +32,7 @@ function createWorkerBridge(options = {}) {
   const python = options.python || process.env.SOFTWARE_FACTORY_PYTHON || "python3";
   const workerPath = path.join(__dirname, "software_factory_x10", "worker.py");
   const dataDir = process.env.DATA_DIR || path.join(__dirname, "data");
-  const root = path.resolve(__dirname, process.env.SOFTWARE_FACTORY_ROOT || path.join(dataDir, "software-factory-x10"));
+  const root = path.resolve(__dirname, options.root || process.env.SOFTWARE_FACTORY_ROOT || path.join(dataDir, "software-factory-x10"));
   const timeoutMs = Math.max(5000, Math.min(Number(options.timeoutMs || DEFAULT_WORKER_TIMEOUT_MS), 60000));
 
   return function runFactoryWorker(payload) {
