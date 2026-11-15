@@ -2,8 +2,10 @@ from __future__ import annotations
 import json
 import os
 import re
+import selectors
 import shutil
 import subprocess
+import time
 import uuid
 from pathlib import Path
 
@@ -154,24 +156,65 @@ real_stdout.flush()
             "--tmpfs", "/tmp:rw,noexec,nosuid,nodev,size=16m,mode=1777",
             self.image, "python", "-I", "-c", script, input_json
         ]
+        process = subprocess.Popen(
+            cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL
+        )
+        output = bytearray()
+        selector = selectors.DefaultSelector()
+        assert process.stdout is not None
+        selector.register(process.stdout, selectors.EVENT_READ)
+        deadline = time.monotonic() + self.timeout
+        overflow = False
+        timed_out = False
         try:
-            completed = subprocess.run(
-                cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-                timeout=self.timeout
-            )
+            while selector.get_map():
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    timed_out = True
+                    break
+                events = selector.select(min(remaining, 0.2))
+                for key, _ in events:
+                    chunk = os.read(key.fileobj.fileno(), 8192)
+                    if not chunk:
+                        selector.unregister(key.fileobj)
+                        continue
+                    output.extend(chunk)
+                    if len(output) > MAX_CONTRACT_BYTES + 256:
+                        overflow = True
+                        break
+                if overflow:
+                    break
+            if overflow or timed_out:
+                process.kill()
+                try:
+                    process.wait(timeout=4)
+                except subprocess.TimeoutExpired:
+                    pass
+                try:
+                    self._cleanup_timed_out_container(docker, job_label)
+                except Exception as cleanup_error:
+                    raise RuntimeError("SANDBOX_TIMEOUT_CLEANUP_FAILED") from cleanup_error
+                if overflow:
+                    raise RuntimeError("MODULE_OUTPUT_TOO_LARGE")
+                raise RuntimeError("SANDBOX_TIMEOUT")
+            return_code = process.wait(timeout=max(1, deadline - time.monotonic()))
         except subprocess.TimeoutExpired as exc:
+            process.kill()
+            process.wait(timeout=4)
             try:
                 self._cleanup_timed_out_container(docker, job_label)
             except Exception as cleanup_error:
                 raise RuntimeError("SANDBOX_TIMEOUT_CLEANUP_FAILED") from cleanup_error
             raise RuntimeError("SANDBOX_TIMEOUT") from exc
-        except subprocess.CalledProcessError as exc:
-            raise RuntimeError("SANDBOX_RUN_FAILED") from exc
+        finally:
+            selector.close()
+            if process.stdout:
+                process.stdout.close()
 
-        if len(completed.stdout) > MAX_CONTRACT_BYTES + 256:
-            raise RuntimeError("MODULE_OUTPUT_TOO_LARGE")
+        if return_code != 0:
+            raise RuntimeError("SANDBOX_RUN_FAILED")
         try:
-            response = json.loads(completed.stdout.decode("utf-8"))
+            response = json.loads(bytes(output).decode("utf-8"))
         except (UnicodeDecodeError, json.JSONDecodeError) as exc:
             raise RuntimeError("MODULE_OUTPUT_INVALID") from exc
         if not isinstance(response, dict) or "ok" not in response:
