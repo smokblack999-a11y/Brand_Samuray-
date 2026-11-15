@@ -5,15 +5,25 @@ This package is deliberately **not wired into the Express Core** and never impor
 ## Lifecycle
 
 1. Validate the module identifier and Python AST.
-2. Write the candidate into a unique staging file.
+2. Write the candidate into a private staging directory.
 3. Execute the smoke test in Docker with networking disabled, a read-only root filesystem, dropped Linux capabilities, a non-root UID, and PID/memory/CPU/time limits.
-4. Publish the completed file atomically with an exclusive hard link; an existing module is never overwritten.
-5. Persist SHA-256 metadata in an atomic registry. If registry persistence fails, the newly published module is removed.
-6. Verify the content hash before deletion; deletion uses a tombstone and restores the file if registry update fails.
+4. Publish the candidate as an immutable version artifact.
+5. Atomically switch the active module path and persist SHA-256 version metadata.
+6. Promote a new version only after its sandbox smoke test passes.
+7. Roll back to a previously validated immutable version.
+8. Verify hashes before module deletion; deletion uses tombstones and restores files if the registry update fails.
+
+## Migration from the original Software Factory prototype
+
+- The original `generate_module(name)` file-writing step is replaced by `SoftwareFactory.create(name, source)`, which validates and stages supplied source without overwriting existing modules.
+- The original same-process `spec_from_file_location(...).exec_module(...)` test/build path is replaced with `DockerSandboxRunner`.
+- The original `build()` behavior that imported generated files into `sys.modules` is intentionally removed. The Core process must not import untrusted generated code.
+- The original in-memory registry of live Python module objects is replaced with a validated, locked JSON registry containing SHA-256 hashes and version history.
+- The original file deletion path is replaced with hash verification and tombstone-based cleanup.
 
 ## CI verification
 
-GitHub Actions verifies the actual Docker runner, not only a fake runner: valid module execution, denied outbound networking, wrong-output rejection, and the full factory create/register/destroy lifecycle. The CI job checks that Docker daemon is available and pulls the configured sandbox image before running integration tests.
+GitHub Actions runs unit tests and real Docker integration tests: valid module execution, denied outbound networking, wrong-output rejection, full create/register/destroy, and version promotion/rollback. CI verifies the Docker daemon and pulls the sandbox image before running these checks.
 
 ## Requirements
 
@@ -27,6 +37,7 @@ AST checks are defense-in-depth, not a sandbox. Docker must be configured secure
 
 ## Limitations
 
-- The MVP has no dependency installation, network access, AI code generation, patch application, version promotion, rollback, or Express API integration.
-- Registry and module storage are local to one host. POSIX file locking serializes registry writes, but this is not a distributed transaction store.
-- If the process or host crashes between filesystem and registry operations, operator reconciliation may still be required.
+- The MVP has no AI code generation, dependency installation, patch application, Express API integration, or autonomous GitHub PR creation from inside the factory.
+- Generated modules are validated and stored, but are not exposed as an in-process plugin API. Runtime invocation and authorization are separate work.
+- Registry and artifacts are local to one host. POSIX file locking serializes registry writes, but this is not a distributed transaction store.
+- A process or host crash between artifact promotion and registry update can still require operator reconciliation.
