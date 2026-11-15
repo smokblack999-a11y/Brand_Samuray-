@@ -8,6 +8,8 @@ import tempfile
 import threading
 from typing import Any
 
+from .contract import validate_contract
+
 try:
     import fcntl
 except ImportError:  # pragma: no cover - supported POSIX targets provide fcntl
@@ -18,11 +20,34 @@ _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _MAX_REGISTRY_BYTES = 1_048_576
 
 
+def _validate_source_review(review: Any) -> None:
+    if not isinstance(review, dict):
+        raise ValueError("REGISTRY_SOURCE_REVIEW_INVALID")
+    if review.get("decision") not in {"APPROVED", "LEGACY_UNVERIFIED"}:
+        raise ValueError("REGISTRY_SOURCE_REVIEW_INVALID")
+    if not isinstance(review.get("policyVersion"), str) or not review["policyVersion"]:
+        raise ValueError("REGISTRY_SOURCE_REVIEW_INVALID")
+    findings = review.get("findings")
+    if not isinstance(findings, list):
+        raise ValueError("REGISTRY_SOURCE_REVIEW_INVALID")
+    for finding in findings:
+        if not isinstance(finding, dict) or not re.fullmatch(r"[A-Z0-9_]{3,64}", str(finding.get("code", ""))):
+            raise ValueError("REGISTRY_SOURCE_REVIEW_INVALID")
+        if finding.get("severity") not in {"block", "warning"}:
+            raise ValueError("REGISTRY_SOURCE_REVIEW_INVALID")
+    if review["decision"] == "APPROVED" and findings:
+        raise ValueError("REGISTRY_SOURCE_REVIEW_INVALID")
+
+
 def _validate_metadata(meta: Any) -> None:
     if not isinstance(meta, dict) or not _SHA256.fullmatch(str(meta.get("sha256", ""))):
         raise ValueError("REGISTRY_METADATA_INVALID")
     if meta.get("status") != "validated" or meta.get("runtime") != "docker-no-network":
         raise ValueError("REGISTRY_METADATA_INVALID")
+    if "sourceReview" in meta:
+        _validate_source_review(meta["sourceReview"])
+    if "contract" in meta and validate_contract(meta["contract"]) != meta["contract"]:
+        raise ValueError("REGISTRY_CONTRACT_INVALID")
     if "version" in meta or "versions" in meta:
         if not isinstance(meta.get("version"), int) or meta["version"] < 1:
             raise ValueError("REGISTRY_VERSION_INVALID")
@@ -39,8 +64,16 @@ def _validate_metadata(meta: Any) -> None:
             if not isinstance(number, int) or number < 1 or number in seen or not _SHA256.fullmatch(str(digest or "")):
                 raise ValueError("REGISTRY_VERSION_HISTORY_INVALID")
             seen.add(number)
+            if "sourceReview" in entry:
+                _validate_source_review(entry["sourceReview"])
+            if "contract" in entry and validate_contract(entry["contract"]) != entry["contract"]:
+                raise ValueError("REGISTRY_CONTRACT_INVALID")
             if number == meta["version"] and digest == meta["sha256"]:
                 active_found = True
+                if "sourceReview" in meta and entry.get("sourceReview", meta["sourceReview"]) != meta["sourceReview"]:
+                    raise ValueError("REGISTRY_ACTIVE_SOURCE_REVIEW_MISMATCH")
+                if "contract" in meta and entry.get("contract", meta["contract"]) != meta["contract"]:
+                    raise ValueError("REGISTRY_ACTIVE_CONTRACT_MISMATCH")
         if not active_found:
             raise ValueError("REGISTRY_ACTIVE_VERSION_INVALID")
 

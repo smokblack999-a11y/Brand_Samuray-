@@ -15,7 +15,9 @@ except ImportError:  # pragma: no cover - POSIX hosts provide fcntl
 
 from .registry import Registry
 from .runner import DockerSandboxRunner
-from .validation import validate_name, validate_source
+from .contract import DEFAULT_CONTRACT, validate_contract, validate_input
+from .critic import LEGACY_REVIEW, require_approved_source
+from .validation import validate_name
 
 
 def _fsync_dir(path: Path) -> None:
@@ -116,9 +118,10 @@ class SoftwareFactory:
         finally:
             temporary.unlink(missing_ok=True)
 
-    def create(self, name: str, source: str) -> dict:
+    def create(self, name: str, source: str, contract=None) -> dict:
         name = validate_name(name)
-        validate_source(source)
+        source_review = require_approved_source(source)
+        validated_contract = validate_contract(contract)
         with self._operation_guard():
             target = self.modules / f"{name}.py"
             if target.exists() or target.is_symlink() or name in self.registry.list():
@@ -135,18 +138,20 @@ class SoftwareFactory:
                 "status": "validated",
                 "runtime": "docker-no-network",
                 "version": 1,
-                "versions": [{"version": 1, "sha256": digest}],
+                "sourceReview": source_review,
+                "contract": validated_contract,
+                "versions": [{"version": 1, "sha256": digest, "sourceReview": source_review, "contract": validated_contract}],
             }
             try:
-                self.runner.run_smoke_test(staged)
+                self.runner.run_smoke_test(staged, validated_contract)
                 # First create the immutable version artifact; then point active name
                 # at the same complete inode. Both links are exclusive.
                 os.link(staged, version_file, follow_symlinks=False)
                 version_published = True
-                os.chmod(version_file, 0o440, follow_symlinks=False)
+                os.chmod(version_file, 0o444, follow_symlinks=False)
                 os.link(version_file, target, follow_symlinks=False)
                 published = True
-                os.chmod(target, 0o440, follow_symlinks=False)
+                os.chmod(target, 0o444, follow_symlinks=False)
                 _fsync_dir(version_dir)
                 _fsync_dir(self.modules)
                 registry_write_started = True
@@ -169,24 +174,32 @@ class SoftwareFactory:
             finally:
                 staged.unlink(missing_ok=True)
 
-    def promote(self, name: str, source: str) -> dict:
+    def promote(self, name: str, source: str, contract=None) -> dict:
         """Validate and atomically promote a new immutable version."""
         name = validate_name(name)
-        validate_source(source)
+        source_review = require_approved_source(source)
         digest = hashlib.sha256(source.encode("utf-8")).hexdigest()
         with self._operation_guard():
             metadata = self.registry.list().get(name)
             if not metadata:
                 raise FileNotFoundError("MODULE_NOT_REGISTERED")
+            validated_contract = validate_contract(contract if contract is not None else metadata.get("contract", DEFAULT_CONTRACT))
             target = self._verify_active(name, metadata)
-            if digest == metadata["sha256"]:
+            current_contract = validate_contract(metadata.get("contract", DEFAULT_CONTRACT))
+            if digest == metadata["sha256"] and validated_contract == current_contract:
                 return {"name": name, **metadata, "unchanged": True}
 
-            history = list(metadata.get("versions") or [{
-                "version": int(metadata.get("version", 1)),
+            current_version = int(metadata.get("version", 1))
+            history = [dict(entry) for entry in (metadata.get("versions") or [{
+                "version": current_version,
                 "sha256": metadata["sha256"],
-            }])
-            current_version = int(metadata.get("version", history[-1]["version"]))
+                "sourceReview": metadata.get("sourceReview", LEGACY_REVIEW),
+            }])]
+            for entry in history:
+                if "sourceReview" not in entry:
+                    entry["sourceReview"] = metadata.get("sourceReview", LEGACY_REVIEW) if int(entry["version"]) == current_version else LEGACY_REVIEW
+                if "contract" not in entry:
+                    entry["contract"] = metadata.get("contract", DEFAULT_CONTRACT) if int(entry["version"]) == current_version else DEFAULT_CONTRACT
             latest_version = max(int(entry["version"]) for entry in history)
             next_version = latest_version + 1
             version_dir = self._version_dir(name, create=True)
@@ -194,7 +207,7 @@ class SoftwareFactory:
             if not previous_version_file.exists():
                 # One-time migration path for metadata created before versioned storage.
                 os.link(target, previous_version_file, follow_symlinks=False)
-                os.chmod(previous_version_file, 0o440, follow_symlinks=False)
+                os.chmod(previous_version_file, 0o444, follow_symlinks=False)
                 _fsync_dir(version_dir)
 
             staged = self._stage_candidate(name, source)
@@ -202,10 +215,10 @@ class SoftwareFactory:
             new_version_created = False
             switched = False
             try:
-                self.runner.run_smoke_test(staged)
+                self.runner.run_smoke_test(staged, validated_contract)
                 os.link(staged, new_version_file, follow_symlinks=False)
                 new_version_created = True
-                os.chmod(new_version_file, 0o440, follow_symlinks=False)
+                os.chmod(new_version_file, 0o444, follow_symlinks=False)
                 _fsync_dir(version_dir)
                 self._switch_active(new_version_file, target)
                 switched = True
@@ -214,7 +227,14 @@ class SoftwareFactory:
                     **metadata,
                     "sha256": digest,
                     "version": next_version,
-                    "versions": history + [{"version": next_version, "sha256": digest}],
+                    "sourceReview": source_review,
+                    "contract": validated_contract,
+                    "versions": history + [{
+                        "version": next_version,
+                        "sha256": digest,
+                        "sourceReview": source_review,
+                        "contract": validated_contract,
+                    }],
                 }
                 try:
                     self.registry.put(name, updated)
@@ -269,7 +289,13 @@ class SoftwareFactory:
                 raise RuntimeError("CURRENT_VERSION_ARTIFACT_INVALID")
 
             self._switch_active(version_file, target)
-            updated = {**metadata, "sha256": entry["sha256"], "version": int(target_version)}
+            updated = {
+                **metadata,
+                "sha256": entry["sha256"],
+                "version": int(target_version),
+                "sourceReview": entry.get("sourceReview", LEGACY_REVIEW),
+                "contract": entry.get("contract", DEFAULT_CONTRACT),
+            }
             try:
                 self.registry.put(name, updated)
             except Exception:
@@ -280,6 +306,28 @@ class SoftwareFactory:
                     pass
                 raise
             return {"name": name, **updated, "rolledBack": True}
+
+    def run(self, name: str, value):
+        """Run the active, hash-verified version only inside the configured sandbox."""
+        name = validate_name(name)
+        validated_input = validate_input(value)
+        with self._operation_guard():
+            metadata = self.registry.list().get(name)
+            if not metadata:
+                raise FileNotFoundError("MODULE_NOT_REGISTERED")
+            review = metadata.get("sourceReview", LEGACY_REVIEW)
+            if review.get("decision") != "APPROVED":
+                raise RuntimeError("MODULE_REVIEW_REQUIRED")
+            target = self._verify_active(name, metadata)
+            run_module = getattr(self.runner, "run_module", None)
+            if not callable(run_module):
+                raise RuntimeError("SANDBOX_RUN_UNAVAILABLE")
+            result = run_module(target, validated_input)
+            return {
+                "name": name,
+                "version": int(metadata.get("version", 1)),
+                "result": result,
+            }
 
     def destroy(self, name: str) -> bool:
         name = validate_name(name)
