@@ -70,7 +70,10 @@ class MainActivity : ComponentActivity() {
     private lateinit var messageInput: EditText
     private lateinit var galleryContainer: LinearLayout
     private var imageCapture: ImageCapture? = null
+    private var imageAnalysis: ImageAnalysis? = null
+    private var cameraProvider: ProcessCameraProvider? = null
     private var localVisionAnalyzer: LocalVisionAnalyzer? = null
+    private lateinit var visionOverlay: VisionOverlayView
     private var boundCamera: androidx.camera.core.Camera? = null
     private var selectedPhoto: File? = null
     private var cameraExecutor: ExecutorService? = null
@@ -89,7 +92,14 @@ class MainActivity : ComponentActivity() {
         checkCoreStatus()
     }
 
-    override fun onDestroy() { localVisionAnalyzer?.close(); cameraExecutor?.shutdown(); super.onDestroy() }
+    override fun onDestroy() {
+        imageAnalysis?.clearAnalyzer()
+        cameraProvider?.unbindAll()
+        localVisionAnalyzer?.close()
+        if (::visionOverlay.isInitialized) visionOverlay.setDetections(emptyList())
+        cameraExecutor?.shutdown()
+        super.onDestroy()
+    }
 
     private fun hasPermissions(): Boolean =
         ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED &&
@@ -138,9 +148,14 @@ class MainActivity : ComponentActivity() {
             text = "СОХРАНИТЬ АДРЕС И ПРОВЕРИТЬ"
             setOnClickListener { saveCoreUrl() }
         })
-        previewView = PreviewView(this).apply { scaleType = PreviewView.ScaleType.FILL_CENTER }
+        previewView = PreviewView(this).apply {
+            scaleType = PreviewView.ScaleType.FILL_CENTER
+            implementationMode = PreviewView.ImplementationMode.COMPATIBLE
+        }
         val cameraFrame = FrameLayout(this)
         cameraFrame.addView(previewView, FrameLayout.LayoutParams(-1, -1))
+        visionOverlay = VisionOverlayView(this)
+        cameraFrame.addView(visionOverlay, FrameLayout.LayoutParams(-1, -1))
         val zoomControls = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.END
@@ -176,18 +191,39 @@ class MainActivity : ComponentActivity() {
         val future = ProcessCameraProvider.getInstance(this)
         future.addListener({
             try {
+                if (isFinishing || isDestroyed) return@addListener
                 val provider = future.get()
+                cameraProvider = provider
+                imageAnalysis?.clearAnalyzer()
+                localVisionAnalyzer?.close()
+
                 val preview = Preview.Builder().build().also { it.setSurfaceProvider(previewView.surfaceProvider) }
                 imageCapture = ImageCapture.Builder().setJpegQuality(95).build()
-                val analysis = ImageAnalysis.Builder().setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST).build()
+                val analysis = ImageAnalysis.Builder()
+                    .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                    .build()
                 val executor = cameraExecutor ?: throw IllegalStateException("Camera executor is unavailable")
-                localVisionAnalyzer = LocalVisionAnalyzer { result -> mainHandler.post { visionText.text = result } }
-                analysis.setAnalyzer(executor, localVisionAnalyzer!!)
+                val analyzer = LocalVisionAnalyzer(previewView) { status, detections ->
+                    mainHandler.post {
+                        if (isFinishing || isDestroyed) return@post
+                        if (visionText.text.toString() != status) visionText.text = status
+                        visionOverlay.setDetections(detections)
+                    }
+                }
+                localVisionAnalyzer = analyzer
+                imageAnalysis = analysis
+                analysis.setAnalyzer(executor, analyzer)
+
                 provider.unbindAll()
                 boundCamera = provider.bindToLifecycle(this, CameraSelector.DEFAULT_BACK_CAMERA, preview, imageCapture, analysis)
-                statusText.text = "Камера готова · локальное зрение активно"
+                statusText.text = "Камера готова · локальное зрение и рамки объектов активны"
                 visionText.text = "Локальное зрение: анализ кадров на устройстве"
-            } catch (e: Exception) { statusText.text = "Ошибка камеры: " + e.javaClass.simpleName + ": " + (e.message ?: "без подробностей") }
+            } catch (e: Exception) {
+                imageAnalysis?.clearAnalyzer()
+                localVisionAnalyzer?.close()
+                visionOverlay.setDetections(emptyList())
+                statusText.text = "Ошибка камеры: " + e.javaClass.simpleName + ": " + (e.message ?: "без подробностей")
+            }
         }, ContextCompat.getMainExecutor(this))
     }
 
