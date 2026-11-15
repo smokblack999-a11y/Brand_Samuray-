@@ -13,29 +13,31 @@ Status labels:
 
 | Requirement | Current status | Evidence / limitation |
 |---|---|---|
-| Independent app identity | Implemented | `com.samurai.whatsapp`; does not replace official WhatsApp |
-| Custom interface | Implemented foundation | Local control screen, status, notification archive and Media Vault list/actions |
+| Independent app identity | Implemented | com.samurai.whatsapp; does not replace official WhatsApp |
+| Custom interface | Implemented foundation | Local control screen with archive, vault, import, status, timeline, App Lock and VPN controls |
 | Explicit notification consent | Implemented | Opens Android Notification Access settings |
-| WhatsApp / Business filtering | Implemented | Package allowlist in listener |
-| MessagingStyle text extraction | Implemented | AndroidX NotificationCompat MessagingStyle plus standard text fallbacks |
-| Local encrypted notification archive | Implemented; CI validation pending | AES-256-GCM, Android Keystore key |
-| Pause/resume archiving | Implemented | Local switch; listener checks flag before persistence |
-| Clear notification archive | Implemented | User-confirmed local deletion and archive-key retirement |
-| Notification retention limit | Implemented | Maximum 200 records |
-| **Encrypted Media Vault** | **Implemented in branch; CI pending** | Android system document picker; app-private encrypted file storage; AES-GCM and Android Keystore; encrypted metadata; image/video/audio only; export/delete/clear; max 100 files, 250 MiB per file and 1 GiB total; import/export runs off the UI thread; no broad storage permission |\n| **Official WhatsApp chat-export import** | **Implemented in branch; CI pending** | User-selected `.txt` / `.zip`; parser for common bracketed and dashed timestamp formats; multi-line messages; locale fallback; preview before save; encrypted AES-GCM archive/index; source-hash dedupe; list/read/delete/clear; max 20 MiB source, 24 MiB normalized transcript, 20,000 messages/export and 100 exports. ZIP import parses the TXT transcript only; media entries are not extracted automatically. No WhatsApp private database access. |
-| Anti-Delete | Partial | A notification copy may survive later deletion, but only if Android posts visible text first; no guarantee for hidden previews, muted/suppressed notifications, truncation or absent notifications |
-| **One Tick / Hide Delivered** | **Experimental candidate; not implemented** | Public Xposed projects claim Hide Delivered / receipt control. This cannot be delivered by the current companion app. Research hypothesis: a recipient-side client module changes acknowledgements sent by the local account. It requires a separate rooted lab device, dedicated test number, exact host-version checks and second-device validation. No anti-ban guarantee. |
-| Read Tracker for personal outgoing messages | Partial / signal-dependent | Unofficial Web-session engines document SERVER, DEVICE, READ and PLAYED acknowledgements. Missing READ is UNKNOWN, not proof of unread; privacy settings and protocol changes can suppress or remove signals. |
-| Exact personal read timestamp | Not guaranteed | A local webhook-observation time is not automatically the exact server-side read time. Preserve source timestamp only when the source supplies one; otherwise label `observed_at`. |
-| Business API read timeline | Feasible for API-originated messages | Meta Business Platform can send sent/delivered/read status webhooks for messages sent through that API. It is not a universal personal WhatsApp tracking API. |
-| Last Seen / Online Tracker | Partial / disclosure-bound | WAHA exposes presence events when the contact shares presence. Official WhatsApp privacy rules are reciprocal. Hidden states must remain `unknown / unavailable`. |
-| Hide Blue Read Receipts | Companion-blocked; experimental candidate | Current companion cannot change WhatsApp protocol acknowledgements. Public Xposed projects list related controls, but SAMURAI has not implemented or tested them. |
-| Hide Typing / Recording | Companion-blocked; experimental candidate | Notification access cannot alter WhatsApp's internal presence state. Public Xposed projects list related controls, but functionality is version-dependent. |
-| Anti-View Once | Not implemented; protected-media bypass excluded | NotificationListenerService does not receive View Once media bytes. SAMURAI may import media the user can normally access or share; it will not claim to bypass View Once protections. |
-| Status Saver | Future; feasible with user-granted access | Public projects demonstrate browsing media already cached locally after the user viewed a status. Implement using Storage Access Framework, not broad all-files permission. |
-| Per-app Internet Kill Switch | Future; technically feasible with explicit VPN consent | A local VPN can filter app traffic but is disruptive and does not guarantee a particular tick or receipt state. It may interrupt messaging, calls and backups. |
-| Themes / fonts / app lock | Future | Fully feasible inside the SAMURAI companion app; does not restyle the official WhatsApp client without a separate hook module. |
-| Network/backend sync | Intentionally absent in current app | No Internet permission or backend integration in the companion. |
+| WhatsApp / Business filtering | Implemented | Runtime package allowlist in the listener |
+| Package visibility for VPN target detection | Implemented in branch; CI pending | Manifest queries only com.whatsapp and com.whatsapp.w4b; no broad QUERY_ALL_PACKAGES |
+| MessagingStyle text extraction | Implemented | AndroidX MessagingStyle plus standard text fallbacks |
+| Local encrypted notification archive | Implemented in branch; CI pending | AES-256-GCM, Android Keystore key; max 200 records |
+| Pause/resume and clear archive | Implemented | User switch; clear retires the archive encryption key |
+| Encrypted Media Vault | Implemented in branch; CI pending | SAF-selected image/video/audio; AES-GCM + Keystore; encrypted metadata; export/delete/clear; max 100 files, 250 MiB/file, 1 GiB total |
+| Official WhatsApp chat-export import | Implemented in branch; CI pending | User-selected TXT/ZIP; preview; multiline/locale-aware parser; encrypted archive; source-hash dedupe; max 20 MiB source, 24 MiB transcript, 20,000 messages/export, 100 exports; ZIP media not extracted |
+| Status Saver | Implemented in branch; CI/device pending | SAF-selected WhatsApp/Media or .Statuses tree; lists max 300 cached image/video files; manual import into Media Vault; no hidden/unviewed/View Once access |
+| Message Timeline | Implemented in branch; CI pending | AES-GCM local event ledger, max 500; currently records only notification capture and user chat-export import; no real read/presence adapter |
+| App Lock | Implemented in branch; CI pending | Android biometrics or device credential; re-auth on launch and after 30 seconds in background; no PIN/biometric data stored by SAMURAI |
+| Screenshot/app-preview protection | Implemented in branch; CI pending | Android FLAG_SECURE while App Lock is enabled |
+| Per-app network block (VPN) | Implemented in branch; runtime/device pending | Explicit Android VPN consent; allowlists only WhatsApp package UIDs; drops packets locally; not Always-on/Lockdown and fail-open if service stops |
+| Anti-Delete | Partial | A notification copy may survive later deletion only if Android first posts visible text; cannot guarantee hidden previews, muted/suppressed notifications, truncation or absent notifications |
+| One Tick / Hide Delivered | Experimental candidate; not implemented | Separate recipient-side rooted lab module, dedicated test number, exact host-version checks and second-device verification; no anti-ban guarantee |
+| Read Tracker for personal outgoing messages | Not implemented | No producer for outgoing SERVER/DEVICE/READ/PLAYED states; missing READ remains UNKNOWN |
+| Exact personal read timestamp | Not available | Timeline does not infer read time; local observed-at time is not the recipient's server-side read time |
+| Business API read timeline | Feasible only for API-originated messages | Meta Business Platform status webhooks apply to outbound messages sent through that API; not personal-account tracking |
+| Last Seen / Online Tracker | Not implemented; disclosure-bound | Presence is not collected; future tracking may only record disclosed presence; hidden state remains unknown |
+| Hide Blue Read Receipts / Typing / Recording | Companion-blocked; experimental candidate | Notification access cannot alter WhatsApp protocol acknowledgements or internal presence |
+| Anti-View Once | Not implemented; protected-media bypass excluded | App does not extract or reopen View Once media |
+| Themes / custom fonts | Not implemented | Current UI is a dark local control screen; no full theme/font engine |
+| Network/backend sync | Intentionally absent | No INTERNET permission, analytics, cloud sync or backend connector |
 
 ## Signal and privacy rules
 
@@ -49,13 +51,13 @@ Status labels:
 ## Verification gates
 
 1. Gradle compiles both Android applications.
-2. WhatsApp companion APK contains MainActivity, WhatsAppNotificationListener, NotificationArchive, MediaVault and WhatsAppExportImporter/Archive DEX classes.
-3. Android emulator tests verify notification archive encryption/retention, Media Vault encryption round-trip/plaintext absence/MIME rejection/delete/re-key, and chat-export TXT/ZIP parsing, locale timestamp fallback, multi-line handling, source dedupe, encrypted restore/delete/clear.
-4. The latest Actions run finishes emulator instrumentation tests and uploads artifacts. A previous build-only success is not sufficient.
-5. Real Samsung Galaxy A54 test verifies notification access, actual WhatsApp preview delivery, archive display, pause/clear, Media Vault import/export/delete.
+2. WhatsApp companion APK contains DEX classes for MainActivity, listener, archive, Media Vault, export importer/archive, Status Saver, Message Timeline, App Lock and VPN service; workflow asserts these classes and the two narrow package visibility entries.
+3. Android emulator instrumentation tests verify archive, Media Vault, chat-export parser, Timeline provenance, Status Saver MIME/folder logic, App Lock preferences and VPN service manifest/state. The latest recorded attempt failed before any test started because the emulator instrumentation process crashed (0/0 completed); this is not a passing test result.
+4. The latest Actions run must complete instrumentation tests and upload both APK artifacts. A previous build/DEX success is not sufficient.
+5. Real Samsung Galaxy A54 test verifies notification access, actual WhatsApp preview delivery, pause/clear, Media Vault import/export/delete, .Statuses folder access, App Lock re-authentication and VPN on/off behavior.
 6. Any future One Tick research is tested on a separate lab device/account against a second physical device; no primary-account install or root.
 
-Do not mark gate 5 or 6 successful based on CI or emulator evidence.
+Do not mark gate 5 or 6 successful based on CI or emulator evidence. The current Android emulator failure is an instrumentation-process failure with 0/0 tests completed, not an assertion failure in an identified test.
 
 ## Research decision
 

@@ -16,7 +16,7 @@ An isolated Android companion app alongside the existing SamuraiOS app. It does 
 - Export-import guardrails: compressed/input source up to 20 MiB, normalized transcript up to 24 MiB, 20,000 messages per export, 100 imported conversations
 - ZIP import currently reads the chat TXT entry only. Media attachments bundled in the ZIP are not extracted automatically; they can be added separately through the user-selected Media Vault.
 - Instrumentation tests cover Media Vault encryption/round-trip/delete/re-key and chat export parsing, ZIP TXT extraction, locale-aware timestamp parsing, deduplication and encrypted restore (CI pending)
-- No network permission, analytics, backend or cloud sync; app backup disabled
+- No INTERNET permission, analytics, backend or cloud sync; app backup disabled
 
 ## Honest capability boundary
 
@@ -43,8 +43,8 @@ The experimental modified-client track is not installed, signed, or enabled. It 
 
 See [competitive research and build plan](docs/research-and-build-plan.md) for the reviewed public projects, feature feasibility, licensing notes, One Tick lab acceptance tests, Read Intelligence provenance rules, and phased build order.
 
-- **Safe companion:** complete CI and validate the notification archive, Media Vault and chat-export import on a physical device.
-- **Status Saver:** add a separate SAF-based browser for status media already cached and user-accessible after viewing; no hidden-status access or broad all-files permission.
+- **Safe companion:** complete emulator CI and validate notification archive, Media Vault, chat-export import, Status Saver and local security controls on a physical device.
+- **Status Saver:** implemented as a manual SAF-based browser for cached status media already user-accessible after viewing; Galaxy A54 path/permission validation remains.
 - **Read Intelligence:** record only verifiable events with source provenance. Missing read/presence events remain unknown.
 - **Official Business mode:** optionally receive Meta Business Platform status webhooks for messages sent through that API. This does not track a personal WhatsApp account.
 - **One Tick lab:** separate research build only, requiring a dedicated test number, spare rooted device and second-device validation. Do not root or modify the primary phone.
@@ -86,3 +86,14 @@ Do not grant accessibility, root, VPN, device-admin, contacts, SMS, camera, or m
 ## Release status
 
 Code and automated tests have been added to the feature branch. They are **not CI-verified until the latest GitHub Actions run completes successfully**. CI and emulator results do not replace a real Samsung device test. The app must be installed and manually checked on the target Galaxy A54 before it can be called device-validated.
+
+
+## V1.5 local security and intelligence modules
+
+- **Status Saver:** uses Android Storage Access Framework to inspect only a user-selected WhatsApp/Media or .Statuses tree. It lists up to 300 already-cached image/video files and manually copies a selected file into Media Vault. It does not access unviewed/hidden statuses, View Once media or another app's private database.
+- **Message Timeline:** encrypted local ledger capped at 500 entries. Current event producers are incoming notification capture and user-imported chat export only. Source event time and local observation time remain separate; read/delivery/presence signals are not invented.
+- **App Lock:** Android biometric/device-credential prompt at launch and after 30 seconds in background. SAMURAI stores only the enabled flag, never a PIN, password or biometric template. FLAG_SECURE blocks screenshots and app-preview capture while enabled.
+- **Per-app network block:** explicit Android VPN consent; only WhatsApp/WhatsApp Business package UIDs are routed to a local TUN and packets are discarded, not inspected or forwarded. It is session-bound and fail-open if the service stops; it is not Android Always-on/Lockdown.
+- **Package visibility:** manifest queries only com.whatsapp and com.whatsapp.w4b; no broad QUERY_ALL_PACKAGES permission.
+
+The latest emulator attempt built both apps and passed DEX verification, but instrumentation crashed before any test completed (0/0). APK upload was skipped. No Galaxy A54 physical-device validation is claimed.

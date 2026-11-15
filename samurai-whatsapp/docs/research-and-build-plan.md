@@ -46,11 +46,11 @@ A README feature list is evidence that a maintainer claims a feature, not proof 
 | **Last Seen / Online Tracker** | WAHA exposes `presence.update`, `lastKnownPresence`, and `lastSeen`. | WAHA's docs explicitly limit returned presence to contacts who share it. WhatsApp's official privacy help describes reciprocity and reasons a status may be unavailable. No hidden/private state bypass. | Track only disclosed observations; preserve observed-at time and signal source; show `unknown / unavailable` when absent. |
 | **Anti-Delete** | Notification-archive apps use NotificationListenerService. Our branch already implements this pattern. | Partial only: capture requires a posted notification with visible text. Hidden previews, muted/suppressed notifications, grouping, truncation and app/OS behavior can prevent capture. Notification cancellation alone is not proof of delete-for-everyone. | Improve current archive and add real Galaxy A54 validation. |
 | **Anti-View Once** | Xposed projects claim view-once controls; Android notification archives do not receive the media bytes. | Do not bypass another sender's View Once restrictions or extract protected media. Supported media import can save files the user is permitted to access or share normally. | Build user-consented Media Vault/import, not a View Once bypass. |
-| **Status Saver** | LibreStatus and WASSaver demonstrate local cached-media browsing. | Can browse media already cached locally after the user views a status, subject to Android storage access and content rights. | Implement with Storage Access Framework and no broad all-files permission. |
+| **Status Saver** | LibreStatus and WASSaver demonstrate local cached-media browsing; SAMURAI implements a manual SAF cached-status browser. | Reads only the user-selected WhatsApp/Media or .Statuses tree; lists up to 300 cached image/video files; saves a selected item into encrypted Media Vault. Device/SAF-provider behavior still needs validation. | Implemented in Track A; no hidden/unviewed/View Once access or broad all-files permission. |
 | **Typing / Recording privacy** | Xposed projects list hide typing/recording. | Companion APIs cannot modify WhatsApp's internal state. Do not promise hidden-state control through Android notification access. | Only in a separately assessed client-hook experiment, if ever. |
-| **Media Vault** | Status-saver projects show practical local browsing patterns. | Feasible for imported or user-accessible media. | Encrypted local files, SAF/Photo Picker, clear/export controls. |
-| **Per-app Internet Kill Switch** | Android provides a user-consented VPNService route for local traffic filtering. | Blocking traffic is disruptive and does not guarantee a particular tick/receipt state. It can interrupt messages, calls, backups and media. | Separate opt-in feature after core archive; no claims that it implements One Tick. |
-| **Themes, font, app/chat lock** | Standard Android UI and local security features. | Fully feasible for the companion app; does not restyle the official WhatsApp app without a hook. | Build inside SAMURAI Control Center. |
+| **Media Vault** | SAMURAI implementation exists in the feature branch. | User-selected images/video/audio are encrypted in app-private storage; export/delete/clear are supported. Automated test suite awaits a successful emulator run and physical-device checks. | Implemented in Track A; validate on emulator and Galaxy A54. |
+| **Per-app network block (VPN)** | SAMURAI implements a user-consented VpnService with an allowlist for WhatsApp package UIDs and local packet discard. | It blocks traffic only while the service is active, can interrupt messages/calls/backups, does not inspect/forward payloads, and is fail-open if Android stops the service. It is not Always-on/Lockdown and does not guarantee a tick/receipt state. | Implemented in Track A; add manifest/state tests and validate runtime on a physical device. |
+| **Themes, font, app lock** | App Lock uses Android biometrics/device credential and applies FLAG_SECURE while enabled; a full theme/font engine is not implemented. | The lock protects the SAMURAI companion only and relies on the device's configured screen lock. It does not lock or restyle official WhatsApp. | App Lock implemented in Track A; themes/fonts remain future work. |
 
 ## 4. One Tick engineering hypothesis and acceptance test
 
@@ -125,15 +125,15 @@ Rules:
 
 ### Track A — Safe companion (current product)
 
-`SAMURAI WhatsApp Android app → local privacy/settings center → encrypted notification archive → user-imported official chat exports → event ledger → encrypted Media Vault`
+`SAMURAI WhatsApp Android app → local privacy/settings center → encrypted notification archive → encrypted Media Vault → official user-export importer → SAF Status Saver → provenance-aware encrypted Timeline`
 
 - Keep package `com.samurai.whatsapp` separate from WhatsApp.
 - No WhatsApp account credentials or session keys.
 - Keep NotificationListenerService opt-in and document its OS-level sensitivity.
-- Use SAF/Photo Picker for user-selected media.
-- Add biometric app lock after recovery and lockout behavior is designed.
-- No network access unless a separately documented business connector is enabled.
-
+- Use SAF/Photo Picker for user-selected media and cached statuses.
+- App Lock uses the system biometric/device credential and FLAG_SECURE; SAMURAI never stores a PIN or biometric template.
+- Optional local VPN block requires explicit Android consent, drops only WhatsApp package traffic while active, is not Always-on/Lockdown and is fail-open if the service stops.
+- The companion has no INTERNET permission or backend sync.
 ### Track B — Official Business integration (optional)
 
 `SAMURAI Core → WhatsApp Cloud API → verified HTTPS webhook → signature validation → event ledger`
@@ -155,16 +155,17 @@ Rules:
 
 | Priority | Deliverable | Completion gate |
 |---|---|---|
-| P0 | Finish current V1 CI and validate Notification Archive on Galaxy A54 | Emulator tests pass, artifact exists, then manual device test confirms notification capture/pause/clear. |
-| P0 research | One Tick feasibility lab specification and source audit | Test matrix, exact host version, root/device risk accepted, separate test endpoint available. |
-| P1 | Message Timeline data model + status provenance | Unit tests prove unknown states remain unknown; dedupe and out-of-order tests pass. |
-| P0 | Validate encrypted Media Vault | Emulator tests pass for encrypt/export/tamper/delete/re-key, then real Galaxy A54 import/export/clear test. |
-| P0 | Validate encrypted official chat-export importer | Emulator fixtures pass for TXT/ZIP parsing, locale fallback, multiline messages, encrypted restore, dedupe, delete and clear; then test a real export from the user’s WhatsApp. ZIP media extraction is still separate. |
-| P1 | Cached Status Saver | SAF folder grant, visible cached media list, save/share, no broad all-files permission. |
+| Priority | Deliverable | Completion gate |
+|---|---|---|
+| P0 | Stabilize Android emulator CI and validate instrumentation suite | Emulator completes all tests; APK artifacts upload; collect logcat on failure. Previous attempt crashed before any test began (0/0). |
+| P0 | Validate Notification Archive on Galaxy A54 | Manual test confirms notification capture, pause/resume and clear/key retirement. |
+| P0 | Validate encrypted Media Vault and official chat-export importer | Emulator tests pass for encrypt/export/tamper/delete/re-key, TXT/ZIP parsing, locale fallback, multiline messages, encrypted restore, dedupe, delete and clear; then test real user-selected files/exports on Galaxy A54. ZIP media extraction remains separate. |
+| P0 | Validate Status Saver and App Lock | SAF folder permission, cached status list/save, biometric/device credential flow, 30-second re-lock and FLAG_SECURE behavior on Galaxy A54. |
+| P0 | Validate per-app VPN block | Manifest/DEX/instrumentation checks, then real-device on/off test confirming only WhatsApp package traffic is dropped; test restore after service stop/revoke. Do not label it fail-closed. |
+| P1 | Complete provenance-aware Message Timeline | Tests prove unknown states remain unknown and source timestamps stay separate from observed-at. Personal READ/presence adapters remain unavailable. |
 | P2 | Optional Cloud API webhook connector | Signature validation, status timestamp tests, retry dedupe, secret handling and official test number. |
-| P2 | SAMURAI Control Center upgrades | Clear consent, permission state, local lock, settings and diagnostics. |
-| P3 | Optional per-app network control | Explicit VPN consent, fail-open/closed decision documented, call/message regression tests. |
-| P4 | Experimental One Tick prototype | Dedicated lab device/account only; real second-device tick verification and version-specific acceptance. |
+| P3 research | One Tick feasibility lab specification | Dedicated spare rooted device, test number, exact WhatsApp build and second-device validation; primary phone excluded. |
+| P4 | Experimental One Tick prototype | Separate build identity; second-device tick verification and explicit account-risk acceptance. |
 
 ## 9. Current repository state at research start
 
@@ -172,9 +173,9 @@ Rules:
 - Branch: `feat/samurai-whatsapp-hybrid-v1`
 - Base: `main`
 - PR was open, draft, mergeable and not merged at the start of this research snapshot.
-- Current app: opt-in notification archive with AES-256-GCM and Android Keystore.
-- Existing limitations are documented in `capability-audit.md`.
-- At the latest CI poll during this review, build and DEX verification had passed; Android emulator instrumentation tests were still running; APK artifact had not yet been uploaded. Re-check Actions before distributing any APK.
+- Current feature branch includes encrypted notification archive, encrypted Media Vault, official chat-export importer, Status Saver, encrypted Timeline, App Lock and opt-in per-app VPN network block.
+- Latest recorded CI attempt built both apps and passed DEX checks, but emulator instrumentation process crashed before any test started (0/0); APK upload was skipped.
+- No Galaxy A54 end-to-end device validation has been performed.
 
 ## 10. Sources reviewed
 
@@ -188,6 +189,9 @@ Rules:
 - Meta Postman collection — message status update notifications: https://www.postman.com/meta/whatsapp-business-platform/request/rgtfq23/message-status-update-notifications
 - Android NotificationListenerService: https://developer.android.com/reference/android/service/notification/NotificationListenerService
 - Android Storage Access Framework: https://developer.android.com/guide/topics/providers/document-provider
+- Android package visibility filtering: https://developer.android.com/training/package-visibility
+- Android VPN service lifecycle: https://developer.android.com/develop/connectivity/vpn
+- Android 14 foreground-service types: https://developer.android.com/about/versions/14/changes/fgs-types-required
 
 ### Open-source project sources
 - WaEnhancerX README and architecture: https://github.com/WaEnhancerX/WaEnhancerX
@@ -211,4 +215,4 @@ Rules:
 
 ---
 
-**Status of this document:** research and implementation plan. Media Vault and user-selected official chat-export import code have been added to the SAMURAI feature branch; CI and physical-device validation are pending. One Tick, personal Read Tracker and cached Status Saver remain unimplemented until their respective build and test gates pass.
+**Status of this document:** research and implementation plan. The feature branch now contains Media Vault, official chat-export import, manual cached Status Saver, encrypted Message Timeline, App Lock and an opt-in per-app VPN network block. Build and DEX verification passed in the last recorded run; emulator instrumentation crashed before any test ran, and physical-device validation is pending. One Tick, personal outgoing Read Tracker and Last Seen/Online collection are not implemented.

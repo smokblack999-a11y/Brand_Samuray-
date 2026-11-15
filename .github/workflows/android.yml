@@ -74,7 +74,15 @@ jobs:
           grep -Fq 'com/samurai/whatsapp/StatusSaver' <<< "$DEX_CONTENT"
           grep -Fq 'com/samurai/whatsapp/MessageTimeline' <<< "$DEX_CONTENT"
           grep -Fq 'com/samurai/whatsapp/AppLock' <<< "$DEX_CONTENT"
-          echo "WhatsApp Kotlin classes present in APK DEX: PASS"
+          grep -Fq 'com/samurai/whatsapp/WhatsAppKillSwitchService' <<< "$DEX_CONTENT"
+          MANIFEST="samurai-whatsapp/src/main/AndroidManifest.xml"
+          grep -Fq 'android:name="com.whatsapp"' "$MANIFEST"
+          grep -Fq 'android:name="com.whatsapp.w4b"' "$MANIFEST"
+          if grep -Fq 'android.permission.QUERY_ALL_PACKAGES' "$MANIFEST"; then
+            echo "Broad QUERY_ALL_PACKAGES permission is not allowed"
+            exit 1
+          fi
+          echo "WhatsApp classes and narrow package visibility: PASS"
 
       - name: Run SAMURAI WhatsApp archive tests on Android emulator
         uses: reactivecircus/android-emulator-runner@v2
@@ -83,8 +91,18 @@ jobs:
           target: default
           arch: x86_64
           profile: pixel_6
-          emulator-options: -no-window -no-audio -no-boot-anim
-          script: cd android && ./gradlew :samurai-whatsapp:connectedDebugAndroidTest --stacktrace
+          emulator-boot-timeout: 900
+          disable-linux-hw-accel: auto
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
+          script: |
+            cd android
+            ./gradlew :samurai-whatsapp:connectedDebugAndroidTest --stacktrace || {
+              echo "=== ADB device state ==="
+              adb devices -l || true
+              echo "=== Recent Android logcat ==="
+              adb logcat -d -b all -v threadtime | tail -n 500 || true
+              exit 1
+            }
 
       - name: Upload APKs
         if: success()

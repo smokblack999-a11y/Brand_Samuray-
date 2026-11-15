@@ -11,6 +11,7 @@ import android.provider.OpenableColumns
 import android.text.format.DateFormat
 import android.view.Gravity
 import android.view.ViewGroup
+import android.view.WindowManager
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.ScrollView
@@ -35,6 +36,7 @@ class MainActivity : FragmentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        applyPrivacyWindowFlags()
         if (AppLock.isEnabled(this)) {
             authenticateAndRender()
         } else {
@@ -44,6 +46,7 @@ class MainActivity : FragmentActivity() {
 
     override fun onResume() {
         super.onResume()
+        applyPrivacyWindowFlags()
         if (contentRendered && AppLock.isEnabled(this) &&
             backgroundedAt > 0L &&
             SystemClock.elapsedRealtime() - backgroundedAt >= APP_LOCK_TIMEOUT_MS
@@ -475,6 +478,7 @@ class MainActivity : FragmentActivity() {
                         .onFailure { error ->
                             Toast.makeText(this, error.message ?: "Не удалось сохранить настройку", Toast.LENGTH_LONG).show()
                         }
+                    applyPrivacyWindowFlags()
                     refreshSecurityLabel()
                 },
                 onError = { _, message ->
@@ -495,9 +499,9 @@ class MainActivity : FragmentActivity() {
         }
         root.addView(appLockNote)
 
-        root.addView(sectionLabel("PER-APP INTERNET KILL SWITCH"))
+        root.addView(sectionLabel("PER-APP INTERNET BLOCK · VPN"))
         val vpnNote = TextView(this).apply {
-            text = "Опциональная локальная VPN-блокировка только для WhatsApp и WhatsApp Business. Пока блокировка активна, сообщения и звонки не будут работать. Остальные приложения используют обычную сеть. Это не One Tick и не скрывает подтверждения доставки."
+            text = "Опциональная локальная VPN-блокировка только для WhatsApp и WhatsApp Business. Пока сервис активен, сообщения, звонки и резервное копирование WhatsApp не работают; остальные приложения используют обычную сеть. Если VPN-сервис остановится или аварийно завершится, Android может вернуть WhatsApp обычный маршрут. Это не системный Always-on/Lockdown kill switch, не One Tick и не скрывает подтверждения доставки."
             textSize = 12f
             setTextColor(0xFFFFC66D.toInt())
             setPadding(0, 0, 0, 10)
@@ -663,6 +667,14 @@ class MainActivity : FragmentActivity() {
         ) {
             if (blocked) stopWhatsAppKillSwitch() else requestWhatsAppKillSwitch()
         })
+    }
+
+    private fun applyPrivacyWindowFlags() {
+        if (AppLock.isEnabled(this)) {
+            window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        } else {
+            window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        }
     }
 
     private fun refreshSecurityLabel() {

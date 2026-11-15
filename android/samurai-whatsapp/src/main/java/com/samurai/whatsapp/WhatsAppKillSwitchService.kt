@@ -77,10 +77,13 @@ class WhatsAppKillSwitchService : VpnService() {
                 startForeground(NOTIFICATION_ID, notification)
             }
 
-            getSharedPreferences(PREFS, MODE_PRIVATE)
-                .edit()
-                .putBoolean(KEY_ENABLED, true)
-                .commit()
+            check(
+                getSharedPreferences(PREFS, MODE_PRIVATE)
+                    .edit()
+                    .putBoolean(KEY_ENABLED, true)
+                    .commit()
+            ) { "Could not persist VPN state" }
+            activeInProcess = true
 
             readerThread = Thread({
                 val buffer = ByteArray(32 * 1024)
@@ -98,6 +101,7 @@ class WhatsAppKillSwitchService : VpnService() {
                     if (!stopping.get()) {
                         stopping.set(true)
                         tunnel = null
+                        activeInProcess = false
                         getSharedPreferences(PREFS, MODE_PRIVATE)
                             .edit().putBoolean(KEY_ENABLED, false).commit()
                         stopForeground(STOP_FOREGROUND_REMOVE)
@@ -120,6 +124,7 @@ class WhatsAppKillSwitchService : VpnService() {
 
     private fun stopTunnel() {
         stopping.set(true)
+        activeInProcess = false
         val current = tunnel
         tunnel = null
         runCatching { current?.close() }
@@ -193,12 +198,20 @@ class WhatsAppKillSwitchService : VpnService() {
         private const val NOTIFICATION_ID = 771
         private const val TAG = "SamuraiWhatsAppVPN"
         private val TARGET_PACKAGES = listOf("com.whatsapp", "com.whatsapp.w4b")
+        @Volatile private var activeInProcess = false
 
-        fun isEnabled(context: android.content.Context): Boolean =
-            context.getSharedPreferences(PREFS, android.content.Context.MODE_PRIVATE)
-                .getBoolean(KEY_ENABLED, false)
+        fun isEnabled(context: android.content.Context): Boolean {
+            val prefs = context.getSharedPreferences(PREFS, android.content.Context.MODE_PRIVATE)
+            val stored = prefs.getBoolean(KEY_ENABLED, false)
+            if (stored && !activeInProcess) {
+                // A persisted flag alone cannot prove that VPN survived process death.
+                prefs.edit().putBoolean(KEY_ENABLED, false).apply()
+            }
+            return stored && activeInProcess
+        }
 
         fun markDisabled(context: android.content.Context) {
+            activeInProcess = false
             context.getSharedPreferences(PREFS, android.content.Context.MODE_PRIVATE)
                 .edit().putBoolean(KEY_ENABLED, false).commit()
         }
