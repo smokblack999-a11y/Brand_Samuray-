@@ -15,6 +15,7 @@ except ImportError:  # pragma: no cover - POSIX hosts provide fcntl
 
 from .registry import Registry
 from .runner import DockerSandboxRunner
+from .contract import DEFAULT_CONTRACT, validate_contract
 from .critic import LEGACY_REVIEW, require_approved_source
 from .validation import validate_name
 
@@ -117,9 +118,10 @@ class SoftwareFactory:
         finally:
             temporary.unlink(missing_ok=True)
 
-    def create(self, name: str, source: str) -> dict:
+    def create(self, name: str, source: str, contract=None) -> dict:
         name = validate_name(name)
         source_review = require_approved_source(source)
+        validated_contract = validate_contract(contract)
         with self._operation_guard():
             target = self.modules / f"{name}.py"
             if target.exists() or target.is_symlink() or name in self.registry.list():
@@ -137,10 +139,11 @@ class SoftwareFactory:
                 "runtime": "docker-no-network",
                 "version": 1,
                 "sourceReview": source_review,
-                "versions": [{"version": 1, "sha256": digest, "sourceReview": source_review}],
+                "contract": validated_contract,
+                "versions": [{"version": 1, "sha256": digest, "sourceReview": source_review, "contract": validated_contract}],
             }
             try:
-                self.runner.run_smoke_test(staged)
+                self.runner.run_smoke_test(staged, validated_contract)
                 # First create the immutable version artifact; then point active name
                 # at the same complete inode. Both links are exclusive.
                 os.link(staged, version_file, follow_symlinks=False)
@@ -171,7 +174,7 @@ class SoftwareFactory:
             finally:
                 staged.unlink(missing_ok=True)
 
-    def promote(self, name: str, source: str) -> dict:
+    def promote(self, name: str, source: str, contract=None) -> dict:
         """Validate and atomically promote a new immutable version."""
         name = validate_name(name)
         source_review = require_approved_source(source)
@@ -180,6 +183,7 @@ class SoftwareFactory:
             metadata = self.registry.list().get(name)
             if not metadata:
                 raise FileNotFoundError("MODULE_NOT_REGISTERED")
+            validated_contract = validate_contract(contract if contract is not None else metadata.get("contract", DEFAULT_CONTRACT))
             target = self._verify_active(name, metadata)
             if digest == metadata["sha256"]:
                 return {"name": name, **metadata, "unchanged": True}
@@ -193,6 +197,8 @@ class SoftwareFactory:
             for entry in history:
                 if "sourceReview" not in entry:
                     entry["sourceReview"] = metadata.get("sourceReview", LEGACY_REVIEW) if int(entry["version"]) == current_version else LEGACY_REVIEW
+                if "contract" not in entry:
+                    entry["contract"] = metadata.get("contract", DEFAULT_CONTRACT) if int(entry["version"]) == current_version else DEFAULT_CONTRACT
             latest_version = max(int(entry["version"]) for entry in history)
             next_version = latest_version + 1
             version_dir = self._version_dir(name, create=True)
@@ -208,7 +214,7 @@ class SoftwareFactory:
             new_version_created = False
             switched = False
             try:
-                self.runner.run_smoke_test(staged)
+                self.runner.run_smoke_test(staged, validated_contract)
                 os.link(staged, new_version_file, follow_symlinks=False)
                 new_version_created = True
                 os.chmod(new_version_file, 0o440, follow_symlinks=False)
@@ -221,10 +227,12 @@ class SoftwareFactory:
                     "sha256": digest,
                     "version": next_version,
                     "sourceReview": source_review,
+                    "contract": validated_contract,
                     "versions": history + [{
                         "version": next_version,
                         "sha256": digest,
                         "sourceReview": source_review,
+                        "contract": validated_contract,
                     }],
                 }
                 try:
@@ -285,6 +293,7 @@ class SoftwareFactory:
                 "sha256": entry["sha256"],
                 "version": int(target_version),
                 "sourceReview": entry.get("sourceReview", LEGACY_REVIEW),
+                "contract": entry.get("contract", DEFAULT_CONTRACT),
             }
             try:
                 self.registry.put(name, updated)
