@@ -69,6 +69,8 @@ jobs:
           grep -Fq 'com/samurai/whatsapp/WhatsAppNotificationListener' <<< "$DEX_CONTENT"
           grep -Fq 'com/samurai/whatsapp/NotificationArchive' <<< "$DEX_CONTENT"
           grep -Fq 'com/samurai/whatsapp/MediaVault' <<< "$DEX_CONTENT"
+          grep -Fq 'com/samurai/whatsapp/WhatsAppExportImporter' <<< "$DEX_CONTENT"
+          grep -Fq 'com/samurai/whatsapp/WhatsAppExportArchive' <<< "$DEX_CONTENT"
           echo "WhatsApp Kotlin classes present in APK DEX: PASS"
 
       - name: Run SAMURAI WhatsApp archive tests on Android emulator
