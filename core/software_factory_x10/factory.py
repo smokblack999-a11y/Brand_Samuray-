@@ -3,17 +3,37 @@ import hashlib
 import os
 from pathlib import Path
 import tempfile
+import uuid
+
 from .registry import Registry
 from .runner import DockerSandboxRunner
 from .validation import validate_name, validate_source
 
+
+def _fsync_dir(path: Path) -> None:
+    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+    fd = os.open(path, flags)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
 class SoftwareFactory:
     def __init__(self, root: str | Path, runner=None):
         self.root = Path(root).resolve()
+        self.root.mkdir(parents=True, exist_ok=True)
         self.staging = self.root / "staging"
         self.modules = self.root / "modules"
-        self.staging.mkdir(parents=True, exist_ok=True)
-        self.modules.mkdir(parents=True, exist_ok=True)
+        self.staging.mkdir(exist_ok=True)
+        self.modules.mkdir(exist_ok=True)
+        # Reject symlinked workspaces: staging/modules must remain under the selected root.
+        if self.staging.is_symlink() or self.modules.is_symlink():
+            raise ValueError("FACTORY_DIRECTORY_SYMLINK")
+        self.staging = self.staging.resolve()
+        self.modules = self.modules.resolve()
+        if self.staging.parent != self.root or self.modules.parent != self.root:
+            raise ValueError("FACTORY_DIRECTORY_ESCAPE")
         self.registry = Registry(self.root)
         self.runner = runner or DockerSandboxRunner()
 
@@ -21,45 +41,78 @@ class SoftwareFactory:
         name = validate_name(name)
         validate_source(source)
         target = self.modules / f"{name}.py"
-        if target.exists() or name in self.registry.list():
+        if target.exists() or target.is_symlink() or name in self.registry.list():
             raise FileExistsError("MODULE_ALREADY_EXISTS")
-        fd, staged = tempfile.mkstemp(prefix=f"{name}-", suffix=".py", dir=self.staging)
+
+        fd, staged_name = tempfile.mkstemp(prefix=f"{name}-", suffix=".py", dir=self.staging)
+        staged = Path(staged_name)
+        published = False
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as f:
                 f.write(source)
                 f.flush()
                 os.fsync(f.fileno())
-            self.runner.run_smoke_test(Path(staged))
+
+            # Generated code is executed only by the configured isolated runner.
+            self.runner.run_smoke_test(staged)
+
             digest = hashlib.sha256(source.encode("utf-8")).hexdigest()
-            # Exclusive create prevents overwriting a concurrently-created module.
+            metadata = {
+                "sha256": digest,
+                "status": "validated",
+                "runtime": "docker-no-network",
+            }
+
+            # Atomic, exclusive publication of the already-complete staged inode.
+            # Unlike writing the destination directly, readers never observe a partial file.
+            os.link(staged, target, follow_symlinks=False)
+            published = True
+            os.chmod(target, 0o440, follow_symlinks=False)
+            _fsync_dir(self.modules)
+
             try:
-                out = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o440)
-            except FileExistsError:
-                raise FileExistsError("MODULE_ALREADY_EXISTS")
-            with os.fdopen(out, "w", encoding="utf-8") as f:
-                f.write(source)
-                f.flush()
-                os.fsync(f.fileno())
-            meta = {"sha256": digest, "status": "validated", "runtime": "docker-no-network"}
-            self.registry.put(name, meta)
-            return {"name": name, **meta}
+                self.registry.put(name, metadata)
+            except Exception:
+                # Compensate if registry persistence fails after the module was published.
+                target.unlink(missing_ok=True)
+                _fsync_dir(self.modules)
+                published = False
+                raise
+
+            return {"name": name, **metadata}
         finally:
-            try: os.unlink(staged)
-            except FileNotFoundError: pass
+            staged.unlink(missing_ok=True)
+            # If any operation after hard-link publication failed, don't leave an
+            # unregistered module behind. Registry.put performs its own atomic write.
+            if published and name not in self.registry.list():
+                target.unlink(missing_ok=True)
+                _fsync_dir(self.modules)
 
     def destroy(self, name: str) -> bool:
         name = validate_name(name)
         meta = self.registry.list().get(name)
         if not meta:
             return False
-        target = (self.modules / f"{name}.py").resolve()
-        if target.parent != self.modules.resolve():
+        target = self.modules / f"{name}.py"
+        if target.is_symlink() or target.resolve().parent != self.modules:
             raise ValueError("MODULE_PATH_INVALID")
         if not target.is_file():
             raise FileNotFoundError("REGISTERED_MODULE_MISSING")
         digest = hashlib.sha256(target.read_bytes()).hexdigest()
         if digest != meta.get("sha256"):
             raise RuntimeError("MODULE_HASH_MISMATCH")
-        target.unlink()
-        self.registry.remove(name)
+
+        # Rename to a private tombstone first; restore it if registry update fails.
+        tombstone = self.modules / f".{name}.{uuid.uuid4().hex}.deleting"
+        os.replace(target, tombstone)
+        _fsync_dir(self.modules)
+        try:
+            if not self.registry.remove(name):
+                raise RuntimeError("REGISTRY_ENTRY_MISSING")
+        except Exception:
+            os.replace(tombstone, target)
+            _fsync_dir(self.modules)
+            raise
+        tombstone.unlink(missing_ok=True)
+        _fsync_dir(self.modules)
         return True
