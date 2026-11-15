@@ -10,6 +10,7 @@ const { spawnSync } = require("node:child_process");
 const {
   FactoryBridgeError,
   assertFactoryWorkerReady,
+  assertSoftwareFactoryConfig,
   createFactoryBridge,
   createSoftwareFactoryRouter,
   statusForCode
@@ -515,3 +516,33 @@ test("Factory startup refuses a sandbox image that is not preloaded", () => {
     }
   }), /not preloaded/);
 });
+\ntest("Factory feature disabled is always allowed and stays unconfigured", () => {
+  assert.equal(assertSoftwareFactoryConfig({
+    enabled: false,
+    mode: "",
+    apiKey: "",
+    requestTimeoutMs: 5000
+  }), false);
+});
+
+test("Factory startup config requires backend API key", () => {
+  assert.throws(() => assertSoftwareFactoryConfig({
+    enabled: true, mode: "docker", apiKey: "", requestTimeoutMs: 30000
+  }), /CORE_API_KEY/);
+});
+
+test("Factory startup config requires exact docker mode", () => {
+  assert.throws(() => assertSoftwareFactoryConfig({
+    enabled: true, mode: "test", apiKey: "server-secret", requestTimeoutMs: 30000
+  }), /must be exactly docker/);
+});
+
+test("Factory startup config requires a 30 second Core timeout", () => {
+  assert.throws(() => assertSoftwareFactoryConfig({
+    enabled: true, mode: "docker", apiKey: "server-secret", requestTimeoutMs: 29999
+  }), /at least 30000/);
+  assert.equal(assertSoftwareFactoryConfig({
+    enabled: true, mode: "docker", apiKey: "server-secret", requestTimeoutMs: 30000
+  }), true);
+});
+
