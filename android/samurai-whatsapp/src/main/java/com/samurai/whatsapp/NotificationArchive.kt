@@ -100,6 +100,11 @@ internal object NotificationArchive {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val enabled = prefs.getBoolean(ENABLED_KEY, true)
         prefs.edit().clear().putBoolean(ENABLED_KEY, enabled).apply()
+        // Cryptographically retire the old archive key after deleting all ciphertext.
+        runCatching {
+            KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+                .deleteEntry(KEY_ALIAS)
+        }
     }
 
     private fun sha256(value: String): String =
