@@ -15,7 +15,7 @@ except ImportError:  # pragma: no cover - POSIX hosts provide fcntl
 
 from .registry import Registry
 from .runner import DockerSandboxRunner
-from .contract import DEFAULT_CONTRACT, validate_contract
+from .contract import DEFAULT_CONTRACT, validate_contract, validate_input
 from .critic import LEGACY_REVIEW, require_approved_source
 from .validation import validate_name
 
@@ -306,6 +306,25 @@ class SoftwareFactory:
                     pass
                 raise
             return {"name": name, **updated, "rolledBack": True}
+
+    def run(self, name: str, value):
+        """Run the active, hash-verified version only inside the configured sandbox."""
+        name = validate_name(name)
+        validated_input = validate_input(value)
+        with self._operation_guard():
+            metadata = self.registry.list().get(name)
+            if not metadata:
+                raise FileNotFoundError("MODULE_NOT_REGISTERED")
+            target = self._verify_active(name, metadata)
+            run_module = getattr(self.runner, "run_module", None)
+            if not callable(run_module):
+                raise RuntimeError("SANDBOX_RUN_UNAVAILABLE")
+            result = run_module(target, validated_input)
+            return {
+                "name": name,
+                "version": int(metadata.get("version", 1)),
+                "result": result,
+            }
 
     def destroy(self, name: str) -> bool:
         name = validate_name(name)
