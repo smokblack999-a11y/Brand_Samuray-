@@ -134,7 +134,7 @@ internal object StatusSaver {
     }
 
     fun saveToVault(context: Context, item: CachedStatusFile): MediaVaultItem =
-        MediaVault.importFromUri(context, item.uri)
+        MediaVault.importFromUri(context, item.uri, item.mimeType)
 
     internal fun isStatusesFolder(name: String): Boolean {
         val normalized = name.trim().lowercase(Locale.ROOT)
