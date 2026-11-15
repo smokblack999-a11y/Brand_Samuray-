@@ -30,7 +30,7 @@ GitHub Actions runs unit tests and real Docker integration tests: valid module e
 
 ## Data-driven test contracts
 
-Each module version stores a JSON-only contract with 1–20 cases and a 32 KiB maximum. Every case contains exactly `input` and `expected`. The Docker runner invokes `run(input)` for each case and requires an exact result match. Contracts are data, never executable test code. A promotion may supply a new contract; changing the contract alone creates a new version. Rollback restores the code review report and contract recorded for the selected version.
+Each module version stores a JSON-only contract with 1–20 cases and a 32 KiB maximum. Only modules with a stored Source Critic decision of `APPROVED` can be invoked; legacy modules without review evidence must be re-promoted and reviewed first. Every case contains exactly `input` and `expected`. The Docker runner invokes `run(input)` for each case and requires an exact result match. Runtime invocation also accepts one JSON input up to 32 KiB and returns one JSON result up to 32 KiB. Contracts are data, never executable test code. A promotion may supply a new contract; changing the contract alone creates a new version. Rollback restores the code review report and contract recorded for the selected version.
 
 Example:
 
