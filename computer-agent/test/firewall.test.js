@@ -24,7 +24,7 @@ test("blocks prompt injection in page output", () => {
 test("redacts token-like secrets from page output", () => {
   const result = inspectResult("API_KEY=abc123secretvalue");
   assert.equal(result.allowed,true);
-  assert.match(result.value,/\\[REDACTED\\]/);
+  assert.match(result.value,/\[REDACTED\]/);
 });
 
 test("rejects private, loopback, link-local and reserved IPv4 destinations", () => {
