@@ -3,7 +3,7 @@
 const SECRET_PATTERNS = [
   /\b(?:sk|rk)-[A-Za-z0-9_-]{16,}\b/g,
   /\bBearer\s+[A-Za-z0-9._~+/-]+=*/gi,
-  /\b(?:api[_-]?key|access[_-]?token|refresh[_-]?token|password|passwd|secret)\s*[:=]\s*["']?[^"'\\s,;]{6,}/gi,
+  /\b(?:api[_-]?key|access[_-]?token|refresh[_-]?token|password|passwd|secret)\s*[:=]\s*["']?[^"'\s,;]{6,}/gi,
   /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi
 ];
 
