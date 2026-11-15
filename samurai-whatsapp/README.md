@@ -32,6 +32,15 @@ Anti-Delete is therefore partial: a notification copy may remain in SAMURAI afte
 
 The experimental modified-client track is not installed, signed, or enabled. It must remain isolated from the primary account until a separate security and account-risk review is approved.
 
+## Research and planned tracks
+
+See [competitive research and build plan](docs/research-and-build-plan.md) for the public projects reviewed, feature feasibility, license notes, One Tick lab acceptance tests, Message Timeline model, and phased build order.
+
+- **Safe companion:** finish and device-validate the encrypted notification archive; then add local Media Vault/Status Saver with user-granted folder access.
+- **Read Intelligence:** record only verifiable events with source provenance. Missing read/presence events remain unknown.
+- **Official Business mode:** optionally receive Meta Business Platform status webhooks for messages sent through that API. This does not track a personal WhatsApp account.
+- **One Tick lab:** separate research build only, requiring a dedicated test number, spare rooted device and second-device validation. Do not root or modify the primary phone.
+
 ## Build and test
 
 From the repository root:
