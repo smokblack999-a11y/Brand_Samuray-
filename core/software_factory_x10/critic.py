@@ -8,7 +8,9 @@ from .validation import ValidationError, validate_source
 POLICY_VERSION = "factory-source-critic-v1"
 FORBIDDEN_CALLS = {"open", "input", "eval", "exec", "compile", "__import__", "breakpoint"}
 FORBIDDEN_OS_CALLS = {
-    "system", "popen", "_exit", "fork", "forkpty",
+    "system", "popen", "open", "remove", "unlink", "rmdir", "mkdir",
+    "makedirs", "removedirs", "rename", "replace", "truncate", "chmod",
+    "chown", "symlink", "link", "mkfifo", "mknod", "_exit", "fork", "forkpty",
     "execl", "execle", "execlp", "execv", "execve", "execvp", "execvpe",
     "spawnl", "spawnle", "spawnlp", "spawnlpe", "spawnv", "spawnve", "spawnvp", "spawnvpe",
 }
@@ -79,6 +81,7 @@ def review_source(source: str) -> dict[str, Any]:
 
         module_aliases: dict[str, str] = {}
         imported_dangerous_calls: set[str] = set()
+        imported_path_classes: set[str] = set()
 
         for node in tree.body:
             if isinstance(node, ast.Import):
@@ -92,6 +95,8 @@ def review_source(source: str) -> dict[str, Any]:
                         _add(findings, "STAR_IMPORT_FORBIDDEN")
                     if (module, alias.name) in FORBIDDEN_IMPORT_FROM:
                         imported_dangerous_calls.add(alias.asname or alias.name)
+                    if module == "pathlib" and alias.name == "Path":
+                        imported_path_classes.add(alias.asname or alias.name)
                 if module in {"os", "importlib", "builtins"} and any(
                     (module, alias.name) in FORBIDDEN_IMPORT_FROM for alias in node.names
                 ):
@@ -144,6 +149,16 @@ def review_source(source: str) -> dict[str, Any]:
                     _add(findings, "FORBIDDEN_DYNAMIC_IMPORT")
                 if module == "builtins" and attrs and attrs[-1] in {"eval", "exec", "__import__"}:
                     _add(findings, "FORBIDDEN_DYNAMIC_EXECUTION")
+                if module == "pathlib" and "Path" in attrs and attrs[-1] in {
+                    "open", "write_text", "write_bytes", "unlink", "rename", "replace",
+                    "mkdir", "rmdir", "touch", "symlink_to", "hardlink_to", "chmod",
+                }:
+                    _add(findings, "FORBIDDEN_PATH_WRITE")
+                if root in imported_path_classes and attrs and attrs[-1] in {
+                    "open", "write_text", "write_bytes", "unlink", "rename", "replace",
+                    "mkdir", "rmdir", "touch", "symlink_to", "hardlink_to", "chmod",
+                }:
+                    _add(findings, "FORBIDDEN_PATH_WRITE")
 
     findings.sort(key=lambda item: item["code"])
     return {
