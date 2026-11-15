@@ -10,6 +10,8 @@ GOOD = "def run(data):\n    return list(data)\n"
 class FakeRunner:
     def run_smoke_test(self, path, contract=None):
         compile(path.read_text("utf-8"), str(path), "exec")
+    def run_module(self, path, value):
+        return {"received": value}
 
 class FactoryTests(unittest.TestCase):
     def setUp(self):
@@ -24,6 +26,21 @@ class FactoryTests(unittest.TestCase):
         self.assertEqual(result["versions"][0]["sourceReview"]["decision"], "APPROVED")
         self.assertIn("processor", self.factory.registry.list())
         self.assertTrue(self.factory.destroy("processor"))
+    def test_run_uses_hash_verified_active_module_and_sandbox_runner(self):
+        self.factory.create("processor", GOOD)
+        result = self.factory.run("processor", {"items": [1, 2]})
+        self.assertEqual(result["name"], "processor")
+        self.assertEqual(result["version"], 1)
+        self.assertEqual(result["result"], {"received": {"items": [1, 2]}})
+
+    def test_run_rejects_tampered_active_module_before_runner(self):
+        self.factory.create("processor", GOOD)
+        target = Path(self.tmp.name) / "modules/processor.py"
+        target.chmod(0o600)
+        target.write_text("def run(data): return data")
+        with self.assertRaisesRegex(RuntimeError, "MODULE_HASH_MISMATCH"):
+            self.factory.run("processor", [1, 2])
+
     def test_never_overwrites_existing(self):
         self.factory.create("processor", GOOD)
         with self.assertRaises(FileExistsError):
@@ -209,6 +226,17 @@ class DockerRunnerIntegrationTests(unittest.TestCase):
             self.assertEqual(rolled["sha256"], first["sha256"])
             self.assertEqual(rolled["contract"], contract_v1)
             self.assertTrue(factory.destroy("release_candidate"))
+
+    def test_real_docker_runner_invokes_active_module_with_json_input(self):
+        from software_factory_x10.runner import DockerSandboxRunner
+        with tempfile.TemporaryDirectory() as tmp:
+            factory = SoftwareFactory(tmp, runner=DockerSandboxRunner(timeout=15))
+            source = "\n".join(["def run(data):", "    return [x * 2 for x in data]", ""])
+            contract = {"cases": [{"input": [1, 2], "expected": [2, 4]}]}
+            factory.create("runtime_processor", source, contract)
+            result = factory.run("runtime_processor", [3, 4])
+            self.assertEqual(result, {"name": "runtime_processor", "version": 1, "result": [6, 8]})
+            self.assertTrue(factory.destroy("runtime_processor"))
 
     def test_contract_only_promotion_runs_real_docker(self):
         from software_factory_x10.runner import DockerSandboxRunner
