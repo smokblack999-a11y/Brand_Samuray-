@@ -94,7 +94,24 @@ jobs:
           emulator-boot-timeout: 900
           disable-linux-hw-accel: auto
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
-          script: cd android && ./gradlew :samurai-whatsapp:connectedDebugAndroidTest --stacktrace
+          script: |
+            set +e
+            cd android
+            ./gradlew :samurai-whatsapp:connectedDebugAndroidTest --stacktrace
+            TEST_EXIT=$?
+            mkdir -p ../artifacts/diagnostics
+            adb logcat -d -v threadtime > ../artifacts/diagnostics/emulator-logcat.txt 2>&1
+            adb shell dumpsys activity processes > ../artifacts/diagnostics/activity-processes.txt 2>&1
+            adb shell dumpsys package com.samurai.whatsapp > ../artifacts/diagnostics/package-samurai-whatsapp.txt 2>&1
+            exit "$TEST_EXIT"
+
+      - name: Upload emulator diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: samurai-whatsapp-emulator-diagnostics
+          path: artifacts/diagnostics/
+          if-no-files-found: warn
 
       - name: Upload APKs
         if: success()
