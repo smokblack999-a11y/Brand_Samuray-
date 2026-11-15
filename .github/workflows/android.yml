@@ -53,6 +53,7 @@ jobs:
         run: ./gradlew clean assembleDebug :samurai-whatsapp:compileDebugKotlin :samurai-whatsapp:assembleDebug --stacktrace
 
       - name: Verify APKs and packaged Kotlin classes
+        id: verify-apks
         working-directory: android
         shell: bash
         run: |
@@ -94,16 +95,8 @@ jobs:
           emulator-boot-timeout: 900
           disable-linux-hw-accel: auto
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
-          script: |
-            set +e
-            cd android
-            ./gradlew :samurai-whatsapp:connectedDebugAndroidTest --stacktrace
-            TEST_EXIT=$?
-            mkdir -p ../artifacts/diagnostics
-            adb logcat -d -v threadtime > ../artifacts/diagnostics/emulator-logcat.txt 2>&1
-            adb shell dumpsys activity processes > ../artifacts/diagnostics/activity-processes.txt 2>&1
-            adb shell dumpsys package com.samurai.whatsapp > ../artifacts/diagnostics/package-samurai-whatsapp.txt 2>&1
-            exit "$TEST_EXIT"
+          script: >-
+            bash -lc 'cd android && ./gradlew :samurai-whatsapp:connectedDebugAndroidTest --stacktrace; TEST_EXIT=$?; mkdir -p "$GITHUB_WORKSPACE/artifacts/diagnostics"; adb devices -l > "$GITHUB_WORKSPACE/artifacts/diagnostics/adb-devices.txt" 2>&1 || true; adb logcat -d -v threadtime > "$GITHUB_WORKSPACE/artifacts/diagnostics/emulator-logcat.txt" 2>&1 || true; adb shell dumpsys activity processes > "$GITHUB_WORKSPACE/artifacts/diagnostics/activity-processes.txt" 2>&1 || true; adb shell dumpsys package com.samurai.whatsapp > "$GITHUB_WORKSPACE/artifacts/diagnostics/package-samurai-whatsapp.txt" 2>&1 || true; exit "$TEST_EXIT"'
 
       - name: Upload emulator diagnostics
         if: always()
@@ -113,12 +106,43 @@ jobs:
           path: artifacts/diagnostics/
           if-no-files-found: warn
 
+      - name: Package full SAMURAI bundle
+        if: always() && steps.verify-apks.outcome == 'success'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          cp android/app/build/outputs/apk/debug/app-debug.apk dist/SamuraiOS-debug.apk
+          cp android/samurai-whatsapp/build/outputs/apk/debug/samurai-whatsapp-debug.apk dist/SAMURAI-WhatsApp-debug.apk
+          git archive --format=zip --output=dist/SAMURAI-source.zip HEAD
+          {
+            echo "SAMURAI WHATSAPP HYBRID V1 — DEBUG BUNDLE"
+            echo "Commit: $(git rev-parse HEAD)"
+            echo "Ref: $GITHUB_REF"
+            echo "Build type: debug (not production-signed)"
+            echo "SamuraiOS APK: SamuraiOS-debug.apk"
+            echo "SAMURAI WhatsApp APK: SAMURAI-WhatsApp-debug.apk"
+            echo "Source archive: SAMURAI-source.zip"
+            echo
+            sha256sum dist/SamuraiOS-debug.apk dist/SAMURAI-WhatsApp-debug.apk dist/SAMURAI-source.zip
+          } > dist/BUILD-MANIFEST.txt
+          (cd dist && zip -9 SAMURAI-FULL-BUNDLE.zip SamuraiOS-debug.apk SAMURAI-WhatsApp-debug.apk SAMURAI-source.zip BUILD-MANIFEST.txt)
+
+      - name: Upload full SAMURAI bundle
+        if: always() && steps.verify-apks.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: SAMURAI-WHATSAPP-HYBRID-V1-full-bundle
+          path: dist/SAMURAI-FULL-BUNDLE.zip
+          if-no-files-found: error
+
       - name: Upload APKs
-        if: success()
+        if: always() && steps.verify-apks.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: SamuraiOS-and-SAMURAI-WhatsApp-debug-apks
           path: |
-            android/app/build/outputs/apk/debug/app-debug.apk
-            android/samurai-whatsapp/build/outputs/apk/debug/samurai-whatsapp-debug.apk
+            dist/SamuraiOS-debug.apk
+            dist/SAMURAI-WhatsApp-debug.apk
+            dist/BUILD-MANIFEST.txt
           if-no-files-found: error
