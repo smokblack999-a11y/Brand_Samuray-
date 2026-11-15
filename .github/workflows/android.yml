@@ -46,7 +46,7 @@ jobs:
 
       - name: Build both Android applications
         working-directory: android
-        run: ./gradlew clean assembleDebug :samurai-whatsapp:assembleDebug --stacktrace
+        run: ./gradlew clean assembleDebug :samurai-whatsapp:compileDebugKotlin :samurai-whatsapp:assembleDebug --stacktrace
 
       - name: Verify APKs
         working-directory: android
@@ -56,6 +56,11 @@ jobs:
           test -f samurai-whatsapp/build/outputs/apk/debug/samurai-whatsapp-debug.apk
           ls -lh app/build/outputs/apk/debug/app-debug.apk
           ls -lh samurai-whatsapp/build/outputs/apk/debug/samurai-whatsapp-debug.apk
+          DEX_CONTENT="$(unzip -p samurai-whatsapp/build/outputs/apk/debug/samurai-whatsapp-debug.apk classes.dex | strings)"
+          grep -Fq 'Lcom/samurai/whatsapp/MainActivity;' <<< "$DEX_CONTENT"
+          grep -Fq 'Lcom/samurai/whatsapp/WhatsAppNotificationListener;' <<< "$DEX_CONTENT"
+          grep -Fq 'Lcom/samurai/whatsapp/NotificationArchive;' <<< "$DEX_CONTENT"
+          echo "WhatsApp Kotlin classes present in APK: PASS"
 
       - name: Upload APKs
         uses: actions/upload-artifact@v4
