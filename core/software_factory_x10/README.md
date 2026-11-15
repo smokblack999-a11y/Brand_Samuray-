@@ -87,6 +87,7 @@ Authenticated endpoints under `/v1/software-factory`:
 - `POST /modules` with `{ "name": "processor", "source": "...", "contract": { "cases": [{ "input": [1, 2], "expected": [2, 4] }] } }`
 - `POST /modules/:name/promote` with `{ "source": "..." }`
 - `POST /modules/:name/rollback` with optional `{ "version": 1 }`
+- `POST /modules/:name/run` with `{ "input": [1, 2, 3] }` — executes the active SHA-256-verified version in a fresh Docker container
 - `DELETE /modules/:name`
 
 All endpoints use the existing Core `requireApiKey` middleware and a per-IP rate limit. The Node bridge starts the Python worker with `spawn` and no shell, passes a minimal environment rather than Core secrets, enforces input/output/time limits, and returns sanitized errors with the Core request ID.
@@ -96,6 +97,7 @@ All endpoints use the existing Core `requireApiKey` middleware and a per-IP rate
 ## Limitations
 
 - The MVP has no AI code generation, dependency installation, patch application, Express API integration, or autonomous GitHub PR creation from inside the factory.
-- Generated modules are validated and stored, but are not exposed as an in-process plugin API. Runtime invocation and authorization are separate work.
+- Generated modules are never imported into the Core process. The optional privileged `/run` endpoint invokes each active version in a fresh isolated Docker container; it is not a persistent in-process plugin API or a public customer-facing runtime.
+- Run inputs and JSON results are limited to 32 KiB. Output must be JSON-serializable. Each invocation has a time limit and no network access.
 - Registry and artifacts are local to one host. A POSIX workspace lock serializes module lifecycle transitions across local processes, and registry writes have their own lock. This is not a distributed transaction store or a multi-host shared filesystem protocol.
 - A process or host crash between artifact promotion and registry update can still require operator reconciliation.
