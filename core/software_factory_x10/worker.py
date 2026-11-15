@@ -36,9 +36,9 @@ def handle_request(payload: Any, root: str | Path, runner=None) -> dict:
             raise ValueError("SOURCE_SIZE_INVALID")
 
     if action == "create":
-        return {"module": factory.create(name, source)}
+        return {"module": factory.create(name, source, payload.get("contract"))}
     if action == "promote":
-        return {"module": factory.promote(name, source)}
+        return {"module": factory.promote(name, source, payload.get("contract"))}
     if action == "rollback":
         version = payload.get("version")
         if version is not None and (type(version) is not int or version < 1):
