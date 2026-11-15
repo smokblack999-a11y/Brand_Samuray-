@@ -1,10 +1,13 @@
 from __future__ import annotations
+import json
 import os
 import re
 import shutil
 import subprocess
 import uuid
 from pathlib import Path
+
+from .contract import validate_contract
 
 class SandboxUnavailable(RuntimeError):
     pass
@@ -39,7 +42,7 @@ class DockerSandboxRunner:
         if remaining.stdout.strip():
             raise RuntimeError("SANDBOX_TIMEOUT_CLEANUP_FAILED")
 
-    def run_smoke_test(self, module_file: Path) -> None:
+    def run_smoke_test(self, module_file: Path, contract=None) -> None:
         docker = shutil.which("docker")
         if not docker:
             raise SandboxUnavailable("DOCKER_SANDBOX_UNAVAILABLE")
@@ -51,13 +54,22 @@ class DockerSandboxRunner:
             raise ValueError("SANDBOX_MODULE_FILE_INVALID")
 
         job_label = uuid.uuid4().hex
-        script = (
-            "import importlib.util; "
-            "s=importlib.util.spec_from_file_location('candidate','/module.py'); "
-            "m=importlib.util.module_from_spec(s); s.loader.exec_module(m); "
-            "r=m.run([1,2,3]); "
-            "assert r == [1,2,3], 'SMOKE_TEST_FAILED'"
-        )
+        validated_contract = validate_contract(contract)
+        contract_json = json.dumps(validated_contract, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
+        script = """
+import importlib.util
+import json
+import sys
+
+spec = importlib.util.spec_from_file_location("candidate", "/module.py")
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+contract = json.loads(sys.argv[1])
+for case in contract["cases"]:
+    actual = module.run(case["input"])
+    if actual != case["expected"]:
+        raise AssertionError("SMOKE_TEST_FAILED")
+"""
         cmd = [
             docker, "run", "--rm", "--network=none", "--read-only",
             "--cap-drop=ALL", "--security-opt=no-new-privileges",
@@ -68,7 +80,7 @@ class DockerSandboxRunner:
             "--label", f"com.samurai.factory.job={job_label}",
             "--mount", f"type=bind,src={module_file},dst=/module.py,readonly",
             "--tmpfs", "/tmp:rw,noexec,nosuid,nodev,size=16m,mode=1777",
-            self.image, "python", "-I", "-c", script
+            self.image, "python", "-I", "-c", script, contract_json
         ]
         try:
             subprocess.run(
