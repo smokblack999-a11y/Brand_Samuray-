@@ -29,6 +29,18 @@ class FactoryTests(unittest.TestCase):
         with self.assertRaises(FileExistsError):
             self.factory.create("processor", GOOD)
 
+    def test_contract_is_persisted_per_version_and_restored_on_rollback(self):
+        contract_v1 = {"cases": [{"input": [1, 2], "expected": [2, 4]}]}
+        contract_v2 = {"cases": [{"input": [1, 2], "expected": [3, 6]}]}
+        first = self.factory.create("processor", GOOD.replace("return list(data)", "return [x * 2 for x in data]"), contract_v1)
+        second = self.factory.promote("processor", "def run(data):\\n    return [x * 3 for x in data]\\n", contract_v2)
+        self.assertEqual(first["contract"], contract_v1)
+        self.assertEqual(second["contract"], contract_v2)
+        self.assertEqual(second["versions"][0]["contract"], contract_v1)
+        self.assertEqual(second["versions"][1]["contract"], contract_v2)
+        restored = self.factory.rollback("processor")
+        self.assertEqual(restored["contract"], contract_v1)
+
     def test_promote_creates_immutable_version_and_keeps_history(self):
         source_v2 = "def run(data):\n    return data[:]\n"
         first = self.factory.create("processor", GOOD)
