@@ -516,7 +516,8 @@ test("Factory startup refuses a sandbox image that is not preloaded", () => {
     }
   }), /not preloaded/);
 });
-\ntest("Factory feature disabled is always allowed and stays unconfigured", () => {
+
+test("Factory feature disabled is always allowed and stays unconfigured", () => {
   assert.equal(assertSoftwareFactoryConfig({
     enabled: false,
     mode: "",
