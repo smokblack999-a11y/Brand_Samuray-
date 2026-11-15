@@ -34,6 +34,10 @@ The Vision route validates image MIME and file signature, enforces a size limit 
 - Business decisions must be checked against authoritative Core records and, where required, a human reviewer.
 - V1 does not implement continuous cloud video streaming, background surveillance, voice control, screen-control automation, or autonomous actions. Those are later modules requiring separate permissions, explicit controls and end-to-end tests.
 
+## Next stage: Cyrillic OCR
+
+The implementation contract, model selection, offline privacy requirements and acceptance gates are documented in [SAMURAI-REAL-VISION-OCR-V1.md](SAMURAI-REAL-VISION-OCR-V1.md). OCR is not implemented or enabled in this revision.
+
 ## Verification
 
 Core unit tests cover image signature/size validation, Responses API request construction, explicit consent, disabled-by-default behavior and unsupported media. Android CI runs debug unit tests, lint and APK assembly. Device validation must still be performed on the target Redmi phone: camera preview, local detector model availability, frame latency, thermal behavior, cloud consent dialog and real Core/API round trip.
