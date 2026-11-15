@@ -29,7 +29,7 @@ GitHub Actions runs unit tests and real Docker integration tests: valid module e
 
 - Python 3.10+.
 - Docker Engine available to the host running the factory.
-- Configure `SAMURAI_FACTORY_IMAGE` to a verified image digest before production. The default `python:3.12-slim` tag is mutable and is used for development/CI only.
+- Configure `SAMURAI_FACTORY_IMAGE` to a verified image digest before production. The default CI image is pinned to the SHA-256 manifest digest verified by GitHub Actions on 15 November 2026. Any override supplied through `SAMURAI_FACTORY_IMAGE` must also use an explicit `@sha256:<64-hex>` digest.
 
 ## Security boundary
 
