@@ -384,7 +384,7 @@ test("HTTP route completes create/promote/rollback/delete through Python worker 
     assert.equal(createdBody.module.sourceReview.decision, "APPROVED");
     assert.deepEqual(createdBody.module.contract, contractV1);
 
-    const failedRun = await fetch(\`${server.base}/modules/http_processor/run\`, {
+    const failedRun = await fetch(`${server.base}/modules/http_processor/run`, {
       method: "POST", headers, body: JSON.stringify({ input: "boom" })
     });
     const failedRunBody = await failedRun.json();
