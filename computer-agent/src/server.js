@@ -23,7 +23,7 @@ function auth(req, res, next) {
   next();
 }
 
-app.get("/health", (_req,res) => res.json({ok:true, service:"SAMURAI Computer Agent", version:"0.2.0"}));
+app.get("/health", (_req,res) => res.json({ok:true, service:"SAMURAI Computer Agent", version:"0.3.0"}));
 
 app.post("/v1/jobs", auth, async (req,res) => {
   let task;
@@ -58,14 +58,24 @@ async function runJob(job,task) {
   let context;
   try {
     context = await browser.newContext({ acceptDownloads:false, serviceWorkers:"block" });
+    // Check every browser request, including redirects, navigations and subresources.
+    // This is defense in depth; production still requires network-level egress isolation
+    // to close DNS-rebinding and non-HTTP browser-channel gaps.
+    await context.route("**/*", async (route) => {
+      const allowed = await isAllowedHost(route.request().url(), task.allowedHosts);
+      if (!allowed) return route.abort("blockedbyclient");
+      return route.continue();
+    });
     const page = await context.newPage();
     const journal = [];
     await page.goto(task.url,{waitUntil:"domcontentloaded",timeout:30000});
-    journal.push({action:"navigate",url:page.url(),at:new Date().toISOString()});
+    const initialUrl = inspectResult(page.url());
+    if (!initialUrl.allowed) throw gateError(initialUrl);
+    journal.push({action:"navigate",url:initialUrl.value,at:new Date().toISOString()});
     for (const step of task.steps) {
       if (step.action === "navigate") {
         const next = new URL(step.value, page.url());
-        if (!isAllowedHost(next.toString(),task.allowedHosts)) throw new Error("NAVIGATION_OUTSIDE_ALLOWED_HOSTS");
+        if (!(await isAllowedHost(next.toString(),task.allowedHosts))) throw new Error("NAVIGATION_OUTSIDE_ALLOWED_HOSTS");
         await page.goto(next.toString(),{waitUntil:"domcontentloaded",timeout:30000});
       } else {
         const locator = page.locator(step.target).first();
@@ -92,8 +102,12 @@ async function runJob(job,task) {
       }
       journal.push({action:step.action,target:step.target || null,at:new Date().toISOString()});
     }
+    const safeUrl = inspectResult(page.url());
+    const safeTitle = inspectResult(await page.title());
+    if (!safeUrl.allowed) throw gateError(safeUrl);
+    if (!safeTitle.allowed) throw gateError(safeTitle);
     job.status = "completed";
-    job.result = { finalUrl:page.url(), title:await page.title(), journal };
+    job.result = { finalUrl:safeUrl.value, title:safeTitle.value, journal };
     job.finishedAt = new Date().toISOString();
     await context.close();
   } finally {
