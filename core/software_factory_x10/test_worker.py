@@ -53,6 +53,18 @@ class WorkerProtocolTests(unittest.TestCase):
             self.assertTrue(deleted["deleted"])
             self.assertEqual(handle_request({"action": "list"}, tmp)["modules"], {})
 
+    def test_run_action_invokes_active_module(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            handle_request({"action": "create", "name": "processor", "source": GOOD}, tmp, runner=FakeRunner())
+            result = handle_request({"action": "run", "name": "processor", "input": [3, 4]}, tmp, runner=FakeRunner())
+            self.assertEqual(result["module"]["result"], {"received": [3, 4]})
+            self.assertEqual(result["module"]["version"], 1)
+
+    def test_run_action_requires_input_field(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaisesRegex(ValueError, "RUN_INPUT_REQUIRED"):
+                handle_request({"action": "run", "name": "processor"}, tmp, runner=FakeRunner())
+
     def test_rejects_unknown_action(self):
         with tempfile.TemporaryDirectory() as tmp:
             with self.assertRaisesRegex(ValueError, "ACTION_INVALID"):
