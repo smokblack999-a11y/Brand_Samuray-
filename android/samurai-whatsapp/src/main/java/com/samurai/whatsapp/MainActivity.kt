@@ -48,30 +48,54 @@ class MainActivity : Activity() {
         }
 
         when (requestCode) {
-            REQUEST_IMPORT_MEDIA -> runCatching {
-                MediaVault.importFromUri(this, uri)
-            }.onSuccess { item ->
-                Toast.makeText(this, "Добавлено в Media Vault: ${item.displayName}", Toast.LENGTH_SHORT).show()
-                refresh()
-            }.onFailure { error ->
-                Toast.makeText(this, error.message ?: "Не удалось импортировать файл", Toast.LENGTH_LONG).show()
+            REQUEST_IMPORT_MEDIA -> {
+                Thread({
+                    val result = runCatching {
+                        MediaVault.importFromUri(applicationContext, uri)
+                    }
+                    runOnUiThread {
+                        result.onSuccess { item ->
+                            Toast.makeText(
+                                this,
+                                "Добавлено в Media Vault: ${item.displayName}",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        }.onFailure { error ->
+                            Toast.makeText(
+                                this,
+                                error.message ?: "Не удалось импортировать файл",
+                                Toast.LENGTH_LONG
+                            ).show()
+                        }
+                        refresh()
+                    }
+                }, "samurai-media-import").start()
             }
 
             REQUEST_EXPORT_MEDIA -> {
                 val itemId = pendingExportId
                 pendingExportId = null
                 if (itemId != null) {
-                    runCatching {
-                        MediaVault.exportToUri(this, itemId, uri)
-                    }.onSuccess {
-                        Toast.makeText(this, "Файл экспортирован", Toast.LENGTH_SHORT).show()
-                    }.onFailure { error ->
-                        Toast.makeText(this, error.message ?: "Не удалось экспортировать файл", Toast.LENGTH_LONG).show()
-                    }
+                    Thread({
+                        val result = runCatching {
+                            MediaVault.exportToUri(applicationContext, itemId, uri)
+                        }
+                        runOnUiThread {
+                            result.onSuccess {
+                                Toast.makeText(this, "Файл экспортирован", Toast.LENGTH_SHORT).show()
+                            }.onFailure { error ->
+                                Toast.makeText(
+                                    this,
+                                    error.message ?: "Не удалось экспортировать файл",
+                                    Toast.LENGTH_LONG
+                                ).show()
+                            }
+                            refresh()
+                        }
+                    }, "samurai-media-export").start()
                 }
             }
         }
-        refresh()
     }
 
     private fun render() {
