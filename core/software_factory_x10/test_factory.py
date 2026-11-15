@@ -1,6 +1,5 @@
 import tempfile
 import unittest
-import os
 from pathlib import Path
 from software_factory_x10.factory import SoftwareFactory
 from software_factory_x10.validation import validate_name, validate_source, ValidationError
@@ -61,19 +60,19 @@ class DockerRunnerIntegrationTests(unittest.TestCase):
         from software_factory_x10.runner import DockerSandboxRunner
         with tempfile.TemporaryDirectory() as tmp:
             module = Path(tmp) / "module.py"
-            module.write_text("def run(data):\\n    return list(data)\\n")
+            module.write_text("def run(data):\n    return list(data)\n")
             DockerSandboxRunner(timeout=15).run_smoke_test(module)
 
     def test_real_docker_runner_denies_network(self):
         from software_factory_x10.runner import DockerSandboxRunner
         source = (
-            "import socket\\n"
-            "def run(data):\\n"
-            "    try:\\n"
-            "        socket.create_connection(('1.1.1.1', 80), timeout=1)\\n"
-            "    except OSError:\\n"
-            "        return data\\n"
-            "    raise AssertionError('NETWORK_AVAILABLE')\\n"
+            "import socket\n"
+            "def run(data):\n"
+            "    try:\n"
+            "        socket.create_connection(('1.1.1.1', 80), timeout=1)\n"
+            "    except OSError:\n"
+            "        return data\n"
+            "    raise AssertionError('NETWORK_AVAILABLE')\n"
         )
         with tempfile.TemporaryDirectory() as tmp:
             module = Path(tmp) / "module.py"
@@ -84,6 +83,6 @@ class DockerRunnerIntegrationTests(unittest.TestCase):
         from software_factory_x10.runner import DockerSandboxRunner
         with tempfile.TemporaryDirectory() as tmp:
             module = Path(tmp) / "module.py"
-            module.write_text("def run(data):\\n    return ['wrong']\\n")
+            module.write_text("def run(data):\n    return ['wrong']\n")
             with self.assertRaises(RuntimeError):
                 DockerSandboxRunner(timeout=15).run_smoke_test(module)
