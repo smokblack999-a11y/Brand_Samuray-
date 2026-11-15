@@ -64,6 +64,8 @@ def _validate_metadata(meta: Any) -> None:
                 _validate_source_review(entry["sourceReview"])
             if number == meta["version"] and digest == meta["sha256"]:
                 active_found = True
+                if "sourceReview" in meta and entry.get("sourceReview", meta["sourceReview"]) != meta["sourceReview"]:
+                    raise ValueError("REGISTRY_ACTIVE_SOURCE_REVIEW_MISMATCH")
         if not active_found:
             raise ValueError("REGISTRY_ACTIVE_VERSION_INVALID")
 
