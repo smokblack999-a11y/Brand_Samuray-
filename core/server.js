@@ -27,6 +27,14 @@ const LEAD_RATE_LIMIT_WINDOW_MS = Math.max(1000, Number(process.env.LEAD_RATE_LI
 const LEAD_RATE_LIMIT_MAX = Math.max(1, Number(process.env.LEAD_RATE_LIMIT_MAX || 20));
 const WEBAPP_MAX_MEDIA_BYTES = Math.max(1024 * 1024, Number(process.env.WEBAPP_MAX_MEDIA_BYTES || 50 * 1024 * 1024));
 const WEBAPP_MEDIA_DIR = process.env.MEDIA_DIR || path.join(process.env.DATA_DIR || path.join(__dirname, "data"), "media");
+const SOFTWARE_FACTORY_ENABLED = String(process.env.SOFTWARE_FACTORY_ENABLED || "false").toLowerCase() === "true";
+
+if (SOFTWARE_FACTORY_ENABLED) {
+  if (!API_KEY) throw new Error("Software Factory requires CORE_API_KEY");
+  if (process.env.SOFTWARE_FACTORY_MODE !== "docker") {
+    throw new Error("Software Factory startup blocked: SOFTWARE_FACTORY_MODE must be exactly docker");
+  }
+}
 
 if (process.env.NODE_ENV === "production") {
   const missing = [];
@@ -79,6 +87,12 @@ const leadRateLimit = createRateLimiter({ windowMs: LEAD_RATE_LIMIT_WINDOW_MS, m
 const dualRateLimit = createRateLimiter({ windowMs: Math.max(1000, Number(process.env.DUAL_AI_RATE_LIMIT_WINDOW_MS || 60000)), max: Math.max(1, Number(process.env.DUAL_AI_RATE_LIMIT_MAX || 10)) });
 app.use("/dual-ai", express.static(path.join(__dirname, "dual-ai", "public"), { index: "index.html" }));
 app.use("/mini-app", express.static(path.join(__dirname, "mini-app"), { index: "index.html" }));
+
+if (SOFTWARE_FACTORY_ENABLED) {
+  const { assertFactoryWorkerReady, createSoftwareFactoryRouter } = require("./software-factory-http");
+  assertFactoryWorkerReady();
+  app.use("/v1/software-factory", createSoftwareFactoryRouter({ requireApiKey }));
+}
 
 app.get("/health", (_req, res) => res.json({ ok: true, service: "SamuraiOS Core", version: "2.7.0" }));
 app.get("/ready", (req, res) => {
