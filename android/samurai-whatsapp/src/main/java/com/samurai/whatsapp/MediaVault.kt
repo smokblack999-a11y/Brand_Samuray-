@@ -47,8 +47,8 @@ internal object MediaVault {
     private const val MAX_TOTAL_BYTES = 1024L * 1024L * 1024L
     private const val BUFFER_SIZE = 16 * 1024
 
-    fun importFromUri(context: Context, uri: Uri): MediaVaultItem {
-        val mimeType = context.contentResolver.getType(uri) ?: "application/octet-stream"
+    fun importFromUri(context: Context, uri: Uri, mimeTypeOverride: String? = null): MediaVaultItem {
+        val mimeType = mimeTypeOverride ?: context.contentResolver.getType(uri) ?: "application/octet-stream"
         require(isSupportedMimeType(mimeType)) {
             "Only image, video and audio files can be added to Media Vault"
         }
