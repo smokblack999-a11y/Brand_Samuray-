@@ -73,7 +73,12 @@ class SoftwareFactory:
             try:
                 self.registry.put(name, metadata)
             except Exception:
-                # Compensate if registry persistence fails after the module was published.
+                # Compensate even if the atomic registry replace succeeded but a later
+                # durability operation reported an error.
+                try:
+                    self.registry.remove(name)
+                except Exception:
+                    pass
                 target.unlink(missing_ok=True)
                 _fsync_dir(self.modules)
                 published = False
@@ -82,11 +87,16 @@ class SoftwareFactory:
             return {"name": name, **metadata}
         finally:
             staged.unlink(missing_ok=True)
-            # If any operation after hard-link publication failed, don't leave an
-            # unregistered module behind. Registry.put performs its own atomic write.
-            if published and name not in self.registry.list():
-                target.unlink(missing_ok=True)
-                _fsync_dir(self.modules)
+            # Failure between hard-link publication and registry commit must not
+            # leave a module that is invisible to the registry.
+            if published:
+                try:
+                    registered = name in self.registry.list()
+                except Exception:
+                    registered = False
+                if not registered:
+                    target.unlink(missing_ok=True)
+                    _fsync_dir(self.modules)
 
     def destroy(self, name: str) -> bool:
         name = validate_name(name)
