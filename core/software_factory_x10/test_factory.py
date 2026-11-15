@@ -184,7 +184,7 @@ class DockerRunnerIntegrationTests(unittest.TestCase):
         from software_factory_x10.runner import DockerSandboxRunner
         with tempfile.TemporaryDirectory() as tmp:
             module = Path(tmp) / "module.py"
-            module.write_text("import time\\ndef run(data):\\n    time.sleep(20)\\n    return data\\n")
+            module.write_text("import time\ndef run(data):\n    time.sleep(20)\n    return data\n")
             with self.assertRaisesRegex(RuntimeError, "SANDBOX_TIMEOUT"):
                 DockerSandboxRunner(timeout=3).run_smoke_test(module)
         result = subprocess.run(
