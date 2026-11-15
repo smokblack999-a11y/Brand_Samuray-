@@ -8,6 +8,7 @@ const { createRateLimiter } = require("./rate-limit");
 const MAX_SOURCE_BYTES = 64 * 1024;
 const MAX_WORKER_OUTPUT_BYTES = 1024 * 1024;
 const DEFAULT_WORKER_TIMEOUT_MS = 25000;
+const DEFAULT_SANDBOX_IMAGE = "python:3.12-slim@sha256:5e2bdb1b0d542d5039cffb8181c65930093949194a65c365dfb1b0fe13a4fa5b";
 
 class FactoryBridgeError extends Error {
   constructor(code, status = 500) {
@@ -45,7 +46,16 @@ function createFactoryBridge(options = {}) {
     return new Promise((resolve, reject) => {
       const child = spawn(python, [workerPath], {
         cwd: __dirname,
-        env: { ...process.env, SAMURAI_FACTORY_ROOT: root },
+        env: {
+          PATH: process.env.PATH || "",
+          HOME: process.env.HOME || "",
+          TMPDIR: process.env.TMPDIR || process.env.TMP || "/tmp",
+          LANG: process.env.LANG || "C.UTF-8",
+          LC_ALL: process.env.LC_ALL || "",
+          LD_LIBRARY_PATH: process.env.LD_LIBRARY_PATH || "",
+          SAMURAI_FACTORY_ROOT: root,
+          SAMURAI_FACTORY_IMAGE: process.env.SAMURAI_FACTORY_IMAGE || DEFAULT_SANDBOX_IMAGE
+        },
         shell: false,
         stdio: ["pipe", "pipe", "ignore"]
       });
@@ -109,6 +119,16 @@ function assertFactoryWorkerReady(options = {}) {
   });
   if (dockerCheck.error || dockerCheck.status !== 0 || !String(dockerCheck.stdout || "").trim()) {
     throw new Error("Software Factory is enabled but the Docker daemon is unavailable");
+  }
+  const image = process.env.SAMURAI_FACTORY_IMAGE || DEFAULT_SANDBOX_IMAGE;
+  if (!/^[^@\\s]+@sha256:[0-9a-f]{64}$/.test(image)) {
+    throw new Error("Software Factory requires a digest-pinned SAMURAI_FACTORY_IMAGE");
+  }
+  const imageCheck = spawnSync("docker", ["image", "inspect", image], {
+    encoding: "utf8", timeout: 7000, stdio: ["ignore", "ignore", "ignore"]
+  });
+  if (imageCheck.error || imageCheck.status !== 0) {
+    throw new Error("Software Factory sandbox image is not preloaded; pull the configured digest before starting Core");
   }
 }
 
