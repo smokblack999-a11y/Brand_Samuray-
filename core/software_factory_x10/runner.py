@@ -1,4 +1,5 @@
 from __future__ import annotations
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -8,8 +9,8 @@ class SandboxUnavailable(RuntimeError):
 
 class DockerSandboxRunner:
     """Runs one module inside a disposable, no-network Docker container."""
-    def __init__(self, image: str = "python:3.12-slim", timeout: int = 8):
-        self.image = image
+    def __init__(self, image: str | None = None, timeout: int = 8):
+        self.image = image or os.environ.get("SAMURAI_FACTORY_IMAGE", "python:3.12-slim")
         self.timeout = max(1, min(int(timeout), 30))
 
     def run_smoke_test(self, module_file: Path) -> None:
