@@ -79,7 +79,16 @@ jobs:
           arch: x86_64
           profile: pixel_6
           emulator-options: -no-window -no-audio -no-boot-anim
-          script: cd android && ./gradlew :samurai-whatsapp:connectedDebugAndroidTest --stacktrace
+          script: |
+            cd android
+            adb logcat -c
+            set +e
+            ./gradlew :samurai-whatsapp:connectedDebugAndroidTest --stacktrace
+            TEST_EXIT=$?
+            echo "===== SAMURAI WHATSAPP EMULATOR CRASH DIAGNOSTICS ====="
+            adb logcat -d -v threadtime | grep -E -i 'FATAL EXCEPTION|AndroidRuntime|Instrumentation|TestRunner|Process .*died|crash_dump|tombstoned' | tail -n 250 || true
+            echo "===== END EMULATOR DIAGNOSTICS ====="
+            exit "$TEST_EXIT"
 
       - name: Upload APKs
         if: success()
