@@ -37,3 +37,14 @@ def validate_contract(contract: Any = None) -> dict[str, Any]:
         raise ValueError("CONTRACT_TOO_LARGE")
     # Round-trip ensures the registry only stores ordinary JSON values.
     return json.loads(encoded)
+
+
+def validate_input(value: Any) -> Any:
+    """Canonicalize one JSON input value for isolated module invocation."""
+    try:
+        encoded = json.dumps(value, ensure_ascii=False, separators=(",", ":"), allow_nan=False).encode("utf-8")
+    except (TypeError, ValueError, UnicodeEncodeError, RecursionError) as exc:
+        raise ValueError("RUN_INPUT_INVALID") from exc
+    if len(encoded) > MAX_CONTRACT_BYTES:
+        raise ValueError("RUN_INPUT_TOO_LARGE")
+    return json.loads(encoded)
