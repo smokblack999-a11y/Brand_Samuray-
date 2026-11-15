@@ -6,6 +6,7 @@ from software_factory_x10.contract import (
     MAX_CONTRACT_BYTES,
     MAX_TEST_CASES,
     validate_contract,
+    validate_input,
 )
 
 
@@ -47,6 +48,19 @@ class ContractValidationTests(unittest.TestCase):
         contract = {"cases": [{"input": "x" * MAX_CONTRACT_BYTES, "expected": "x"}]}
         with self.assertRaisesRegex(ValueError, "CONTRACT_TOO_LARGE"):
             validate_contract(contract)
+
+    def test_validate_input_canonicalizes_json_data(self):
+        self.assertEqual(validate_input({"value": [1, True, None]}), {"value": [1, True, None]})
+
+    def test_validate_input_rejects_non_json_values(self):
+        with self.assertRaisesRegex(ValueError, "RUN_INPUT_INVALID"):
+            validate_input(float("nan"))
+        with self.assertRaisesRegex(ValueError, "RUN_INPUT_INVALID"):
+            validate_input(object())
+
+    def test_validate_input_enforces_32k_limit(self):
+        with self.assertRaisesRegex(ValueError, "RUN_INPUT_TOO_LARGE"):
+            validate_input("x" * (MAX_CONTRACT_BYTES + 1))
 
     def test_rejects_unknown_top_level_fields(self):
         with self.assertRaisesRegex(ValueError, "CONTRACT_INVALID"):
