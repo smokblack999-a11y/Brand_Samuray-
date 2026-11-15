@@ -102,8 +102,8 @@ class FactoryTests(unittest.TestCase):
                 return factory.create("contended", source)
             except FileExistsError:
                 return None
-        source_a = "def run(data):\n    return list(data)\n"
-        source_b = "def run(data):\n    return data[:]\n"
+        source_a = GOOD
+        source_b = GOOD.replace("return list(data)", "return data[:]")
         with ThreadPoolExecutor(max_workers=2) as pool:
             a = pool.submit(attempt, first_factory, source_a)
             b = pool.submit(attempt, second_factory, source_b)
