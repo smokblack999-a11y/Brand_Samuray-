@@ -37,5 +37,5 @@ test("rejects malformed host scope", () => {
 });
 
 test("requires HTTPS navigation URL", () => {
-  assert.throws(() => validateTask({url:"https://example.com",steps:[{action:"navigate",value:"http://evil.com"}]}), /UNSUPPORTED_ACTION|NAVIGATION_URL_REQUIRED/);
+  assert.throws(() => validateTask({url:"https://example.com",steps:[{action:"navigate",value:"http://evil.com"}]}), /NAVIGATION_OUTSIDE_ALLOWED_HOSTS/);
 });
