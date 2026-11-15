@@ -43,8 +43,11 @@ class DockerSandboxRunner:
         docker = shutil.which("docker")
         if not docker:
             raise SandboxUnavailable("DOCKER_SANDBOX_UNAVAILABLE")
-        module_file = Path(module_file).resolve()
-        if not module_file.is_file() or module_file.is_symlink():
+        module_file = Path(module_file)
+        if module_file.is_symlink():
+            raise ValueError("SANDBOX_MODULE_FILE_INVALID")
+        module_file = module_file.resolve()
+        if not module_file.is_file():
             raise ValueError("SANDBOX_MODULE_FILE_INVALID")
 
         job_label = uuid.uuid4().hex
