@@ -6,7 +6,6 @@ import android.content.ComponentName
 import android.content.Intent
 import android.os.Bundle
 import android.provider.Settings
-import android.service.notification.NotificationListenerService
 import android.text.format.DateFormat
 import android.view.Gravity
 import android.widget.Button
@@ -151,7 +150,7 @@ class MainActivity : Activity() {
         }
 
         val records = NotificationArchive.readAll(this)
-        archiveView.text = "Записей: ${records.size} / 200\\n\\n" + if (records.isEmpty()) {
+        archiveView.text = "Записей: ${records.size} / 200\n\n" + if (records.isEmpty()) {
             "Пока нет записей. Разрешите доступ и дождитесь нового уведомления WhatsApp."
         } else {
             records.joinToString("\n\n────────────────\n\n") { item ->
