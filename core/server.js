@@ -34,6 +34,9 @@ if (SOFTWARE_FACTORY_ENABLED) {
   if (process.env.SOFTWARE_FACTORY_MODE !== "docker") {
     throw new Error("Software Factory startup blocked: SOFTWARE_FACTORY_MODE must be exactly docker");
   }
+  if (REQUEST_TIMEOUT_MS < 30000) {
+    throw new Error("Software Factory requires REQUEST_TIMEOUT_MS of at least 30000");
+  }
 }
 
 if (process.env.NODE_ENV === "production") {
