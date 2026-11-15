@@ -126,6 +126,7 @@ class QuietOutput:
         pass
 
 real_stdout = sys.stdout
+execution_error = None
 sys.stdout = QuietOutput()
 try:
     spec = importlib.util.spec_from_file_location("candidate", "/module.py")
@@ -133,19 +134,28 @@ try:
     spec.loader.exec_module(module)
     value = json.loads(sys.argv[1])
     result = module.run(value)
+except Exception as exc:
+    execution_error = type(exc).__name__.upper()
 finally:
     sys.stdout = real_stdout
 
-try:
-    encoded = json.dumps(result, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
-except (TypeError, ValueError, RecursionError):
-    real_stdout.write('{"ok":false,"error":"MODULE_OUTPUT_INVALID"}')
+if execution_error:
+    real_stdout.write(json.dumps({
+        "ok": False,
+        "error": "MODULE_EXECUTION_FAILED",
+        "kind": execution_error
+    }, separators=(",", ":")))
 else:
-    raw = encoded.encode("utf-8")
-    if len(raw) > 32768:
-        real_stdout.write('{"ok":false,"error":"MODULE_OUTPUT_TOO_LARGE"}')
+    try:
+        encoded = json.dumps(result, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
+    except (TypeError, ValueError, RecursionError):
+        real_stdout.write('{"ok":false,"error":"MODULE_OUTPUT_INVALID"}')
     else:
-        real_stdout.write(json.dumps({"ok": True, "result": result}, ensure_ascii=False, separators=(",", ":"), allow_nan=False))
+        raw = encoded.encode("utf-8")
+        if len(raw) > 32768:
+            real_stdout.write('{"ok":false,"error":"MODULE_OUTPUT_TOO_LARGE"}')
+        else:
+            real_stdout.write(json.dumps({"ok": True, "result": result}, ensure_ascii=False, separators=(",", ":"), allow_nan=False))
 real_stdout.flush()
 """
         cmd = [
@@ -227,5 +237,9 @@ real_stdout.flush()
             code = response.get("error")
             if code in {"MODULE_OUTPUT_TOO_LARGE", "MODULE_OUTPUT_INVALID"}:
                 raise RuntimeError(code)
+            if code == "MODULE_EXECUTION_FAILED":
+                kind = response.get("kind", "UNKNOWN")
+                safe_kind = re.sub(r"[^A-Z0-9_]", "", str(kind).upper())[:40] or "UNKNOWN"
+                raise RuntimeError(f"MODULE_EXECUTION_FAILED_{safe_kind}")
             raise RuntimeError("MODULE_OUTPUT_INVALID")
         return response.get("result")
