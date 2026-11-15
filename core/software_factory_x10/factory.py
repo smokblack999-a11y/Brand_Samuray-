@@ -1,4 +1,5 @@
 from __future__ import annotations
+from contextlib import contextmanager
 import hashlib
 import os
 from pathlib import Path
@@ -6,6 +7,11 @@ import shutil
 import tempfile
 import threading
 import uuid
+
+try:
+    import fcntl
+except ImportError:  # pragma: no cover - POSIX hosts provide fcntl
+    fcntl = None
 
 from .registry import Registry
 from .runner import DockerSandboxRunner
@@ -43,6 +49,24 @@ class SoftwareFactory:
         self.registry = Registry(self.root)
         self.runner = runner or DockerSandboxRunner()
         self._operation_lock = threading.RLock()
+        self._lock_file = self.root / ".factory.lock"
+
+    @contextmanager
+    def _operation_guard(self):
+        # Serialize file + registry transitions across threads and POSIX processes.
+        with self._operation_lock:
+            flags = os.O_CREAT | os.O_RDWR | getattr(os, "O_NOFOLLOW", 0)
+            fd = os.open(self._lock_file, flags, 0o600)
+            try:
+                if fcntl is not None:
+                    fcntl.flock(fd, fcntl.LOCK_EX)
+                yield
+            finally:
+                try:
+                    if fcntl is not None:
+                        fcntl.flock(fd, fcntl.LOCK_UN)
+                finally:
+                    os.close(fd)
 
     def _version_dir(self, name: str, create: bool = False) -> Path:
         path = self.versions / validate_name(name)
@@ -95,7 +119,7 @@ class SoftwareFactory:
     def create(self, name: str, source: str) -> dict:
         name = validate_name(name)
         validate_source(source)
-        with self._operation_lock:
+        with self._operation_guard():
             target = self.modules / f"{name}.py"
             if target.exists() or target.is_symlink() or name in self.registry.list():
                 raise FileExistsError("MODULE_ALREADY_EXISTS")
@@ -105,6 +129,7 @@ class SoftwareFactory:
             version_file = version_dir / f"v1-{digest}.py"
             published = False
             version_published = False
+            registry_write_started = False
             metadata = {
                 "sha256": digest,
                 "status": "validated",
@@ -124,21 +149,15 @@ class SoftwareFactory:
                 os.chmod(target, 0o440, follow_symlinks=False)
                 _fsync_dir(version_dir)
                 _fsync_dir(self.modules)
-                try:
-                    self.registry.put(name, metadata)
-                except Exception:
-                    try:
-                        self.registry.remove(name)
-                    except Exception:
-                        pass
-                    raise
+                registry_write_started = True
+                self.registry.put(name, metadata)
                 return {"name": name, **metadata}
             except Exception:
                 if published:
                     target.unlink(missing_ok=True)
                 if version_published:
                     version_file.unlink(missing_ok=True)
-                if name in self.registry.list():
+                if registry_write_started:
                     try:
                         self.registry.remove(name)
                     except Exception:
@@ -155,7 +174,7 @@ class SoftwareFactory:
         name = validate_name(name)
         validate_source(source)
         digest = hashlib.sha256(source.encode("utf-8")).hexdigest()
-        with self._operation_lock:
+        with self._operation_guard():
             metadata = self.registry.list().get(name)
             if not metadata:
                 raise FileNotFoundError("MODULE_NOT_REGISTERED")
@@ -222,7 +241,7 @@ class SoftwareFactory:
     def rollback(self, name: str, target_version: int | None = None) -> dict:
         """Switch active code back to a previously validated immutable version."""
         name = validate_name(name)
-        with self._operation_lock:
+        with self._operation_guard():
             metadata = self.registry.list().get(name)
             if not metadata:
                 raise FileNotFoundError("MODULE_NOT_REGISTERED")
@@ -264,7 +283,7 @@ class SoftwareFactory:
 
     def destroy(self, name: str) -> bool:
         name = validate_name(name)
-        with self._operation_lock:
+        with self._operation_guard():
             metadata = self.registry.list().get(name)
             if not metadata:
                 return False
