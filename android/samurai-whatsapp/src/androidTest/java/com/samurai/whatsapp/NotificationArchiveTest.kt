@@ -1,6 +1,8 @@
 package com.samurai.whatsapp
 
+import android.content.ComponentName
 import android.content.Context
+import android.content.pm.PackageManager
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.After
@@ -68,6 +70,28 @@ class NotificationArchiveTest {
         )
 
         assertTrue(NotificationArchive.readAll(context).isEmpty())
+    }
+
+    @Test
+    fun manifestKeepsListenerPrivateAndAppOffline() {
+        val service = context.packageManager.getServiceInfo(
+            ComponentName(context, WhatsAppNotificationListener::class.java),
+            0
+        )
+        assertFalse(service.exported)
+        assertEquals("android.permission.BIND_NOTIFICATION_LISTENER_SERVICE", service.permission)
+
+        @Suppress("DEPRECATION")
+        val packageInfo = context.packageManager.getPackageInfo(
+            context.packageName,
+            PackageManager.GET_PERMISSIONS
+        )
+        val permissions = packageInfo.requestedPermissions.orEmpty()
+        assertFalse("Companion must not request INTERNET", permissions.contains("android.permission.INTERNET"))
+        assertFalse(
+            "Archive must not be included in Android backup",
+            context.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_ALLOW_BACKUP != 0
+        )
     }
 
     @Test
