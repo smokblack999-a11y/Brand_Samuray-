@@ -59,6 +59,28 @@ class NotificationArchiveTest {
     }
 
     @Test
+    fun clearRetiresOldKeyAndNewArchiveCanBeCreated() {
+        NotificationArchive.save(
+            context = context,
+            packageName = "com.whatsapp",
+            title = "Before clear",
+            body = "Old encrypted data",
+            timestamp = 1_800_000_000_005L
+        )
+        NotificationArchive.clear(context)
+        assertTrue(NotificationArchive.readAll(context).isEmpty())
+
+        NotificationArchive.save(
+            context = context,
+            packageName = "com.whatsapp",
+            title = "After clear",
+            body = "New encrypted data",
+            timestamp = 1_800_000_000_006L
+        )
+        assertEquals("New encrypted data", NotificationArchive.readAll(context).single().body)
+    }
+
+    @Test
     fun duplicateNotificationUpdateDoesNotCreateAnotherEntry() {
         NotificationArchive.save(
             context = context,
