@@ -18,6 +18,33 @@ _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _MAX_REGISTRY_BYTES = 1_048_576
 
 
+def _validate_metadata(meta: Any) -> None:
+    if not isinstance(meta, dict) or not _SHA256.fullmatch(str(meta.get("sha256", ""))):
+        raise ValueError("REGISTRY_METADATA_INVALID")
+    if meta.get("status") != "validated" or meta.get("runtime") != "docker-no-network":
+        raise ValueError("REGISTRY_METADATA_INVALID")
+    if "version" in meta or "versions" in meta:
+        if not isinstance(meta.get("version"), int) or meta["version"] < 1:
+            raise ValueError("REGISTRY_VERSION_INVALID")
+        history = meta.get("versions")
+        if not isinstance(history, list) or not history:
+            raise ValueError("REGISTRY_VERSION_HISTORY_INVALID")
+        seen = set()
+        active_found = False
+        for entry in history:
+            if not isinstance(entry, dict):
+                raise ValueError("REGISTRY_VERSION_HISTORY_INVALID")
+            number = entry.get("version")
+            digest = entry.get("sha256")
+            if not isinstance(number, int) or number < 1 or number in seen or not _SHA256.fullmatch(str(digest or "")):
+                raise ValueError("REGISTRY_VERSION_HISTORY_INVALID")
+            seen.add(number)
+            if number == meta["version"] and digest == meta["sha256"]:
+                active_found = True
+        if not active_found:
+            raise ValueError("REGISTRY_ACTIVE_VERSION_INVALID")
+
+
 class Registry:
     """Atomic metadata registry with thread and POSIX process write locking."""
     def __init__(self, root: Path):
@@ -71,17 +98,13 @@ class Registry:
         for name, meta in data.items():
             if not isinstance(name, str) or not _NAME.fullmatch(name):
                 raise ValueError("REGISTRY_INVALID")
-            if not isinstance(meta, dict) or not _SHA256.fullmatch(str(meta.get("sha256", ""))):
-                raise ValueError("REGISTRY_INVALID")
-            if meta.get("status") != "validated" or meta.get("runtime") != "docker-no-network":
-                raise ValueError("REGISTRY_INVALID")
+            _validate_metadata(meta)
         return data
 
     def put(self, name: str, metadata: dict[str, Any]) -> None:
         if not isinstance(name, str) or not _NAME.fullmatch(name):
             raise ValueError("REGISTRY_NAME_INVALID")
-        if not isinstance(metadata, dict) or not _SHA256.fullmatch(str(metadata.get("sha256", ""))):
-            raise ValueError("REGISTRY_METADATA_INVALID")
+        _validate_metadata(metadata)
         with self._exclusive():
             data = self.list()
             data[name] = dict(metadata)
