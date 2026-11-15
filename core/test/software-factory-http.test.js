@@ -210,6 +210,7 @@ test("HTTP route completes create/promote/rollback/delete through Python worker 
     const createdBody = await created.json();
     assert.equal(created.status, 201);
     assert.equal(createdBody.module.version, 1);
+    assert.equal(createdBody.module.sourceReview.decision, "APPROVED");
 
     const promoted = await fetch(`${server.base}/modules/http_processor/promote`, {
       method: "POST", headers, body: JSON.stringify({ source: sourceV2 })
@@ -217,6 +218,7 @@ test("HTTP route completes create/promote/rollback/delete through Python worker 
     const promotedBody = await promoted.json();
     assert.equal(promoted.status, 200);
     assert.equal(promotedBody.module.version, 2);
+    assert.equal(promotedBody.module.sourceReview.decision, "APPROVED");
 
     const rolledBack = await fetch(`${server.base}/modules/http_processor/rollback`, {
       method: "POST", headers, body: JSON.stringify({})
@@ -225,6 +227,7 @@ test("HTTP route completes create/promote/rollback/delete through Python worker 
     assert.equal(rolledBack.status, 200);
     assert.equal(rollbackBody.module.version, 1);
     assert.equal(rollbackBody.module.rolledBack, true);
+    assert.equal(rollbackBody.module.sourceReview.decision, "APPROVED");
 
     const listed = await fetch(`${server.base}/modules`, { headers: { "X-API-Key": "test-admin-key" } });
     const listBody = await listed.json();
