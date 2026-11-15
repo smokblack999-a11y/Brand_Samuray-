@@ -20,6 +20,11 @@ class FactoryCriticTests(unittest.TestCase):
         self.assertEqual(report["decision"], "BLOCKED")
         self.assertIn("TOP_LEVEL_EXECUTION", {item["code"] for item in report["findings"]})
 
+    def test_blocks_host_introspection_imports(self):
+        for module in ("os", "sys", "subprocess", "pathlib", "importlib"):
+            report = review_source(source(f"import {module}", "def run(data):", "    return list(data)"))
+            self.assertIn("FORBIDDEN_IMPORT", {item["code"] for item in report["findings"]})
+
     def test_blocks_operating_system_process_calls(self):
         report = review_source(source("import os", "def run(data):", "    os.system('id')", "    return list(data)"))
         self.assertIn("FORBIDDEN_OS_PROCESS_CALL", {item["code"] for item in report["findings"]})
