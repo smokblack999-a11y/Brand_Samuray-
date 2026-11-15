@@ -326,6 +326,7 @@ test("worker error status map uses conflict and service-unavailable classes", ()
   assert.equal(statusForCode("RUN_INPUT_INVALID"), 400);
   assert.equal(statusForCode("RUN_INPUT_TOO_LARGE"), 413);
   assert.equal(statusForCode("MODULE_OUTPUT_INVALID"), 502);
+  assert.equal(statusForCode("MODULE_EXECUTION_FAILED_RUNTIMEERROR"), 422);
 });
 
 
@@ -346,7 +347,13 @@ test("HTTP route completes create/promote/rollback/delete through Python worker 
     "content-type": "application/json",
     "X-API-Key": "test-admin-key"
   };
-  const sourceV1 = ["def run(data):", "    return [x * 2 for x in data]", ""].join("\n");
+  const sourceV1 = [
+    "def run(data):",
+    "    if data == 'boom':",
+    "        raise RuntimeError('private internal detail')",
+    "    return [x * 2 for x in data]",
+    ""
+  ].join("\n");
   const sourceV2 = ["def run(data):", "    return [x * 3 for x in data]", ""].join("\n");
   const contractV1 = {
     cases: [
@@ -376,6 +383,15 @@ test("HTTP route completes create/promote/rollback/delete through Python worker 
     assert.equal(createdBody.module.version, 1);
     assert.equal(createdBody.module.sourceReview.decision, "APPROVED");
     assert.deepEqual(createdBody.module.contract, contractV1);
+
+    const failedRun = await fetch(\`${server.base}/modules/http_processor/run\`, {
+      method: "POST", headers, body: JSON.stringify({ input: "boom" })
+    });
+    const failedRunBody = await failedRun.json();
+    assert.equal(failedRun.status, 422);
+    assert.equal(failedRunBody.error.code, "MODULE_EXECUTION_FAILED_RUNTIMEERROR");
+    assert.equal(failedRunBody.error.message, "Software Factory operation failed");
+    assert.equal(JSON.stringify(failedRunBody).includes("private internal detail"), false);
 
     const runV1 = await fetch(`${server.base}/modules/http_processor/run`, {
       method: "POST", headers, body: JSON.stringify({ input: [1, 2] })
