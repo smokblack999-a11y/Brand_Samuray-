@@ -261,7 +261,7 @@ class MainActivity : FragmentActivity() {
         root.addView(heading)
 
         val subtitle = TextView(this).apply {
-            text = "HYBRID PROTOTYPE · V1"
+            text = "SAMURAI EXCLUSIVE · LOCAL-FIRST V1.5"
             textSize = 12f
             setTextColor(0xFF9AA8B5.toInt())
             gravity = Gravity.CENTER
@@ -706,7 +706,7 @@ class MainActivity : FragmentActivity() {
                         val sender = message.sender ?: "Системное событие"
                         "$time · $sender\n${message.text.take(1200)}"
                     }
-                    val suffix = if (messages.size > 80) {
+                    val suffix = if (messages.size > 20) {
                         "\n\nПоказаны первые 20 из ${messages.size} сообщений."
                     } else ""
                     AlertDialog.Builder(this)
