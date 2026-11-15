@@ -27,7 +27,7 @@ No reviewed source establishes a supported way to obtain another person's hidden
 | [Wa Enhancer](https://github.com/Xposed-Modules-Repo/com.wmods.wppenhacer) | Hide Delivered, Hide Blue Ticks, Freeze Last Seen, Hide Typing/Recording, Anti-Revoke, UI changes | Xposed module; GPL-3.0; README says development/bugs may occur. | Independent second source showing the same general feature family; not proof of stable operation. |
 | [WAHA](https://waha.devlike.pro/) | REST API, webhooks, multiple engines, message events, message ACKs, presence subscriptions | Uses unofficial WhatsApp Web engines. Presence documentation explicitly says it is available only when the contact shares presence information. This is not a supported personal-client API. | Optional isolated test harness for event-model research; never a hidden-status bypass and never the primary-account default. |
 | [Baileys](https://github.com/WhiskeySockets/Baileys) / [whatsapp-web.js](https://github.com/pedroslopez/whatsapp-web.js) / [WPPConnect](https://github.com/wppconnect-team/wppconnect) / [whatsmeow](https://github.com/tulir/whatsmeow) | Unofficial multi-device/Web client protocol libraries or browser-driven client automation | Reverse-engineered, non-official integrations; protocol and account compatibility can change. | Review only behind a separate connector interface and dedicated test account. No production dependency by default. |
-| [WhatsApp Archive / Message Memory](https://github.com/Theabidchaudhary/WhatsApp-Archive) | Local notification archive, deleted-message preservation from notification text, privacy-first/no-network design | NotificationListenerService only receives Android notification content; it does not expose WhatsApp's private database or all media. | Validate and improve our existing encrypted notification archive, retention controls and device tests. |
+| [WhatsApp Archive / Message Memory](https://github.com/Theabidchaudhary/WhatsApp-Archive) | Local notification archive, deleted-message preservation from notification text, privacy-first/no-network design | NotificationListenerService only receives Android notification content; it does not expose WhatsApp's private database or all media. | Validate and improve our existing encrypted notification archive, retention controls and device tests. |\n| [NotificationExplorer / My WhatsApp](https://github.com/sinpin/NotificationExplorer) | Notification capture plus import of official WhatsApp `.txt` / `.zip` chat exports; local Room archive, chat UI and duplicate-safe re-import are described | Repository README itself says the project was not compiled in its authoring environment. License was not verified during this review. Export parsing is language/locale-sensitive; imports are user-selected. | Best next safe reference for importing a user's own official chat-export archive; clean-room parser, explicit preview, locale fixtures and encrypted storage. |
 | [Recal / Notification Recorder](https://github.com/aminechraibi/Notification-Recorder) | Notification recorder, chat threading, deduplication, local archive | Depends on notifications being posted with visible previews. | Study deduplication and conversation grouping patterns. |
 | [WASSaver-Android](https://github.com/PBhadoo/WASSaver-Android) | Status saver, deleted-message capture, media browser, local notification history | Uses NotificationListenerService plus media/storage access; its documented permissions include media access and update-check networking. | Study UI/media organization; prefer our stricter permission model and SAF. |
 | [LibreStatus](https://github.com/vaishnav-mandlik/LibreStatus) | Offline status browser/saver, no network/ads/trackers | Reads status media already cached on the device after the user viewed the status; uses Android Storage Access Framework on newer Android versions. | Best low-risk reference for a user-selected local Media Vault / Status Saver. |
@@ -122,7 +122,7 @@ Rules:
 
 ### Track A — Safe companion (current product)
 
-`SAMURAI WhatsApp Android app → local privacy/settings center → encrypted notification archive → event ledger → encrypted Media Vault`
+`SAMURAI WhatsApp Android app → local privacy/settings center → encrypted notification archive → user-imported official chat exports → event ledger → encrypted Media Vault`
 
 - Keep package `com.samurai.whatsapp` separate from WhatsApp.
 - No WhatsApp account credentials or session keys.
@@ -155,7 +155,7 @@ Rules:
 | P0 | Finish current V1 CI and validate Notification Archive on Galaxy A54 | Emulator tests pass, artifact exists, then manual device test confirms notification capture/pause/clear. |
 | P0 research | One Tick feasibility lab specification and source audit | Test matrix, exact host version, root/device risk accepted, separate test endpoint available. |
 | P1 | Message Timeline data model + status provenance | Unit tests prove unknown states remain unknown; dedupe and out-of-order tests pass. |
-| P1 | Local Media Vault + Status Saver import | SAF consent, file encryption, export/delete, no broad storage permission. |
+| P0 | Validate encrypted Media Vault | Emulator tests pass for encrypt/export/tamper/delete/re-key, then real Galaxy A54 import/export/clear test. |\n| P1 | Official chat export importer | User-selected `.txt` / `.zip`, preview, deterministic parser fixtures, duplicate-safe merge, encrypted at-rest data. |\n| P1 | Cached Status Saver | SAF folder grant, visible cached media list, save/share, no broad all-files permission. |
 | P2 | Optional Cloud API webhook connector | Signature validation, status timestamp tests, retry dedupe, secret handling and official test number. |
 | P2 | SAMURAI Control Center upgrades | Clear consent, permission state, local lock, settings and diagnostics. |
 | P3 | Optional per-app network control | Explicit VPN consent, fail-open/closed decision documented, call/message regression tests. |
@@ -196,8 +196,8 @@ Rules:
 - WhatsApp Archive: https://github.com/Theabidchaudhary/WhatsApp-Archive
 - Recal / Notification Recorder: https://github.com/aminechraibi/Notification-Recorder
 - WASSaver Android: https://github.com/PBhadoo/WASSaver-Android
-- LibreStatus: https://github.com/vaishnav-mandlik/LibreStatus
+- LibreStatus: https://github.com/vaishnav-mandlik/LibreStatus\n- NotificationExplorer / My WhatsApp: https://github.com/sinpin/NotificationExplorer\n- MdgWa: https://github.com/xerta555/MdgWa\n- AMWss/WaEnhancer: https://github.com/AMWss/WaEnhancer
 
 ---
 
-**Status of this document:** research and implementation plan only. It does not mean One Tick, Read Tracker, Media Vault, or any other future feature has been implemented or device-tested.
+**Status of this document:** research and implementation plan. Media Vault code has been added to the SAMURAI feature branch, but CI and physical-device validation are pending. One Tick, Read Tracker, official export import and Status Saver remain unimplemented until their respective build and test gates pass.
