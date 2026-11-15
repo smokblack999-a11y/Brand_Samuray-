@@ -31,8 +31,9 @@ function statusForCode(code) {
        "FORBIDDEN_PROCESS_EXIT", "FORBIDDEN_DYNAMIC_IMPORT",
        "FORBIDDEN_DYNAMIC_EXECUTION", "FORBIDDEN_PATH_WRITE",
        "CONTRACT_INVALID", "CONTRACT_CASES_REQUIRED", "CONTRACT_CASE_LIMIT",
-       "CONTRACT_CASE_INVALID"].includes(code) || code.startsWith("SOURCE_")) return 400;
-  if (code === "CONTRACT_TOO_LARGE" || code === "REQUEST_TOO_LARGE") return 413;
+       "CONTRACT_CASE_INVALID", "RUN_INPUT_REQUIRED", "RUN_INPUT_INVALID"].includes(code) || code.startsWith("SOURCE_")) return 400;
+  if (code === "CONTRACT_TOO_LARGE" || code === "RUN_INPUT_TOO_LARGE" || code === "REQUEST_TOO_LARGE" || code === "MODULE_OUTPUT_TOO_LARGE") return 413;
+  if (code === "MODULE_OUTPUT_INVALID") return 502;
   if (["MODULE_ALREADY_EXISTS", "MODULE_HASH_MISMATCH", "NO_PREVIOUS_VERSION",
        "TARGET_VERSION_INVALID", "ACTIVE_MODULE_MISSING_OR_INVALID"].includes(code)) return 409;
   if (["MODULE_NOT_REGISTERED", "ORDER_NOT_FOUND"].includes(code)) return 404;
@@ -188,6 +189,24 @@ function validateHttpContract(contract) {
   return JSON.parse(encoded.toString("utf8"));
 }
 
+function validateHttpInput(value) {
+  let encoded;
+  try {
+    encoded = Buffer.from(JSON.stringify(value), "utf8");
+  } catch (_error) {
+    const error = new Error("RUN_INPUT_INVALID");
+    error.code = error.message;
+    throw error;
+  }
+  if (encoded.length > MAX_CONTRACT_BYTES) {
+    const error = new Error("RUN_INPUT_TOO_LARGE");
+    error.code = error.message;
+    error.status = 413;
+    throw error;
+  }
+  return JSON.parse(encoded.toString("utf8"));
+}
+
 function createSoftwareFactoryRouter(options = {}) {
   if (typeof options.requireApiKey !== "function") throw new TypeError("requireApiKey middleware is required");
   const runWorker = options.runWorker || createFactoryBridge(options);
@@ -259,6 +278,26 @@ function createSoftwareFactoryRouter(options = {}) {
     }
     return dispatch(req, res, { action: "rollback", name: req.params.name, version });
   });
+  router.post("/modules/:name/run", (req, res) => {
+    const body = req.body || {};
+    if (!Object.hasOwn(body, "input")) {
+      return res.status(400).json({
+        ok: false,
+        error: { code: "RUN_INPUT_REQUIRED", message: "input is required", requestId: req.requestId }
+      });
+    }
+    let input;
+    try {
+      input = validateHttpInput(body.input);
+    } catch (error) {
+      return res.status(error.status || 400).json({
+        ok: false,
+        error: { code: error.code || "RUN_INPUT_INVALID", message: "module input is invalid", requestId: req.requestId }
+      });
+    }
+    return dispatch(req, res, { action: "run", name: req.params.name, input });
+  });
+
   router.delete("/modules/:name", (req, res) =>
     dispatch(req, res, { action: "destroy", name: req.params.name })
   );
