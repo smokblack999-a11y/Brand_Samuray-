@@ -1,6 +1,7 @@
 package com.samuraios.app
 
 import androidx.camera.core.ImageAnalysis
+import androidx.camera.core.ExperimentalGetImage
 import androidx.camera.core.ImageProxy
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.objects.ObjectDetection
@@ -20,6 +21,7 @@ class LocalVisionAnalyzer(private val onStatus: (String) -> Unit) : ImageAnalysi
     private val inFlight = AtomicBoolean(false)
     private var lastStatusAt = 0L
 
+    @OptIn(ExperimentalGetImage::class)
     override fun analyze(imageProxy: ImageProxy) {
         val mediaImage = imageProxy.image
         if (mediaImage == null || !inFlight.compareAndSet(false, true)) {
