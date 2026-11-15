@@ -33,7 +33,8 @@ class FactoryTests(unittest.TestCase):
         contract_v1 = {"cases": [{"input": [1, 2], "expected": [2, 4]}]}
         contract_v2 = {"cases": [{"input": [1, 2], "expected": [3, 6]}]}
         first = self.factory.create("processor", GOOD.replace("return list(data)", "return [x * 2 for x in data]"), contract_v1)
-        second = self.factory.promote("processor", "def run(data):\\n    return [x * 3 for x in data]\\n", contract_v2)
+        source_v2 = "\\n".join(["def run(data):", "    return [x * 3 for x in data]", ""])
+        second = self.factory.promote("processor", source_v2, contract_v2)
         self.assertEqual(first["contract"], contract_v1)
         self.assertEqual(second["contract"], contract_v2)
         self.assertEqual(second["versions"][0]["contract"], contract_v1)
@@ -44,7 +45,7 @@ class FactoryTests(unittest.TestCase):
     def test_promote_creates_immutable_version_and_keeps_history(self):
         source_v2 = "def run(data):\n    return data[:]\n"
         first = self.factory.create("processor", GOOD)
-        second = self.factory.promote("processor", source_v2)
+        source_v2 = "\\n".join(["def run(data):", "    return [x * 3 for x in data]", ""])
         self.assertEqual(second["version"], 2)
         self.assertEqual(second["sourceReview"]["decision"], "APPROVED")
         self.assertEqual(second["versions"][1]["sourceReview"]["decision"], "APPROVED")
@@ -169,19 +170,30 @@ class DockerRunnerIntegrationTests(unittest.TestCase):
         from software_factory_x10.runner import DockerSandboxRunner
         with tempfile.TemporaryDirectory() as tmp:
             module = Path(tmp) / "module.py"
-            module.write_text("def run(data):\n    return list(data)\n")
-            DockerSandboxRunner(timeout=15).run_smoke_test(module)
-
+            module.write_text("\n".join(["def run(data):", "    return [x * 2 for x in data]", ""]))
+            contract = {
+                "cases": [
+                    {"input": [1, 2], "expected": [2, 4]},
+                    {"input": [-3, 0], "expected": [-6, 0]},
+                ]
+            }
+            DockerSandboxRunner(timeout=15).run_smoke_test(module, contract)
 
     def test_factory_promote_and_rollback_runs_real_docker(self):
         from software_factory_x10.runner import DockerSandboxRunner
         with tempfile.TemporaryDirectory() as tmp:
             factory = SoftwareFactory(tmp, runner=DockerSandboxRunner(timeout=15))
-            first = factory.create("release_candidate", GOOD)
-            second = factory.promote("release_candidate", "def run(data):\n    return data[:]\n")
+            source_v1 = "\n".join(["def run(data):", "    return [x * 2 for x in data]", ""])
+            source_v2 = "\n".join(["def run(data):", "    return [x * 3 for x in data]", ""])
+            contract_v1 = {"cases": [{"input": [2, 4], "expected": [4, 8]}]}
+            contract_v2 = {"cases": [{"input": [2, 4], "expected": [6, 12]}]}
+            first = factory.create("release_candidate", source_v1, contract_v1)
+            second = factory.promote("release_candidate", source_v2, contract_v2)
             self.assertEqual(second["version"], 2)
+            self.assertEqual(second["contract"], contract_v2)
             rolled = factory.rollback("release_candidate")
             self.assertEqual(rolled["sha256"], first["sha256"])
+            self.assertEqual(rolled["contract"], contract_v1)
             self.assertTrue(factory.destroy("release_candidate"))
 
     def test_real_docker_runner_denies_network(self):
