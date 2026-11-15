@@ -22,7 +22,7 @@ Status labels:
 | Pause/resume archiving | Implemented | Local switch; listener checks flag before persistence |
 | Clear notification archive | Implemented | User-confirmed local deletion and archive-key retirement |
 | Notification retention limit | Implemented | Maximum 200 records |
-| **Encrypted Media Vault** | **Implemented in branch; CI pending** | Android system document picker; app-private encrypted file storage; AES-GCM and Android Keystore; encrypted metadata; image/video/audio only; export/delete/clear; max 100 files, 250 MiB per file and 1 GiB total; import/export runs off the UI thread; no broad storage permission |
+| **Encrypted Media Vault** | **Implemented in branch; CI pending** | Android system document picker; app-private encrypted file storage; AES-GCM and Android Keystore; encrypted metadata; image/video/audio only; export/delete/clear; max 100 files, 250 MiB per file and 1 GiB total; import/export runs off the UI thread; no broad storage permission |\n| **Official WhatsApp chat-export import** | **Implemented in branch; CI pending** | User-selected `.txt` / `.zip`; parser for common bracketed and dashed timestamp formats; multi-line messages; locale fallback; preview before save; encrypted AES-GCM archive/index; source-hash dedupe; list/read/delete/clear; max 20 MiB source, 24 MiB normalized transcript, 20,000 messages/export and 100 exports. ZIP import parses the TXT transcript only; media entries are not extracted automatically. No WhatsApp private database access. |
 | Anti-Delete | Partial | A notification copy may survive later deletion, but only if Android posts visible text first; no guarantee for hidden previews, muted/suppressed notifications, truncation or absent notifications |
 | **One Tick / Hide Delivered** | **Experimental candidate; not implemented** | Public Xposed projects claim Hide Delivered / receipt control. This cannot be delivered by the current companion app. Research hypothesis: a recipient-side client module changes acknowledgements sent by the local account. It requires a separate rooted lab device, dedicated test number, exact host-version checks and second-device validation. No anti-ban guarantee. |
 | Read Tracker for personal outgoing messages | Partial / signal-dependent | Unofficial Web-session engines document SERVER, DEVICE, READ and PLAYED acknowledgements. Missing READ is UNKNOWN, not proof of unread; privacy settings and protocol changes can suppress or remove signals. |
@@ -49,8 +49,8 @@ Status labels:
 ## Verification gates
 
 1. Gradle compiles both Android applications.
-2. WhatsApp companion APK contains MainActivity, WhatsAppNotificationListener, NotificationArchive and MediaVault DEX classes.
-3. Android emulator tests verify notification archive encryption/retention plus Media Vault encryption round-trip, plaintext absence, MIME rejection, delete and clear.
+2. WhatsApp companion APK contains MainActivity, WhatsAppNotificationListener, NotificationArchive, MediaVault and WhatsAppExportImporter/Archive DEX classes.
+3. Android emulator tests verify notification archive encryption/retention, Media Vault encryption round-trip/plaintext absence/MIME rejection/delete/re-key, and chat-export TXT/ZIP parsing, locale timestamp fallback, multi-line handling, source dedupe, encrypted restore/delete/clear.
 4. The latest Actions run finishes emulator instrumentation tests and uploads artifacts. A previous build-only success is not sufficient.
 5. Real Samsung Galaxy A54 test verifies notification access, actual WhatsApp preview delivery, archive display, pause/clear, Media Vault import/export/delete.
 6. Any future One Tick research is tested on a separate lab device/account against a second physical device; no primary-account install or root.
@@ -59,7 +59,7 @@ Do not mark gate 5 or 6 successful based on CI or emulator evidence.
 
 ## Research decision
 
-**GO:** continue the independent companion, encrypted notification archive, encrypted user-selected Media Vault, event ledger with explicit provenance, user-selected Status Saver, and optional official Business API webhook connector.
+**GO:** continue the independent companion, encrypted notification archive, encrypted user-selected Media Vault, official user-export importer, event ledger with explicit provenance, cached Status Saver, and optional official Business API webhook connector.
 
 **LAB-ONLY:** investigate One Tick / Hide Delivered through public Xposed/LSPosed research. Keep it a separate build identity and test branch. Require rooted spare hardware, dedicated number, compatibility guard, source/dependency/license audit and rollback plan.
 
