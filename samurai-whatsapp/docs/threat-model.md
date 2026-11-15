@@ -23,7 +23,7 @@
 - Explicit user-granted notification access
 - Only WhatsApp package IDs accepted
 - User-controlled pause/resume switch
-- User-confirmed clear-archive action
+- User-confirmed clear-archive action that also deletes the archive's Keystore key (cryptographic retirement)
 - No accessibility, root, VPN, device-admin, SMS, contacts, camera, or microphone permission
 - UI explicitly states unavailable protocol-level features
 
