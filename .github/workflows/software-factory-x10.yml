@@ -4,12 +4,14 @@ on:
   push:
     branches:
       - feat/software-factory-x10-v1
+      - feat/software-factory-http-api-v1
     paths:
       - "core/software_factory_x10/**"
       - ".github/workflows/software-factory-x10.yml"
   pull_request:
     branches:
       - feat/x10thinc-hamylion-v3
+      - feat/software-factory-x10-v1
     paths:
       - "core/software_factory_x10/**"
       - ".github/workflows/software-factory-x10.yml"
