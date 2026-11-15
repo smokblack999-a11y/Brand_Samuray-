@@ -59,6 +59,30 @@ class NotificationArchiveTest {
     }
 
     @Test
+    fun duplicateNotificationUpdateDoesNotCreateAnotherEntry() {
+        NotificationArchive.save(
+            context = context,
+            packageName = "com.whatsapp",
+            title = "Chat",
+            body = "First snapshot",
+            timestamp = 1_800_000_000_010L,
+            dedupeKey = "notification-key|message-1"
+        )
+        NotificationArchive.save(
+            context = context,
+            packageName = "com.whatsapp",
+            title = "Chat",
+            body = "Updated snapshot",
+            timestamp = 1_800_000_000_010L,
+            dedupeKey = "notification-key|message-1"
+        )
+
+        val records = NotificationArchive.readAll(context)
+        assertEquals(1, records.size)
+        assertEquals("Updated snapshot", records.single().body)
+    }
+
+    @Test
     fun pausePreventsNewArchiveEntries() {
         NotificationArchive.setEnabled(context, false)
         NotificationArchive.save(
