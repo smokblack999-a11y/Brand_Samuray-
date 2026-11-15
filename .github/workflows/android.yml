@@ -85,29 +85,8 @@ jobs:
           fi
           echo "WhatsApp classes and narrow package visibility: PASS"
 
-      - name: Run SAMURAI WhatsApp archive tests on Android emulator
-        uses: reactivecircus/android-emulator-runner@v2
-        with:
-          api-level: 35
-          target: default
-          arch: x86_64
-          profile: pixel_6
-          emulator-boot-timeout: 900
-          disable-linux-hw-accel: auto
-          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
-          script: >-
-            bash -lc 'cd android && ./gradlew :samurai-whatsapp:connectedDebugAndroidTest --stacktrace; TEST_EXIT=$?; mkdir -p "$GITHUB_WORKSPACE/artifacts/diagnostics"; adb devices -l > "$GITHUB_WORKSPACE/artifacts/diagnostics/adb-devices.txt" 2>&1 || true; adb logcat -d -v threadtime > "$GITHUB_WORKSPACE/artifacts/diagnostics/emulator-logcat.txt" 2>&1 || true; adb shell dumpsys activity processes > "$GITHUB_WORKSPACE/artifacts/diagnostics/activity-processes.txt" 2>&1 || true; adb shell dumpsys package com.samurai.whatsapp > "$GITHUB_WORKSPACE/artifacts/diagnostics/package-samurai-whatsapp.txt" 2>&1 || true; exit "$TEST_EXIT"'
-
-      - name: Upload emulator diagnostics
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: samurai-whatsapp-emulator-diagnostics
-          path: artifacts/diagnostics/
-          if-no-files-found: warn
-
       - name: Package full SAMURAI bundle
-        if: always() && steps.verify-apks.outcome == 'success'
+        if: steps.verify-apks.outcome == 'success'
         shell: bash
         run: |
           set -euo pipefail
@@ -129,7 +108,7 @@ jobs:
           (cd dist && zip -9 SAMURAI-FULL-BUNDLE.zip SamuraiOS-debug.apk SAMURAI-WhatsApp-debug.apk SAMURAI-source.zip BUILD-MANIFEST.txt)
 
       - name: Upload full SAMURAI bundle
-        if: always() && steps.verify-apks.outcome == 'success'
+        if: steps.verify-apks.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: SAMURAI-WHATSAPP-HYBRID-V1-full-bundle
@@ -137,7 +116,7 @@ jobs:
           if-no-files-found: error
 
       - name: Upload APKs
-        if: always() && steps.verify-apks.outcome == 'success'
+        if: steps.verify-apks.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: SamuraiOS-and-SAMURAI-WhatsApp-debug-apks
@@ -146,3 +125,24 @@ jobs:
             dist/SAMURAI-WhatsApp-debug.apk
             dist/BUILD-MANIFEST.txt
           if-no-files-found: error
+
+      - name: Run SAMURAI WhatsApp archive tests on Android emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: default
+          arch: x86_64
+          profile: pixel_6
+          emulator-boot-timeout: 900
+          disable-linux-hw-accel: auto
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
+          script: >-
+            bash -lc 'cd android && ./gradlew :samurai-whatsapp:connectedDebugAndroidTest --stacktrace; TEST_EXIT=$?; mkdir -p "$GITHUB_WORKSPACE/artifacts/diagnostics"; adb devices -l > "$GITHUB_WORKSPACE/artifacts/diagnostics/adb-devices.txt" 2>&1 || true; adb logcat -d -v threadtime > "$GITHUB_WORKSPACE/artifacts/diagnostics/emulator-logcat.txt" 2>&1 || true; adb shell dumpsys activity processes > "$GITHUB_WORKSPACE/artifacts/diagnostics/activity-processes.txt" 2>&1 || true; adb shell dumpsys package com.samurai.whatsapp > "$GITHUB_WORKSPACE/artifacts/diagnostics/package-samurai-whatsapp.txt" 2>&1 || true; exit "$TEST_EXIT"'
+
+      - name: Upload emulator diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: samurai-whatsapp-emulator-diagnostics
+          path: artifacts/diagnostics/
+          if-no-files-found: warn
