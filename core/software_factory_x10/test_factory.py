@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+import os
 from pathlib import Path
 from software_factory_x10.factory import SoftwareFactory
 from software_factory_x10.validation import validate_name, validate_source, ValidationError
@@ -35,7 +36,9 @@ class FactoryTests(unittest.TestCase):
             validate_source("import socket\ndef run(data):\n    return data\n")
     def test_destroy_refuses_tampered_file(self):
         self.factory.create("processor", GOOD)
-        (Path(self.tmp.name) / "modules/processor.py").write_text("def run(x): return 0")
+        target = Path(self.tmp.name) / "modules/processor.py"
+        target.chmod(0o600)
+        target.write_text("def run(x): return 0")
         with self.assertRaises(RuntimeError):
             self.factory.destroy("processor")
 if __name__ == "__main__":
