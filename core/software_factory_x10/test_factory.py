@@ -20,6 +20,8 @@ class FactoryTests(unittest.TestCase):
     def test_create_and_register_metadata(self):
         result = self.factory.create("processor", GOOD)
         self.assertEqual(result["status"], "validated")
+        self.assertEqual(result["sourceReview"]["decision"], "APPROVED")
+        self.assertEqual(result["versions"][0]["sourceReview"]["decision"], "APPROVED")
         self.assertIn("processor", self.factory.registry.list())
         self.assertTrue(self.factory.destroy("processor"))
     def test_never_overwrites_existing(self):
@@ -32,6 +34,8 @@ class FactoryTests(unittest.TestCase):
         first = self.factory.create("processor", GOOD)
         second = self.factory.promote("processor", source_v2)
         self.assertEqual(second["version"], 2)
+        self.assertEqual(second["sourceReview"]["decision"], "APPROVED")
+        self.assertEqual(second["versions"][1]["sourceReview"]["decision"], "APPROVED")
         self.assertEqual(len(second["versions"]), 2)
         self.assertEqual(self.factory.registry.list()["processor"]["sha256"], second["sha256"])
         version_dir = Path(self.tmp.name) / "versions/processor"
@@ -47,6 +51,7 @@ class FactoryTests(unittest.TestCase):
         self.assertTrue(restored["rolledBack"])
         self.assertEqual(restored["version"], 1)
         self.assertEqual(restored["sha256"], first["sha256"])
+        self.assertEqual(restored["sourceReview"], first["sourceReview"])
         self.assertEqual(self.factory._hash(Path(self.tmp.name) / "modules/processor.py"), first["sha256"])
 
     def test_promote_refuses_tampered_active_file(self):
