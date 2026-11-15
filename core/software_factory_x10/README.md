@@ -5,13 +5,14 @@ This package is deliberately **not wired into the Express Core** and never impor
 ## Lifecycle
 
 1. Validate the module identifier and Python AST.
-2. Write the candidate into a private staging directory.
-3. Execute the smoke test in Docker with networking disabled, a read-only root filesystem, dropped Linux capabilities, a non-root UID, and PID/memory/CPU/time limits.
-4. Publish the candidate as an immutable version artifact.
-5. Atomically switch the active module path and persist SHA-256 version metadata.
-6. Promote a new version only after its sandbox smoke test passes.
-7. Roll back to a previously validated immutable version.
-8. Verify hashes before module deletion; deletion uses tombstones and restores files if the registry update fails.
+2. Run the Factory Source Critic before any Docker execution: reject import-time execution, decorators/default calls with import-time effects, unsupported async entry points, dynamic execution and selected process-launch/file-I/O calls.
+3. Write the candidate into a private staging directory.
+4. Execute the smoke test in Docker with networking disabled, a read-only root filesystem, dropped Linux capabilities, a non-root UID, and PID/memory/CPU/time limits.
+5. Publish the candidate as an immutable version artifact.
+6. Atomically switch the active module path and persist SHA-256 version metadata.
+7. Promote a new version only after its sandbox smoke test passes.
+8. Roll back to a previously validated immutable version.
+9. Verify hashes before module deletion; deletion uses tombstones and restores files if the registry update fails.
 
 ## Migration from the original Software Factory prototype
 
@@ -35,6 +36,14 @@ GitHub Actions runs unit tests and real Docker integration tests: valid module e
 
 AST checks are defense-in-depth, not a sandbox. Docker must be configured securely. The runner fails closed when Docker is unavailable. Do not mount secrets, the Docker socket, or the Core repository into the sandbox. For hostile multi-tenant workloads, use gVisor or a microVM runtime and independent worker hosts.
 
+
+
+
+## Source review policy
+
+Each accepted version stores a `sourceReview` report with the policy version and findings. Promotion is blocked unless the Factory Source Critic returns `APPROVED`; rollback restores the review metadata corresponding to the selected version. Legacy versions without recorded review data are explicitly marked `LEGACY_UNVERIFIED` rather than being presented as reviewed.
+
+The existing Core `kill-critic.js` checks factual claims in customer-facing text (prices, availability, discounts, deadlines, completed actions and guarantees). It is not a source-code analyzer and is deliberately not applied to Python source. The Factory Source Critic is a separate static code policy; Docker remains the execution boundary, and AST checks are not a sandbox.
 
 ## Optional Express Core API bridge
 
