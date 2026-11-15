@@ -22,11 +22,15 @@ class WorkerProtocolTests(unittest.TestCase):
 
     def test_create_list_promote_rollback_destroy(self):
         with tempfile.TemporaryDirectory() as tmp:
+            contract_v1 = {"cases": [{"input": [1, 2], "expected": [2, 4]}]}
+            contract_v2 = {"cases": [{"input": [1, 2], "expected": [3, 6]}]}
+            source_v1 = "\\n".join(["def run(data):", "    return [x * 2 for x in data]", ""])
             created = handle_request(
-                {"action": "create", "name": "processor", "source": GOOD},
+                {"action": "create", "name": "processor", "source": source_v1, "contract": contract_v1},
                 tmp, runner=FakeRunner()
             )
             self.assertEqual(created["module"]["version"], 1)
+            self.assertEqual(created["module"]["contract"], contract_v1)
             self.assertIn("processor", handle_request({"action": "list"}, tmp)["modules"])
 
             source_v2 = "\n".join(["def run(data):", "    return data[:]", ""])
@@ -42,6 +46,7 @@ class WorkerProtocolTests(unittest.TestCase):
             )
             self.assertEqual(rolled["module"]["version"], 1)
             self.assertTrue(rolled["module"]["rolledBack"])
+            self.assertEqual(rolled["module"]["contract"], contract_v1)
 
             deleted = handle_request({"action": "destroy", "name": "processor"}, tmp, runner=FakeRunner())
             self.assertTrue(deleted["deleted"])
