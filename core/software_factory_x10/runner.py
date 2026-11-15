@@ -7,7 +7,7 @@ import subprocess
 import uuid
 from pathlib import Path
 
-from .contract import validate_contract
+from .contract import MAX_CONTRACT_BYTES, validate_contract, validate_input
 
 class SandboxUnavailable(RuntimeError):
     pass
@@ -95,3 +95,81 @@ for case in contract["cases"]:
             raise RuntimeError("SANDBOX_TIMEOUT") from exc
         except subprocess.CalledProcessError as exc:
             raise RuntimeError("SANDBOX_TEST_FAILED") from exc
+
+
+    def run_module(self, module_file: Path, value):
+        """Invoke one active module in a fresh disposable container and return JSON output."""
+        docker = shutil.which("docker")
+        if not docker:
+            raise SandboxUnavailable("DOCKER_SANDBOX_UNAVAILABLE")
+        module_file = Path(module_file)
+        if module_file.is_symlink():
+            raise ValueError("SANDBOX_MODULE_FILE_INVALID")
+        module_file = module_file.resolve()
+        if not module_file.is_file():
+            raise ValueError("SANDBOX_MODULE_FILE_INVALID")
+
+        validated_input = validate_input(value)
+        input_json = json.dumps(validated_input, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
+        job_label = uuid.uuid4().hex
+        script = """
+import importlib.util
+import json
+import sys
+
+class QuietOutput:
+    def write(self, value):
+        return len(value)
+    def flush(self):
+        pass
+
+real_stdout = sys.stdout
+sys.stdout = QuietOutput()
+try:
+    spec = importlib.util.spec_from_file_location("candidate", "/module.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    value = json.loads(sys.argv[1])
+    result = module.run(value)
+finally:
+    sys.stdout = real_stdout
+
+encoded = json.dumps(result, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
+raw = encoded.encode("utf-8")
+if len(raw) > 32768:
+    raise ValueError("MODULE_OUTPUT_TOO_LARGE")
+real_stdout.write(encoded)
+real_stdout.flush()
+"""
+        cmd = [
+            docker, "run", "--rm", "--network=none", "--read-only",
+            "--cap-drop=ALL", "--security-opt=no-new-privileges",
+            "--pids-limit=32", "--memory=128m", "--memory-swap=128m", "--cpus=0.5",
+            "--ulimit", "nofile=64:64", "--ulimit", "fsize=1048576:1048576",
+            "--user=65534:65534", "-e", "PYTHONDONTWRITEBYTECODE=1",
+            "--label", f"{self.SANDBOX_LABEL}=true",
+            "--label", f"com.samurai.factory.job={job_label}",
+            "--mount", f"type=bind,src={module_file},dst=/module.py,readonly",
+            "--tmpfs", "/tmp:rw,noexec,nosuid,nodev,size=16m,mode=1777",
+            self.image, "python", "-I", "-c", script, input_json
+        ]
+        try:
+            completed = subprocess.run(
+                cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                timeout=self.timeout
+            )
+        except subprocess.TimeoutExpired as exc:
+            try:
+                self._cleanup_timed_out_container(docker, job_label)
+            except Exception as cleanup_error:
+                raise RuntimeError("SANDBOX_TIMEOUT_CLEANUP_FAILED") from cleanup_error
+            raise RuntimeError("SANDBOX_TIMEOUT") from exc
+        except subprocess.CalledProcessError as exc:
+            raise RuntimeError("SANDBOX_RUN_FAILED") from exc
+
+        if len(completed.stdout) > MAX_CONTRACT_BYTES:
+            raise RuntimeError("MODULE_OUTPUT_TOO_LARGE")
+        try:
+            return json.loads(completed.stdout.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise RuntimeError("MODULE_OUTPUT_INVALID") from exc
