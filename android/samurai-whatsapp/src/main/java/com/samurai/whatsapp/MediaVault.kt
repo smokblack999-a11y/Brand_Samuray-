@@ -44,6 +44,7 @@ internal object MediaVault {
     private const val TAG_LENGTH_BITS = 128
     private const val MAX_ITEMS = 100
     private const val MAX_FILE_BYTES = 250L * 1024L * 1024L
+    private const val MAX_TOTAL_BYTES = 1024L * 1024L * 1024L
     private const val BUFFER_SIZE = 16 * 1024
 
     fun importFromUri(context: Context, uri: Uri): MediaVaultItem {
@@ -69,7 +70,10 @@ internal object MediaVault {
         require(isSupportedMimeType(mimeType)) {
             "Only image, video and audio files can be added to Media Vault"
         }
-        require(list(context).size < MAX_ITEMS) { "Media Vault is full (maximum $MAX_ITEMS files)" }
+        val existingItems = list(context)
+        require(existingItems.size < MAX_ITEMS) { "Media Vault is full (maximum $MAX_ITEMS files)" }
+        val existingBytes = existingItems.fold(0L) { total, item -> total + item.sizeBytes }
+        require(existingBytes < MAX_TOTAL_BYTES) { "Media Vault storage limit reached (1 GiB total)" }
 
         val id = UUID.randomUUID().toString()
         val file = dataFile(context, id)
@@ -89,6 +93,9 @@ internal object MediaVault {
                         if (count == 0) continue
                         require(size + count <= MAX_FILE_BYTES) {
                             "Media Vault file exceeds the 250 MiB per-file limit"
+                        }
+                        require(existingBytes + size + count <= MAX_TOTAL_BYTES) {
+                            "Media Vault total storage limit is 1 GiB"
                         }
                         encryptedOutput.write(buffer, 0, count)
                         size += count
