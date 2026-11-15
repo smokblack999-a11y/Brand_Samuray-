@@ -13,7 +13,7 @@ class DockerSandboxRunner:
     def __init__(self, image: str | None = None, timeout: int = 8):
         default_image = "python:3.12-slim@sha256:5e2bdb1b0d542d5039cffb8181c65930093949194a65c365dfb1b0fe13a4fa5b"
         self.image = image or os.environ.get("SAMURAI_FACTORY_IMAGE", default_image)
-        if not re.fullmatch(r"[^@\\s]+@sha256:[0-9a-f]{64}", self.image):
+        if not re.fullmatch(r"[^@\s]+@sha256:[0-9a-f]{64}", self.image):
             raise ValueError("SANDBOX_IMAGE_DIGEST_REQUIRED")
         self.timeout = max(1, min(int(timeout), 30))
 
