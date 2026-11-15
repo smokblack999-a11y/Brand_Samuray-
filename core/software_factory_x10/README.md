@@ -35,6 +35,36 @@ GitHub Actions runs unit tests and real Docker integration tests: valid module e
 
 AST checks are defense-in-depth, not a sandbox. Docker must be configured securely. The runner fails closed when Docker is unavailable. Do not mount secrets, the Docker socket, or the Core repository into the sandbox. For hostile multi-tenant workloads, use gVisor or a microVM runtime and independent worker hosts.
 
+
+## Optional Express Core API bridge
+
+The dependent HTTP integration branch adds `core/software-factory-http.js` and `core/software_factory_x10/worker.py`. It is separate from the standalone Factory MVP and remains disabled by default.
+
+When deliberately deployed on a dedicated Docker-capable worker host, the configuration is:
+
+```dotenv
+SOFTWARE_FACTORY_ENABLED=true
+SOFTWARE_FACTORY_MODE=docker
+SOFTWARE_FACTORY_PYTHON=python3
+SOFTWARE_FACTORY_ROOT=./data/software-factory-x10
+SAMURAI_FACTORY_IMAGE=python:3.12-slim@sha256:5e2bdb1b0d542d5039cffb8181c65930093949194a65c365dfb1b0fe13a4fa5b
+REQUEST_TIMEOUT_MS=30000
+```
+
+The Docker image must be preloaded before Core starts. Startup fails closed unless the feature flag is enabled with the exact `docker` mode, a configured Core API key, Python 3.10+, a healthy Docker daemon, the digest-pinned image present locally, and a Core request timeout of at least 30 seconds.
+
+Authenticated endpoints under `/v1/software-factory`:
+
+- `GET /modules`
+- `POST /modules` with `{ "name": "processor", "source": "def run(data):\\n    return list(data)\\n" }`
+- `POST /modules/:name/promote` with `{ "source": "..." }`
+- `POST /modules/:name/rollback` with optional `{ "version": 1 }`
+- `DELETE /modules/:name`
+
+All endpoints use the existing Core `requireApiKey` middleware and a per-IP rate limit. The Node bridge starts the Python worker with `spawn` and no shell, passes a minimal environment rather than Core secrets, enforces input/output/time limits, and returns sanitized errors with the Core request ID.
+
+**Do not expose `CORE_API_KEY` to browsers, Telegram Mini Apps, clients, or generated modules.** These endpoints are for a trusted backend/admin integration only. This is not a public customer-facing module runtime. Keep `SOFTWARE_FACTORY_ENABLED=false` until the dedicated HTTP/Docker integration CI is green and the deployment host has been explicitly prepared.
+
 ## Limitations
 
 - The MVP has no AI code generation, dependency installation, patch application, Express API integration, or autonomous GitHub PR creation from inside the factory.
