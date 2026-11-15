@@ -90,7 +90,7 @@ class NotificationArchiveTest {
         assertFalse("Companion must not request INTERNET", permissions.contains("android.permission.INTERNET"))
         assertFalse(
             "Archive must not be included in Android backup",
-            context.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_ALLOW_BACKUP != 0
+            (context.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_ALLOW_BACKUP) != 0
         )
     }
 
