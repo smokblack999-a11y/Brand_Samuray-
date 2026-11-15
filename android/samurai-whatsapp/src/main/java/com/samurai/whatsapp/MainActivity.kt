@@ -7,6 +7,7 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.provider.Settings
+import android.provider.OpenableColumns
 import android.text.format.DateFormat
 import android.view.Gravity
 import android.view.ViewGroup
@@ -22,6 +23,7 @@ class MainActivity : Activity() {
     private lateinit var status: TextView
     private lateinit var archiveView: TextView
     private lateinit var vaultContainer: LinearLayout
+    private lateinit var importedChatContainer: LinearLayout
     private var pendingExportId: String? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -94,6 +96,63 @@ class MainActivity : Activity() {
                         }
                     }, "samurai-media-export").start()
                 }
+            }
+
+            REQUEST_IMPORT_CHAT -> {
+                val sourceName = queryDisplayName(uri)
+                Thread({
+                    val result = runCatching {
+                        WhatsAppExportImporter.readAndParse(applicationContext, uri, sourceName)
+                    }
+                    runOnUiThread {
+                        result.onSuccess { parsed ->
+                            val sample = parsed.messages.take(5).joinToString("\n\n") { message ->
+                                val sender = message.sender ?: "Системное событие"
+                                "$sender: ${message.text.take(220)}"
+                            }
+                            AlertDialog.Builder(this)
+                                .setTitle("Предварительный просмотр экспорта")
+                                .setMessage(
+                                    "Чат: ${parsed.chatName}\n" +
+                                        "Сообщений найдено: ${parsed.messages.size}\n" +
+                                        "Файл: ${parsed.sourceName}\n\n" +
+                                        "Первые сообщения:\n$sample\n\n" +
+                                        "История будет сохранена в зашифрованном локальном архиве."
+                                )
+                                .setNegativeButton("Отмена", null)
+                                .setPositiveButton("Импортировать") { _, _ ->
+                                    Thread({
+                                        val saved = runCatching {
+                                            WhatsAppExportArchive.save(applicationContext, parsed)
+                                        }
+                                        runOnUiThread {
+                                            saved.onSuccess { item ->
+                                                Toast.makeText(
+                                                    this,
+                                                    "Импортировано: ${item.messageCount} сообщений",
+                                                    Toast.LENGTH_LONG
+                                                ).show()
+                                                refresh()
+                                            }.onFailure { error ->
+                                                Toast.makeText(
+                                                    this,
+                                                    error.message ?: "Не удалось сохранить экспорт",
+                                                    Toast.LENGTH_LONG
+                                                ).show()
+                                            }
+                                        }
+                                    }, "samurai-chat-export-save").start()
+                                }
+                                .show()
+                        }.onFailure { error ->
+                            Toast.makeText(
+                                this,
+                                error.message ?: "Не удалось прочитать экспорт чата",
+                                Toast.LENGTH_LONG
+                            ).show()
+                        }
+                    }
+                }, "samurai-chat-export-parse").start()
             }
         }
     }
@@ -215,6 +274,36 @@ class MainActivity : Activity() {
         }
         root.addView(vaultContainer)
 
+        root.addView(sectionLabel("ИМПОРТ ИСТОРИИ WHATSAPP"))
+        val exportNote = TextView(this).apply {
+            text = "Импортируй собственный экспорт чата из WhatsApp (.txt или .zip). SAMURAI не читает закрытую базу WhatsApp. История сохраняется отдельно и шифруется на устройстве."
+            textSize = 12f
+            setTextColor(0xFF9AA8B5.toInt())
+            setPadding(0, 0, 0, 10)
+        }
+        root.addView(exportNote)
+        root.addView(actionButton("ИМПОРТИРОВАТЬ ЭКСПОРТ ЧАТА") {
+            openChatExportPicker()
+        })
+        root.addView(actionButton("ОЧИСТИТЬ ИМПОРТИРОВАННЫЕ ЧАТЫ") {
+            AlertDialog.Builder(this)
+                .setTitle("Удалить импортированные чаты?")
+                .setMessage("Будут удалены все импортированные экспорты и их ключ шифрования.")
+                .setNegativeButton("Отмена", null)
+                .setPositiveButton("Удалить") { _, _ ->
+                    WhatsAppExportArchive.clear(this)
+                    refresh()
+                    Toast.makeText(this, "Импортированные чаты удалены", Toast.LENGTH_SHORT).show()
+                }
+                .show()
+        })
+        importedChatContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(12, 12, 12, 12)
+            setBackgroundColor(0xFF101923.toInt())
+        }
+        root.addView(importedChatContainer)
+
         val note = TextView(this).apply {
             text = "ОГРАНИЧЕНИЯ: One Tick, read receipts, скрытые статусы и удаление сообщений у всех не контролируются этим прототипом. Для One Tick нужна отдельная лабораторная проверка на тестовом аккаунте."
             textSize = 12f
@@ -235,6 +324,116 @@ class MainActivity : Activity() {
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
         startActivityForResult(intent, REQUEST_IMPORT_MEDIA)
+    }
+
+    private fun openChatExportPicker() {
+        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "*/*"
+            putExtra(
+                Intent.EXTRA_MIME_TYPES,
+                arrayOf("text/plain", "application/zip", "application/x-zip-compressed")
+            )
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        startActivityForResult(intent, REQUEST_IMPORT_CHAT)
+    }
+
+    private fun queryDisplayName(uri: Uri): String {
+        contentResolver.query(
+            uri,
+            arrayOf(OpenableColumns.DISPLAY_NAME),
+            null,
+            null,
+            null
+        )?.use { cursor ->
+            if (cursor.moveToFirst()) {
+                val index = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                if (index >= 0) cursor.getString(index)?.let { return it }
+            }
+        }
+        return uri.lastPathSegment ?: "WhatsApp chat export"
+    }
+
+    private fun renderImportedChats() {
+        importedChatContainer.removeAllViews()
+        val chats = runCatching { WhatsAppExportArchive.list(this) }.getOrDefault(emptyList())
+        importedChatContainer.addView(TextView(this).apply {
+            text = "Импортировано чатов: ${chats.size} / 100"
+            textSize = 13f
+            setTextColor(0xFF00E68A.toInt())
+            setPadding(0, 0, 0, 8)
+        })
+        if (chats.isEmpty()) {
+            importedChatContainer.addView(TextView(this).apply {
+                text = "Пока нет импортированных чатов."
+                textSize = 13f
+                setTextColor(0xFFE3EAF0.toInt())
+            })
+            return
+        }
+        chats.forEach { chat ->
+            val entry = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(0, 10, 0, 10)
+            }
+            entry.addView(TextView(this).apply {
+                text = "${chat.chatName}\n${chat.messageCount} сообщений · ${chat.sourceName}"
+                textSize = 13f
+                setTextColor(0xFFE3EAF0.toInt())
+            })
+            val actions = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                addView(actionButton("ПРОСМОТР") { showImportedChat(chat) },
+                    LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+                addView(actionButton("УДАЛИТЬ") {
+                    AlertDialog.Builder(this@MainActivity)
+                        .setTitle("Удалить импортированный чат?")
+                        .setMessage(chat.chatName)
+                        .setNegativeButton("Отмена", null)
+                        .setPositiveButton("Удалить") { _, _ ->
+                            WhatsAppExportArchive.delete(this@MainActivity, chat.id)
+                            refresh()
+                        }
+                        .show()
+                }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            }
+            entry.addView(actions)
+            importedChatContainer.addView(entry)
+        }
+    }
+
+    private fun showImportedChat(chat: ImportedChatSummary) {
+        Thread({
+            val result = runCatching {
+                WhatsAppExportArchive.readMessages(applicationContext, chat.id)
+            }
+            runOnUiThread {
+                result.onSuccess { messages ->
+                    val transcript = messages.take(80).joinToString("\\n\\n") { message ->
+                        val time = message.timestamp?.let {
+                            DateFormat.format("dd.MM.yyyy HH:mm:ss", Date(it)).toString()
+                        } ?: "Время не распознано"
+                        val sender = message.sender ?: "Системное событие"
+                        "$time · $sender\\n${message.text}"
+                    }
+                    val suffix = if (messages.size > 80) {
+                        "\\n\\nПоказаны первые 80 из ${messages.size} сообщений."
+                    } else ""
+                    AlertDialog.Builder(this)
+                        .setTitle(chat.chatName)
+                        .setMessage(transcript + suffix)
+                        .setPositiveButton("Закрыть", null)
+                        .show()
+                }.onFailure { error ->
+                    Toast.makeText(
+                        this,
+                        error.message ?: "Не удалось открыть архив",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
+        }, "samurai-chat-export-view").start()
     }
 
     private fun startExport(item: MediaVaultItem) {
@@ -344,10 +543,12 @@ class MainActivity : Activity() {
             }
         }
         if (::vaultContainer.isInitialized) renderVault()
+        if (::importedChatContainer.isInitialized) renderImportedChats()
     }
 
     companion object {
         private const val REQUEST_IMPORT_MEDIA = 4101
         private const val REQUEST_EXPORT_MEDIA = 4102
+        private const val REQUEST_IMPORT_CHAT = 4103
     }
 }
