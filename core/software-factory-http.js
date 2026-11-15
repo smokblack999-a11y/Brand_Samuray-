@@ -3,6 +3,7 @@
 const { spawn, spawnSync } = require("node:child_process");
 const path = require("node:path");
 const express = require("express");
+const { createRateLimiter } = require("./rate-limit");
 
 const MAX_SOURCE_BYTES = 64 * 1024;
 const MAX_WORKER_OUTPUT_BYTES = 1024 * 1024;
@@ -116,6 +117,7 @@ function createSoftwareFactoryRouter(options = {}) {
   const runWorker = options.runWorker || createFactoryBridge(options);
   const router = express.Router();
   router.use(options.requireApiKey);
+  router.use(createRateLimiter({ windowMs: 60_000, max: 10 }));
 
   async function dispatch(req, res, payload, successStatus = 200) {
     try {
