@@ -273,6 +273,22 @@ class DockerRunnerIntegrationTests(unittest.TestCase):
             self.assertNotIn("wrong_contract_module", factory.registry.list())
             self.assertFalse((Path(tmp) / "modules/wrong_contract_module.py").exists())
 
+    def test_run_returns_controlled_code_for_module_exceptions(self):
+        from software_factory_x10.runner import DockerSandboxRunner
+        with tempfile.TemporaryDirectory() as tmp:
+            factory = SoftwareFactory(tmp, runner=DockerSandboxRunner(timeout=15))
+            source = "\n".join([
+                "def run(data):",
+                "    if data == 'boom':",
+                "        raise RuntimeError('private internal detail')",
+                "    return list(data)",
+                ""
+            ])
+            factory.create("runtime_exception_module", source)
+            with self.assertRaisesRegex(RuntimeError, "MODULE_EXECUTION_FAILED_RUNTIMEERROR"):
+                factory.run("runtime_exception_module", "boom")
+            self.assertTrue(factory.destroy("runtime_exception_module"))
+
     def test_run_rejects_output_over_32k(self):
         from software_factory_x10.runner import DockerSandboxRunner
         with tempfile.TemporaryDirectory() as tmp:
