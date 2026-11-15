@@ -12,6 +12,7 @@ import android.view.Gravity
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.ScrollView
+import android.widget.Switch
 import android.widget.TextView
 import java.util.Date
 
@@ -76,6 +77,19 @@ class MainActivity : Activity() {
                 .show()
         })
 
+        val archiveSwitch = Switch(this).apply {
+            text = "Сохранять новые уведомления"
+            textSize = 14f
+            setTextColor(0xFFFFFFFF.toInt())
+            isChecked = NotificationArchive.isEnabled(this@MainActivity)
+            setOnCheckedChangeListener { _, enabled ->
+                NotificationArchive.setEnabled(this@MainActivity, enabled)
+                refresh()
+            }
+            setPadding(4, 12, 4, 12)
+        }
+        root.addView(archiveSwitch)
+
         root.addView(actionButton("ОБНОВИТЬ АРХИВ") { refresh() })
         root.addView(actionButton("ОЧИСТИТЬ АРХИВ") {
             AlertDialog.Builder(this)
@@ -125,18 +139,19 @@ class MainActivity : Activity() {
 
     private fun refresh() {
         val component = ComponentName(this, WhatsAppNotificationListener::class.java)
-        val enabled = NotificationListenerService::class.java != null &&
-            getSystemService(android.app.NotificationManager::class.java) != null &&
-            Settings.Secure.getString(contentResolver, "enabled_notification_listeners")
-                ?.contains(component.flattenToString()) == true
-        status.text = if (enabled) {
-            "СТАТУС: АРХИВ УВЕДОМЛЕНИЙ ВКЛЮЧЁН"
-        } else {
-            "СТАТУС: НЕТ ДОСТУПА К УВЕДОМЛЕНИЯМ"
+        val accessGranted = Settings.Secure.getString(
+            contentResolver,
+            "enabled_notification_listeners"
+        )?.split(':')?.contains(component.flattenToString()) == true
+        val archiveEnabled = NotificationArchive.isEnabled(this)
+        status.text = when {
+            !accessGranted -> "СТАТУС: НУЖНО РАЗРЕШИТЬ ДОСТУП К УВЕДОМЛЕНИЯМ"
+            !archiveEnabled -> "СТАТУС: АРХИВ ПРИОСТАНОВЛЕН"
+            else -> "СТАТУС: ЛОКАЛЬНЫЙ АРХИВ АКТИВЕН"
         }
 
         val records = NotificationArchive.readAll(this)
-        archiveView.text = if (records.isEmpty()) {
+        archiveView.text = "Записей: ${records.size} / 200\\n\\n" + if (records.isEmpty()) {
             "Пока нет записей. Разрешите доступ и дождитесь нового уведомления WhatsApp."
         } else {
             records.joinToString("\n\n────────────────\n\n") { item ->
