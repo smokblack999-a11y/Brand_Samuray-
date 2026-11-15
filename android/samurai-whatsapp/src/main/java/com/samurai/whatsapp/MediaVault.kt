@@ -4,7 +4,6 @@ import android.content.Context
 import android.net.Uri
 import android.provider.OpenableColumns
 import android.util.Base64
-import java.io.ByteArrayOutputStream
 import java.io.CipherInputStream
 import java.io.CipherOutputStream
 import java.io.File
@@ -44,6 +43,7 @@ internal object MediaVault {
     private const val IV_LENGTH_BYTES = 12
     private const val TAG_LENGTH_BITS = 128
     private const val MAX_ITEMS = 100
+    private const val MAX_FILE_BYTES = 250L * 1024L * 1024L
     private const val BUFFER_SIZE = 16 * 1024
 
     fun importFromUri(context: Context, uri: Uri): MediaVaultItem {
@@ -59,6 +59,7 @@ internal object MediaVault {
         }
     }
 
+    @Synchronized
     internal fun importStream(
         context: Context,
         input: InputStream,
@@ -86,6 +87,9 @@ internal object MediaVault {
                         val count = input.read(buffer)
                         if (count < 0) break
                         if (count == 0) continue
+                        require(size + count <= MAX_FILE_BYTES) {
+                            "Media Vault file exceeds the 250 MiB per-file limit"
+                        }
                         encryptedOutput.write(buffer, 0, count)
                         size += count
                     }
@@ -119,6 +123,7 @@ internal object MediaVault {
         }
     }
 
+    @Synchronized
     fun list(context: Context): List<MediaVaultItem> {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         return prefs.all.entries
@@ -181,6 +186,7 @@ internal object MediaVault {
         }
     }
 
+    @Synchronized
     fun delete(context: Context, id: String) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit()
@@ -189,6 +195,7 @@ internal object MediaVault {
         dataFile(context, id).delete()
     }
 
+    @Synchronized
     fun clear(context: Context) {
         val directory = vaultDirectory(context)
         directory.listFiles()?.forEach { it.delete() }
