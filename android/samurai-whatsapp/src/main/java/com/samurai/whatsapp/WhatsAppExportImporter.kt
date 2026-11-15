@@ -198,11 +198,14 @@ internal object WhatsAppExportImporter {
             }
         }
 
-        for (pattern in patterns) {
-            val formatter = SimpleDateFormat(pattern, locale).apply { isLenient = false }
-            val position = ParsePosition(0)
-            val date: Date? = formatter.parse(cleaned, position)
-            if (date != null && position.index == cleaned.length) return date.time
+        val parseLocales = listOf(locale, Locale.US, Locale.UK).distinct()
+        for (parseLocale in parseLocales) {
+            for (pattern in patterns) {
+                val formatter = SimpleDateFormat(pattern, parseLocale).apply { isLenient = false }
+                val position = ParsePosition(0)
+                val date: Date? = formatter.parse(cleaned, position)
+                if (date != null && position.index == cleaned.length) return date.time
+            }
         }
         return null
     }
