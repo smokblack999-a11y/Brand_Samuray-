@@ -107,24 +107,26 @@ function createFactoryBridge(options = {}) {
 }
 
 function assertFactoryWorkerReady(options = {}) {
-  const python = options.python || process.env.SOFTWARE_FACTORY_PYTHON || "python3";
-  const pythonCheck = spawnSync(python, ["-c", "import sys; assert sys.version_info >= (3, 10)"], {
+  const env = options.env || process.env;
+  const run = options.spawnSync || spawnSync;
+  const python = options.python || env.SOFTWARE_FACTORY_PYTHON || "python3";
+  const pythonCheck = run(python, ["-c", "import sys; assert sys.version_info >= (3, 10)"], {
     encoding: "utf8", timeout: 5000, stdio: ["ignore", "ignore", "ignore"]
   });
   if (pythonCheck.error || pythonCheck.status !== 0) {
     throw new Error("Software Factory is enabled but Python 3.10+ is unavailable");
   }
-  const dockerCheck = spawnSync("docker", ["info", "--format", "{{.ServerVersion}}"], {
+  const dockerCheck = run("docker", ["info", "--format", "{{.ServerVersion}}"], {
     encoding: "utf8", timeout: 7000, stdio: ["ignore", "ignore", "ignore"]
   });
   if (dockerCheck.error || dockerCheck.status !== 0 || !String(dockerCheck.stdout || "").trim()) {
     throw new Error("Software Factory is enabled but the Docker daemon is unavailable");
   }
-  const image = process.env.SAMURAI_FACTORY_IMAGE || DEFAULT_SANDBOX_IMAGE;
+  const image = env.SAMURAI_FACTORY_IMAGE || DEFAULT_SANDBOX_IMAGE;
   if (!/^[^@\\s]+@sha256:[0-9a-f]{64}$/.test(image)) {
     throw new Error("Software Factory requires a digest-pinned SAMURAI_FACTORY_IMAGE");
   }
-  const imageCheck = spawnSync("docker", ["image", "inspect", image], {
+  const imageCheck = run("docker", ["image", "inspect", image], {
     encoding: "utf8", timeout: 7000, stdio: ["ignore", "ignore", "ignore"]
   });
   if (imageCheck.error || imageCheck.status !== 0) {
