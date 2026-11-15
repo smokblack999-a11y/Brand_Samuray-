@@ -241,7 +241,7 @@ class DockerRunnerIntegrationTests(unittest.TestCase):
         from software_factory_x10.runner import DockerSandboxRunner
         with tempfile.TemporaryDirectory() as tmp:
             factory = SoftwareFactory(tmp, runner=DockerSandboxRunner(timeout=15))
-            source = "\n".join(["def run(data):", "    return [x * 2 for x in data]", ""])
+            source = "\n".join([
             contract = {"cases": [{"input": [1, 2], "expected": [2, 4]}]}
             factory.create("runtime_processor", source, contract)
             result = factory.run("runtime_processor", [3, 4])
@@ -277,7 +277,7 @@ class DockerRunnerIntegrationTests(unittest.TestCase):
         from software_factory_x10.runner import DockerSandboxRunner
         with tempfile.TemporaryDirectory() as tmp:
             factory = SoftwareFactory(tmp, runner=DockerSandboxRunner(timeout=15))
-            source = "\\n".join([
+            source = "\n".join([
                 "def run(data):",
                 "    if data == 'large':",
                 "        return 'x' * 40000",
