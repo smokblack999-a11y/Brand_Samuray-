@@ -15,7 +15,8 @@ except ImportError:  # pragma: no cover - POSIX hosts provide fcntl
 
 from .registry import Registry
 from .runner import DockerSandboxRunner
-from .validation import validate_name, validate_source
+from .critic import LEGACY_REVIEW, require_approved_source
+from .validation import validate_name
 
 
 def _fsync_dir(path: Path) -> None:
@@ -118,7 +119,7 @@ class SoftwareFactory:
 
     def create(self, name: str, source: str) -> dict:
         name = validate_name(name)
-        validate_source(source)
+        source_review = require_approved_source(source)
         with self._operation_guard():
             target = self.modules / f"{name}.py"
             if target.exists() or target.is_symlink() or name in self.registry.list():
@@ -135,7 +136,8 @@ class SoftwareFactory:
                 "status": "validated",
                 "runtime": "docker-no-network",
                 "version": 1,
-                "versions": [{"version": 1, "sha256": digest}],
+                "sourceReview": source_review,
+                "versions": [{"version": 1, "sha256": digest, "sourceReview": source_review}],
             }
             try:
                 self.runner.run_smoke_test(staged)
@@ -172,7 +174,7 @@ class SoftwareFactory:
     def promote(self, name: str, source: str) -> dict:
         """Validate and atomically promote a new immutable version."""
         name = validate_name(name)
-        validate_source(source)
+        source_review = require_approved_source(source)
         digest = hashlib.sha256(source.encode("utf-8")).hexdigest()
         with self._operation_guard():
             metadata = self.registry.list().get(name)
@@ -182,11 +184,15 @@ class SoftwareFactory:
             if digest == metadata["sha256"]:
                 return {"name": name, **metadata, "unchanged": True}
 
-            history = list(metadata.get("versions") or [{
-                "version": int(metadata.get("version", 1)),
+            current_version = int(metadata.get("version", 1))
+            history = [dict(entry) for entry in (metadata.get("versions") or [{
+                "version": current_version,
                 "sha256": metadata["sha256"],
-            }])
-            current_version = int(metadata.get("version", history[-1]["version"]))
+                "sourceReview": metadata.get("sourceReview", LEGACY_REVIEW),
+            }])]
+            for entry in history:
+                if "sourceReview" not in entry:
+                    entry["sourceReview"] = metadata.get("sourceReview", LEGACY_REVIEW) if int(entry["version"]) == current_version else LEGACY_REVIEW
             latest_version = max(int(entry["version"]) for entry in history)
             next_version = latest_version + 1
             version_dir = self._version_dir(name, create=True)
@@ -214,7 +220,12 @@ class SoftwareFactory:
                     **metadata,
                     "sha256": digest,
                     "version": next_version,
-                    "versions": history + [{"version": next_version, "sha256": digest}],
+                    "sourceReview": source_review,
+                    "versions": history + [{
+                        "version": next_version,
+                        "sha256": digest,
+                        "sourceReview": source_review,
+                    }],
                 }
                 try:
                     self.registry.put(name, updated)
@@ -269,7 +280,12 @@ class SoftwareFactory:
                 raise RuntimeError("CURRENT_VERSION_ARTIFACT_INVALID")
 
             self._switch_active(version_file, target)
-            updated = {**metadata, "sha256": entry["sha256"], "version": int(target_version)}
+            updated = {
+                **metadata,
+                "sha256": entry["sha256"],
+                "version": int(target_version),
+                "sourceReview": entry.get("sourceReview", LEGACY_REVIEW),
+            }
             try:
                 self.registry.put(name, updated)
             except Exception:
