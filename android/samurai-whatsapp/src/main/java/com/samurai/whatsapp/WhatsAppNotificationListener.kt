@@ -3,6 +3,7 @@ package com.samurai.whatsapp
 import android.app.Notification
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
+import androidx.core.app.NotificationCompat
 
 /**
  * Captures only notification text explicitly made visible by Android.
@@ -40,14 +41,14 @@ class WhatsAppNotificationListener : NotificationListenerService() {
         val extras = notification.extras
 
         val messagingText = runCatching {
-            Notification.MessagingStyle
+            NotificationCompat.MessagingStyle
                 .extractMessagingStyleFromNotification(notification)
                 ?.messages
                 ?.takeLast(MAX_MESSAGING_LINES)
                 ?.mapNotNull { message ->
                     val text = message.text?.toString()?.trim().orEmpty()
                     if (text.isBlank()) return@mapNotNull null
-                    val sender = message.sender?.toString()?.trim().orEmpty()
+                    val sender = message.person?.name?.toString()?.trim().orEmpty()
                     if (sender.isBlank()) text else "$sender: $text"
                 }
                 ?.joinToString("\n")
