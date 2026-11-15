@@ -1,5 +1,6 @@
 package com.samuraios.app
 
+import androidx.annotation.OptIn
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ExperimentalGetImage
 import androidx.camera.core.ImageProxy
@@ -14,14 +15,13 @@ class LocalVisionAnalyzer(private val onStatus: (String) -> Unit) : ImageAnalysi
     private val detector = ObjectDetection.getClient(
         ObjectDetectorOptions.Builder()
             .setDetectorMode(ObjectDetectorOptions.STREAM_MODE)
-            .enableMultipleObjects()
             .enableClassification()
             .build()
     )
     private val inFlight = AtomicBoolean(false)
     private var lastStatusAt = 0L
 
-    @OptIn(ExperimentalGetImage::class)
+    @OptIn(markerClass = [ExperimentalGetImage::class])
     override fun analyze(imageProxy: ImageProxy) {
         val mediaImage = imageProxy.image
         if (mediaImage == null || !inFlight.compareAndSet(false, true)) {
