@@ -8,7 +8,7 @@ from software_factory_x10.validation import validate_name, validate_source, Vali
 
 GOOD = "def run(data):\n    return list(data)\n"
 class FakeRunner:
-    def run_smoke_test(self, path):
+    def run_smoke_test(self, path, contract=None):
         compile(path.read_text("utf-8"), str(path), "exec")
 
 class FactoryTests(unittest.TestCase):
