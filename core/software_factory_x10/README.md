@@ -23,7 +23,7 @@ This package is deliberately **not wired into the Express Core** and never impor
 
 ## CI verification
 
-GitHub Actions runs unit tests and real Docker integration tests: valid module execution, denied outbound networking, wrong-output rejection, full create/register/destroy, and version promotion/rollback. CI verifies the Docker daemon and pulls the sandbox image before running these checks.
+GitHub Actions runs unit tests and real Docker integration tests: valid module execution, denied outbound networking, wrong-output rejection, timeout cleanup, full create/register/destroy, version promotion/rollback, and concurrent create attempts. CI verifies the Docker daemon and pulls the sandbox image before running these checks.
 
 ## Requirements
 
@@ -39,5 +39,5 @@ AST checks are defense-in-depth, not a sandbox. Docker must be configured secure
 
 - The MVP has no AI code generation, dependency installation, patch application, Express API integration, or autonomous GitHub PR creation from inside the factory.
 - Generated modules are validated and stored, but are not exposed as an in-process plugin API. Runtime invocation and authorization are separate work.
-- Registry and artifacts are local to one host. POSIX file locking serializes registry writes, but this is not a distributed transaction store.
+- Registry and artifacts are local to one host. A POSIX workspace lock serializes module lifecycle transitions across local processes, and registry writes have their own lock. This is not a distributed transaction store or a multi-host shared filesystem protocol.
 - A process or host crash between artifact promotion and registry update can still require operator reconciliation.
