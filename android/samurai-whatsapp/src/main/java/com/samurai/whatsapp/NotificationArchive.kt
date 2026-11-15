@@ -6,6 +6,7 @@ import android.security.keystore.KeyProperties
 import android.util.Base64
 import org.json.JSONObject
 import java.security.KeyStore
+import java.security.MessageDigest
 import java.util.UUID
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
@@ -28,17 +29,26 @@ internal object NotificationArchive {
     private const val IV_LENGTH_BYTES = 12
     private const val TAG_LENGTH_BITS = 128
 
+    @Synchronized
     fun isEnabled(context: Context): Boolean =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .getBoolean(ENABLED_KEY, true)
 
+    @Synchronized
     fun setEnabled(context: Context, enabled: Boolean) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit().putBoolean(ENABLED_KEY, enabled).apply()
     }
 
     @Synchronized
-    fun save(context: Context, packageName: String, title: String, body: String, timestamp: Long) {
+    fun save(
+        context: Context,
+        packageName: String,
+        title: String,
+        body: String,
+        timestamp: Long,
+        dedupeKey: String? = null
+    ) {
         if (!isEnabled(context)) return
         val json = JSONObject()
             .put("package", packageName)
@@ -48,10 +58,16 @@ internal object NotificationArchive {
             .toString()
         val encrypted = encrypt(json)
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        val id = "entry_${timestamp}_${UUID.randomUUID()}"
+        val stableSuffix = dedupeKey?.let { sha256("$packageName|$it") }
+        val id = if (stableSuffix == null) {
+            "entry_${timestamp}_${UUID.randomUUID()}"
+        } else {
+            "entry_${timestamp}_$stableSuffix"
+        }
         val all = prefs.all.keys.filter { it.startsWith("entry_") }.sorted()
+        val alreadyExists = prefs.contains(id)
         prefs.edit().putString(id, encrypted).apply()
-        if (all.size >= MAX_ENTRIES) {
+        if (!alreadyExists && all.size >= MAX_ENTRIES) {
             prefs.edit().also { editor ->
                 all.take(all.size - MAX_ENTRIES + 1).forEach(editor::remove)
             }.apply()
@@ -79,11 +95,17 @@ internal object NotificationArchive {
             .asReversed()
     }
 
+    @Synchronized
     fun clear(context: Context) {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val enabled = prefs.getBoolean(ENABLED_KEY, true)
         prefs.edit().clear().putBoolean(ENABLED_KEY, enabled).apply()
     }
+
+    private fun sha256(value: String): String =
+        MessageDigest.getInstance("SHA-256")
+            .digest(value.toByteArray(Charsets.UTF_8))
+            .joinToString("") { byte -> "%02x".format(byte.toInt() and 0xff) }
 
     private fun encrypt(plainText: String): String {
         val cipher = Cipher.getInstance(TRANSFORMATION)
