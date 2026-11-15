@@ -62,6 +62,7 @@ class DockerSandboxRunner:
 import importlib.util
 import json
 import sys
+sys.dont_write_bytecode = True
 
 spec = importlib.util.spec_from_file_location("candidate", "/module.py")
 module = importlib.util.module_from_spec(spec)
@@ -82,7 +83,7 @@ for case in contract["cases"]:
             "--label", f"com.samurai.factory.job={job_label}",
             "--mount", f"type=bind,src={module_file},dst=/module.py,readonly",
             "--tmpfs", "/tmp:rw,noexec,nosuid,nodev,size=16m,mode=1777",
-            self.image, "python", "-I", "-c", script, contract_json
+            self.image, "python", "-I", "-B", "-c", script, contract_json
         ]
         try:
             subprocess.run(
@@ -118,6 +119,7 @@ for case in contract["cases"]:
 import importlib.util
 import json
 import sys
+sys.dont_write_bytecode = True
 
 class QuietOutput:
     def write(self, value):
@@ -168,7 +170,7 @@ real_stdout.flush()
             "--label", f"com.samurai.factory.job={job_label}",
             "--mount", f"type=bind,src={module_file},dst=/module.py,readonly",
             "--tmpfs", "/tmp:rw,noexec,nosuid,nodev,size=16m,mode=1777",
-            self.image, "python", "-I", "-c", script, input_json
+            self.image, "python", "-I", "-B", "-c", script, input_json
         ]
         process = subprocess.Popen(
             cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL
