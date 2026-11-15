@@ -20,7 +20,7 @@ def handle_request(payload: Any, root: str | Path, runner=None) -> dict:
     if not isinstance(payload, dict):
         raise ValueError("REQUEST_INVALID")
     action = payload.get("action")
-    if action not in {"list", "create", "promote", "rollback", "destroy"}:
+    if action not in {"list", "create", "promote", "rollback", "destroy", "run"}:
         raise ValueError("ACTION_INVALID")
 
     factory = SoftwareFactory(root, runner=runner)
@@ -44,6 +44,10 @@ def handle_request(payload: Any, root: str | Path, runner=None) -> dict:
         if version is not None and (type(version) is not int or version < 1):
             raise ValueError("VERSION_INVALID")
         return {"module": factory.rollback(name, version)}
+    if action == "run":
+        if "input" not in payload:
+            raise ValueError("RUN_INPUT_REQUIRED")
+        return {"module": factory.run(name, payload["input"])}
     if action == "destroy":
         if not factory.destroy(name):
             raise FileNotFoundError("MODULE_NOT_REGISTERED")
