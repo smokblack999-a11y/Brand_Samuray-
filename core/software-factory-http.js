@@ -119,6 +119,20 @@ function createFactoryBridge(options = {}) {
   };
 }
 
+function assertSoftwareFactoryConfig({ enabled, mode, apiKey, requestTimeoutMs }) {
+  if (!enabled) return false;
+  if (!apiKey || typeof apiKey !== "string") {
+    throw new Error("Software Factory requires CORE_API_KEY");
+  }
+  if (mode !== "docker") {
+    throw new Error("Software Factory startup blocked: SOFTWARE_FACTORY_MODE must be exactly docker");
+  }
+  if (!Number.isFinite(Number(requestTimeoutMs)) || Number(requestTimeoutMs) < 30000) {
+    throw new Error("Software Factory requires REQUEST_TIMEOUT_MS of at least 30000");
+  }
+  return true;
+}
+
 function assertFactoryWorkerReady(options = {}) {
   const env = options.env || process.env;
   const run = options.spawnSync || spawnSync;
@@ -309,6 +323,7 @@ function createSoftwareFactoryRouter(options = {}) {
 module.exports = {
   FactoryBridgeError,
   assertFactoryWorkerReady,
+  assertSoftwareFactoryConfig,
   createFactoryBridge,
   createSoftwareFactoryRouter,
   statusForCode,
