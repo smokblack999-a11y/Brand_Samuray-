@@ -21,7 +21,25 @@ internal data class TimelineEvent(
     val eventTime: Long?,
     val observedAt: Long,
     val summary: String
-)
+) {
+    companion object {
+        fun fromJson(value: String): TimelineEvent {
+            val json = JSONObject(value)
+            val eventTime = json.opt("eventTime").let { raw ->
+                if (raw == null || raw == JSONObject.NULL) null else json.getLong("eventTime")
+            }
+            return TimelineEvent(
+                id = json.getString("id"),
+                eventType = json.getString("eventType"),
+                source = json.getString("source"),
+                reference = json.getString("reference"),
+                eventTime = eventTime,
+                observedAt = json.getLong("observedAt"),
+                summary = json.getString("summary")
+            )
+        }
+    }
+}
 
 /**
  * Encrypted evidence ledger. It records only events supplied by a real source;
@@ -196,22 +214,6 @@ internal object MessageTimeline {
         .put("observedAt", observedAt)
         .put("summary", summary)
 
-    private fun TimelineEvent.Companion.fromJson(value: String): TimelineEvent {
-        val json = JSONObject(value)
-        val eventTime = json.opt("eventTime").let { raw ->
-            if (raw == null || raw == JSONObject.NULL) null else json.getLong("eventTime")
-        }
-        return TimelineEvent(
-            id = json.getString("id"),
-            eventType = json.getString("eventType"),
-            source = json.getString("source"),
-            reference = json.getString("reference"),
-            eventTime = eventTime,
-            observedAt = json.getLong("observedAt"),
-            summary = json.getString("summary")
-        )
-    }
-
     private val ALLOWED_EVENT_TYPES = setOf(
         "INCOMING_NOTIFICATION_CAPTURED",
         "CHAT_EXPORT_IMPORTED",
@@ -228,8 +230,4 @@ internal object MessageTimeline {
         "WHATSAPP_CLOUD_API",
         "LAB_WEB_SESSION"
     )
-
-    private class Companion
-    private val TimelineEvent.Companion: Companion
-        get() = Companion
 }
