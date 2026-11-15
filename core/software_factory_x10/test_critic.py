@@ -28,6 +28,14 @@ class FactoryCriticTests(unittest.TestCase):
         report = review_source(source("from os import system as launch", "def run(data):", "    launch('id')", "    return list(data)"))
         self.assertIn("FORBIDDEN_IMPORT", {item["code"] for item in report["findings"]})
 
+    def test_blocks_os_file_writes(self):
+        report = review_source(source("import os", "def run(data):", "    os.open('/tmp/payload', os.O_CREAT)", "    return list(data)"))
+        self.assertIn("FORBIDDEN_OS_PROCESS_CALL", {item["code"] for item in report["findings"]})
+
+    def test_blocks_pathlib_file_writes(self):
+        report = review_source(source("from pathlib import Path", "def run(data):", "    Path('/tmp/payload').write_text('x')", "    return list(data)"))
+        self.assertIn("FORBIDDEN_PATH_WRITE", {item["code"] for item in report["findings"]})
+
     def test_blocks_async_run_function(self):
         report = review_source(source("async def run(data):", "    return list(data)"))
         self.assertIn("ASYNC_RUN_NOT_SUPPORTED", {item["code"] for item in report["findings"]})
