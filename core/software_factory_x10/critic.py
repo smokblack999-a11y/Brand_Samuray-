@@ -6,6 +6,11 @@ from typing import Any
 from .validation import ValidationError, validate_source
 
 POLICY_VERSION = "factory-source-critic-v1"
+FORBIDDEN_IMPORT_ROOTS = {
+    "os", "sys", "subprocess", "socket", "ctypes", "multiprocessing",
+    "threading", "pty", "pathlib", "importlib", "resource", "signal",
+    "fcntl", "shutil", "tempfile",
+}
 FORBIDDEN_CALLS = {"open", "input", "eval", "exec", "compile", "__import__", "breakpoint"}
 FORBIDDEN_OS_CALLS = {
     "system", "popen", "open", "remove", "unlink", "rmdir", "mkdir",
@@ -86,10 +91,15 @@ def review_source(source: str) -> dict[str, Any]:
         for node in tree.body:
             if isinstance(node, ast.Import):
                 for alias in node.names:
-                    local_name = alias.asname or alias.name.split(".")[0]
-                    module_aliases[local_name] = alias.name.split(".")[0]
+                    module_root = alias.name.split(".")[0]
+                    if module_root in FORBIDDEN_IMPORT_ROOTS:
+                        _add(findings, "FORBIDDEN_IMPORT")
+                    local_name = alias.asname or module_root
+                    module_aliases[local_name] = module_root
             elif isinstance(node, ast.ImportFrom):
                 module = node.module or ""
+                if module.split(".")[0] in FORBIDDEN_IMPORT_ROOTS:
+                    _add(findings, "FORBIDDEN_IMPORT")
                 for alias in node.names:
                     if alias.name == "*":
                         _add(findings, "STAR_IMPORT_FORBIDDEN")
