@@ -96,23 +96,77 @@ test("Software Factory create route enforces source size before worker invocatio
   }
 });
 
-test("Software Factory create route dispatches a bounded source payload", async () => {
+test("Software Factory create route dispatches a bounded source payload and JSON test contract", async () => {
   let received;
   const server = await startTestServer(async payload => {
     received = payload;
     return { module: { name: "processor", version: 1 } };
   });
   try {
-    const response = await fetch(`${server.base}/modules`, {
+    const contract = { cases: [{ input: [1, 2], expected: [2, 4] }] };
+    const response = await fetch(\`${server.base}/modules\`, {
       method: "POST",
       headers: { "content-type": "application/json", "X-API-Key": "test-admin-key" },
-      body: JSON.stringify({ name: "processor", source: "def run(data):\n    return list(data)\n" })
+      body: JSON.stringify({
+        name: "processor",
+        source: "def run(data):\n    return [x * 2 for x in data]\n",
+        contract
+      })
     });
     const body = await response.json();
     assert.equal(response.status, 201);
     assert.equal(body.module.version, 1);
     assert.equal(received.action, "create");
     assert.equal(received.name, "processor");
+    assert.deepEqual(received.contract, contract);
+  } finally {
+    await server.close();
+  }
+});
+
+test("Software Factory create route rejects oversized test contracts before worker invocation", async () => {
+  let calls = 0;
+  const server = await startTestServer(async () => {
+    calls += 1;
+    return { module: {} };
+  });
+  try {
+    const response = await fetch(\`${server.base}/modules\`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "X-API-Key": "test-admin-key" },
+      body: JSON.stringify({
+        name: "processor",
+        source: "def run(data):\n    return data\n",
+        contract: { cases: [{ input: "x".repeat(33 * 1024), expected: "x" }] }
+      })
+    });
+    assert.equal(response.status, 413);
+    assert.equal((await response.json()).error.code, "CONTRACT_TOO_LARGE");
+    assert.equal(calls, 0);
+  } finally {
+    await server.close();
+  }
+});
+
+test("Software Factory create route rejects more than twenty contract cases", async () => {
+  let calls = 0;
+  const server = await startTestServer(async () => {
+    calls += 1;
+    return { module: {} };
+  });
+  try {
+    const response = await fetch(\`${server.base}/modules\`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "X-API-Key": "test-admin-key" },
+      body: JSON.stringify({
+        name: "processor",
+        source: "def run(data):\n    return data\n",
+        contract: { cases: Array.from({ length: 21 }, () => ({ input: [1], expected: [1] })) }
+      })
+    });
+    assert.equal(response.status, 400);
+    assert.equal((await response.json()).error.code, "CONTRACT_CASE_LIMIT");
+    assert.equal(calls, 0);
   } finally {
     await server.close();
   }
@@ -203,9 +257,15 @@ test("HTTP route completes create/promote/rollback/delete through Python worker 
     "content-type": "application/json",
     "X-API-Key": "test-admin-key"
   };
-  const sourceV1 = ["def run(data):", "    return list(data)", ""].join("\n");
-  const sourceV2 = ["def run(data):", "    return data[:]", ""].join("\n");
-  try {
+  const sourceV1 = ["def run(data):", "    return [x * 2 for x in data]", ""].join("\n");
+  const sourceV2 = ["def run(data):", "    return [x * 3 for x in data]", ""].join("\n");
+  const contractV1 = {
+    cases: [
+      { input: [1, 2], expected: [2, 4] },
+      { input: [-3, 0], expected: [-6, 0] }
+    ]
+  };
+  const contractV2 = { cases: [{ input: [1, 2], expected: [3, 6] }] };
     const blocked = await fetch(`${server.base}/modules`, {
       method: "POST",
       headers,
@@ -219,20 +279,22 @@ test("HTTP route completes create/promote/rollback/delete through Python worker 
     assert.equal(blockedBody.error.code, "TOP_LEVEL_EXECUTION");
 
     const created = await fetch(`${server.base}/modules`, {
-      method: "POST", headers, body: JSON.stringify({ name: "http_processor", source: sourceV1 })
+      method: "POST", headers, body: JSON.stringify({ name: "http_processor", source: sourceV1, contract: contractV1 })
     });
     const createdBody = await created.json();
     assert.equal(created.status, 201);
     assert.equal(createdBody.module.version, 1);
     assert.equal(createdBody.module.sourceReview.decision, "APPROVED");
+    assert.deepEqual(createdBody.module.contract, contractV1);
 
     const promoted = await fetch(`${server.base}/modules/http_processor/promote`, {
-      method: "POST", headers, body: JSON.stringify({ source: sourceV2 })
+      method: "POST", headers, body: JSON.stringify({ source: sourceV2, contract: contractV2 })
     });
     const promotedBody = await promoted.json();
     assert.equal(promoted.status, 200);
     assert.equal(promotedBody.module.version, 2);
     assert.equal(promotedBody.module.sourceReview.decision, "APPROVED");
+    assert.deepEqual(promotedBody.module.contract, contractV2);
 
     const rolledBack = await fetch(`${server.base}/modules/http_processor/rollback`, {
       method: "POST", headers, body: JSON.stringify({})
@@ -242,10 +304,12 @@ test("HTTP route completes create/promote/rollback/delete through Python worker 
     assert.equal(rollbackBody.module.version, 1);
     assert.equal(rollbackBody.module.rolledBack, true);
     assert.equal(rollbackBody.module.sourceReview.decision, "APPROVED");
+    assert.deepEqual(rollbackBody.module.contract, contractV1);
 
     const listed = await fetch(`${server.base}/modules`, { headers: { "X-API-Key": "test-admin-key" } });
     const listBody = await listed.json();
     assert.equal(listBody.modules.http_processor.version, 1);
+    assert.deepEqual(listBody.modules.http_processor.contract, contractV1);
 
     const deleted = await fetch(`${server.base}/modules/http_processor`, {
       method: "DELETE", headers: { "X-API-Key": "test-admin-key" }
