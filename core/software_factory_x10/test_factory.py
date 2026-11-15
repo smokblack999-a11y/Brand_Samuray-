@@ -179,6 +179,20 @@ class DockerRunnerIntegrationTests(unittest.TestCase):
             self.assertFalse((Path(tmp) / "modules/rejected_processor.py").exists())
             self.assertNotIn("rejected_processor", factory.registry.list())
 
+    def test_real_docker_runner_stops_timed_out_container(self):
+        import subprocess
+        from software_factory_x10.runner import DockerSandboxRunner
+        with tempfile.TemporaryDirectory() as tmp:
+            module = Path(tmp) / "module.py"
+            module.write_text("import time\\ndef run(data):\\n    time.sleep(20)\\n    return data\\n")
+            with self.assertRaisesRegex(RuntimeError, "SANDBOX_TIMEOUT"):
+                DockerSandboxRunner(timeout=3).run_smoke_test(module)
+        result = subprocess.run(
+            ["docker", "ps", "-aq", "--filter", "label=com.samurai.factory.sandbox=true"],
+            check=True, capture_output=True, text=True, timeout=5
+        )
+        self.assertEqual(result.stdout.strip(), "")
+
     def test_real_docker_runner_rejects_wrong_output(self):
         from software_factory_x10.runner import DockerSandboxRunner
         with tempfile.TemporaryDirectory() as tmp:
