@@ -22,7 +22,7 @@ const INJECTION_PATTERNS = [
 const HIGH_IMPACT_PATTERNS = [
   /\b(bet|wager|stake|place bet|gamble|deposit|withdraw|cash.?out|payment|purchase|pay now)\b/i,
   /\b(delete|remove account|close account|send money|transfer funds|wire transfer)\b/i,
-  /\b(ставк|поставить|удвоить|депозит|вывод средств|оплат|перевод денег|удалить аккаунт)\b/i
+  /ставк|поставить|удвоить|депозит|вывод средств|оплат|перевод денег|удалить аккаунт/i
 ];
 
 function inspectAction({ action, target = "", element = {}, taskIntent = "" }) {
