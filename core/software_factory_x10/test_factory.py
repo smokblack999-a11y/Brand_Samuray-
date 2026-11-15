@@ -210,6 +210,31 @@ class DockerRunnerIntegrationTests(unittest.TestCase):
             self.assertEqual(rolled["contract"], contract_v1)
             self.assertTrue(factory.destroy("release_candidate"))
 
+    def test_contract_only_promotion_runs_real_docker(self):
+        from software_factory_x10.runner import DockerSandboxRunner
+        with tempfile.TemporaryDirectory() as tmp:
+            factory = SoftwareFactory(tmp, runner=DockerSandboxRunner(timeout=15))
+            contract_v1 = {"cases": [{"input": [1, 2], "expected": [1, 2]}]}
+            contract_v2 = {"cases": [{"input": [5, 6], "expected": [5, 6]}]}
+            first = factory.create("same_source_module", GOOD, contract_v1)
+            second = factory.promote("same_source_module", GOOD, contract_v2)
+            self.assertEqual(first["sha256"], second["sha256"])
+            self.assertEqual(second["version"], 2)
+            self.assertEqual(second["contract"], contract_v2)
+            restored = factory.rollback("same_source_module")
+            self.assertEqual(restored["contract"], contract_v1)
+            self.assertTrue(factory.destroy("same_source_module"))
+
+    def test_contract_mismatch_rejects_module_before_publication(self):
+        from software_factory_x10.runner import DockerSandboxRunner
+        with tempfile.TemporaryDirectory() as tmp:
+            factory = SoftwareFactory(tmp, runner=DockerSandboxRunner(timeout=15))
+            wrong_contract = {"cases": [{"input": [1], "expected": [999]}]}
+            with self.assertRaisesRegex(RuntimeError, "SANDBOX_TEST_FAILED"):
+                factory.create("wrong_contract_module", GOOD, wrong_contract)
+            self.assertNotIn("wrong_contract_module", factory.registry.list())
+            self.assertFalse((Path(tmp) / "modules/wrong_contract_module.py").exists())
+
     def test_real_docker_runner_denies_network(self):
         from software_factory_x10.runner import DockerSandboxRunner
         source = (
