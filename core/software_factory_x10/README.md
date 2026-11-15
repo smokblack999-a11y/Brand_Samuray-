@@ -26,6 +26,25 @@ This package is deliberately **not wired into the Express Core** and never impor
 
 GitHub Actions runs unit tests and real Docker integration tests: valid module execution, denied outbound networking, wrong-output rejection, timeout cleanup, full create/register/destroy, version promotion/rollback, and concurrent create attempts. CI verifies the Docker daemon and pulls the sandbox image before running these checks.
 
+
+
+## Data-driven test contracts
+
+Each module version stores a JSON-only contract with 1–20 cases and a 32 KiB maximum. Every case contains exactly `input` and `expected`. The Docker runner invokes `run(input)` for each case and requires an exact result match. Contracts are data, never executable test code. A promotion may supply a new contract; changing the contract alone creates a new version. Rollback restores the code review report and contract recorded for the selected version.
+
+Example:
+
+```json
+{
+  "cases": [
+    { "input": [1, 2], "expected": [2, 4] },
+    { "input": [-3, 0], "expected": [-6, 0] }
+  ]
+}
+```
+
+Use synthetic test data only. Do not place customer records, API tokens, passwords or personal information in test vectors or registry metadata.
+
 ## Requirements
 
 - Python 3.10+.
@@ -65,7 +84,7 @@ The Docker image must be preloaded before Core starts. Startup fails closed unle
 Authenticated endpoints under `/v1/software-factory`:
 
 - `GET /modules`
-- `POST /modules` with `{ "name": "processor", "source": "def run(data):\\n    return list(data)\\n" }`
+- `POST /modules` with `{ "name": "processor", "source": "...", "contract": { "cases": [{ "input": [1, 2], "expected": [2, 4] }] } }`
 - `POST /modules/:name/promote` with `{ "source": "..." }`
 - `POST /modules/:name/rollback` with optional `{ "version": 1 }`
 - `DELETE /modules/:name`
