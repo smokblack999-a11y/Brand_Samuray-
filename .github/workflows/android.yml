@@ -71,6 +71,9 @@ jobs:
           grep -Fq 'com/samurai/whatsapp/MediaVault' <<< "$DEX_CONTENT"
           grep -Fq 'com/samurai/whatsapp/WhatsAppExportImporter' <<< "$DEX_CONTENT"
           grep -Fq 'com/samurai/whatsapp/WhatsAppExportArchive' <<< "$DEX_CONTENT"
+          grep -Fq 'com/samurai/whatsapp/StatusSaver' <<< "$DEX_CONTENT"
+          grep -Fq 'com/samurai/whatsapp/MessageTimeline' <<< "$DEX_CONTENT"
+          grep -Fq 'com/samurai/whatsapp/AppLock' <<< "$DEX_CONTENT"
           echo "WhatsApp Kotlin classes present in APK DEX: PASS"
 
       - name: Run SAMURAI WhatsApp archive tests on Android emulator
@@ -81,7 +84,7 @@ jobs:
           arch: x86_64
           profile: pixel_6
           emulator-options: -no-window -no-audio -no-boot-anim
-          script: ./android/gradlew -p android :samurai-whatsapp:connectedDebugAndroidTest --stacktrace
+          script: cd android && ./gradlew :samurai-whatsapp:connectedDebugAndroidTest --stacktrace
 
       - name: Upload APKs
         if: success()
