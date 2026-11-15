@@ -22,8 +22,16 @@ function validateTask(task) {
   }
   for (const step of task.steps) {
     if (!step || !["navigate","click","fill","read"].includes(step.action)) throw new Error("UNSUPPORTED_ACTION");
-    if (typeof step.target !== "string" && step.action !== "navigate") throw new Error("TARGET_REQUIRED");
-    if (step.action === "navigate" && typeof step.value !== "string") throw new Error("NAVIGATION_URL_REQUIRED");
+    if (step.action === "navigate") {
+      if (typeof step.value !== "string") throw new Error("NAVIGATION_URL_REQUIRED");
+      let next;
+      try { next = new URL(step.value, parsed); } catch { throw new Error("INVALID_NAVIGATION_URL"); }
+      if (next.protocol !== "https:" || next.username || next.password || !allowedHosts.has(next.hostname.toLowerCase())) {
+        throw new Error("NAVIGATION_OUTSIDE_ALLOWED_HOSTS");
+      }
+    } else if (typeof step.target !== "string" || !step.target.trim()) {
+      throw new Error("TARGET_REQUIRED");
+    }
     if (step.action === "click" && BLOCKED_ACTION_PATTERNS.some(pattern => pattern.test(String(step.target)))) {
       throw new Error("HIGH_IMPACT_ACTION_REQUIRES_OWNER");
     }
