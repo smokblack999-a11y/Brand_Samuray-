@@ -34,7 +34,7 @@ function statusForCode(code) {
        "CONTRACT_CASE_INVALID", "RUN_INPUT_REQUIRED", "RUN_INPUT_INVALID"].includes(code) || code.startsWith("SOURCE_")) return 400;
   if (code === "CONTRACT_TOO_LARGE" || code === "RUN_INPUT_TOO_LARGE" || code === "REQUEST_TOO_LARGE" || code === "MODULE_OUTPUT_TOO_LARGE") return 413;
   if (code === "MODULE_OUTPUT_INVALID") return 502;
-  if (["MODULE_ALREADY_EXISTS", "MODULE_HASH_MISMATCH", "NO_PREVIOUS_VERSION",
+  if (["MODULE_ALREADY_EXISTS", "MODULE_HASH_MISMATCH", "MODULE_REVIEW_REQUIRED", "NO_PREVIOUS_VERSION",
        "TARGET_VERSION_INVALID", "ACTIVE_MODULE_MISSING_OR_INVALID"].includes(code)) return 409;
   if (["MODULE_NOT_REGISTERED", "ORDER_NOT_FOUND"].includes(code)) return 404;
   if (code.startsWith("SANDBOX_") || code === "DOCKER_SANDBOX_UNAVAILABLE" ||
