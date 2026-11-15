@@ -104,7 +104,7 @@ test("Software Factory create route dispatches a bounded source payload and JSON
   });
   try {
     const contract = { cases: [{ input: [1, 2], expected: [2, 4] }] };
-    const response = await fetch(\`${server.base}/modules\`, {
+    const response = await fetch(`${server.base}/modules`, {
       method: "POST",
       headers: { "content-type": "application/json", "X-API-Key": "test-admin-key" },
       body: JSON.stringify({
@@ -131,7 +131,7 @@ test("Software Factory create route rejects oversized test contracts before work
     return { module: {} };
   });
   try {
-    const response = await fetch(\`${server.base}/modules\`, {
+    const response = await fetch(`${server.base}/modules`, {
       method: "POST",
       headers: { "content-type": "application/json", "X-API-Key": "test-admin-key" },
       body: JSON.stringify({
@@ -155,7 +155,7 @@ test("Software Factory create route rejects more than twenty contract cases", as
     return { module: {} };
   });
   try {
-    const response = await fetch(\`${server.base}/modules\`, {
+    const response = await fetch(`${server.base}/modules`, {
       method: "POST",
       headers: { "content-type": "application/json", "X-API-Key": "test-admin-key" },
       body: JSON.stringify({
@@ -166,6 +166,30 @@ test("Software Factory create route rejects more than twenty contract cases", as
     });
     assert.equal(response.status, 400);
     assert.equal((await response.json()).error.code, "CONTRACT_CASE_LIMIT");
+    assert.equal(calls, 0);
+  } finally {
+    await server.close();
+  }
+});
+
+test("Software Factory create route rejects an empty test contract", async () => {
+  let calls = 0;
+  const server = await startTestServer(async () => {
+    calls += 1;
+    return { module: {} };
+  });
+  try {
+    const response = await fetch(`${server.base}/modules`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "X-API-Key": "test-admin-key" },
+      body: JSON.stringify({
+        name: "processor",
+        source: "def run(data):\\n    return data\\n",
+        contract: { cases: [] }
+      })
+    });
+    assert.equal(response.status, 400);
+    assert.equal((await response.json()).error.code, "CONTRACT_CASES_REQUIRED");
     assert.equal(calls, 0);
   } finally {
     await server.close();
