@@ -196,6 +196,68 @@ test("Software Factory create route rejects an empty test contract", async () =>
   }
 });
 
+test("Software Factory run route forwards JSON input to the isolated worker", async () => {
+  let received;
+  const server = await startTestServer(async payload => {
+    received = payload;
+    return { module: { name: "processor", version: 2, result: [6, 8] } };
+  });
+  try {
+    const response = await fetch(\`${server.base}/modules/processor/run\`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "X-API-Key": "test-admin-key" },
+      body: JSON.stringify({ input: [3, 4] })
+    });
+    const body = await response.json();
+    assert.equal(response.status, 200);
+    assert.equal(body.module.version, 2);
+    assert.deepEqual(body.module.result, [6, 8]);
+    assert.deepEqual(received, { action: "run", name: "processor", input: [3, 4] });
+  } finally {
+    await server.close();
+  }
+});
+
+test("Software Factory run route requires an input field", async () => {
+  let calls = 0;
+  const server = await startTestServer(async () => {
+    calls += 1;
+    return {};
+  });
+  try {
+    const response = await fetch(\`${server.base}/modules/processor/run\`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "X-API-Key": "test-admin-key" },
+      body: JSON.stringify({})
+    });
+    assert.equal(response.status, 400);
+    assert.equal((await response.json()).error.code, "RUN_INPUT_REQUIRED");
+    assert.equal(calls, 0);
+  } finally {
+    await server.close();
+  }
+});
+
+test("Software Factory run route rejects oversized input before worker invocation", async () => {
+  let calls = 0;
+  const server = await startTestServer(async () => {
+    calls += 1;
+    return {};
+  });
+  try {
+    const response = await fetch(\`${server.base}/modules/processor/run\`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "X-API-Key": "test-admin-key" },
+      body: JSON.stringify({ input: "x".repeat(33 * 1024) })
+    });
+    assert.equal(response.status, 413);
+    assert.equal((await response.json()).error.code, "RUN_INPUT_TOO_LARGE");
+    assert.equal(calls, 0);
+  } finally {
+    await server.close();
+  }
+});
+
 test("Software Factory rollback validates target version", async () => {
   let calls = 0;
   const server = await startTestServer(async () => {
@@ -261,6 +323,9 @@ test("worker error status map uses conflict and service-unavailable classes", ()
   assert.equal(statusForCode("SOURCE_SYNTAX_INVALID"), 400);
   assert.equal(statusForCode("TOP_LEVEL_EXECUTION"), 400);
   assert.equal(statusForCode("FORBIDDEN_PATH_WRITE"), 400);
+  assert.equal(statusForCode("RUN_INPUT_INVALID"), 400);
+  assert.equal(statusForCode("RUN_INPUT_TOO_LARGE"), 413);
+  assert.equal(statusForCode("MODULE_OUTPUT_INVALID"), 502);
 });
 
 
@@ -312,6 +377,13 @@ test("HTTP route completes create/promote/rollback/delete through Python worker 
     assert.equal(createdBody.module.sourceReview.decision, "APPROVED");
     assert.deepEqual(createdBody.module.contract, contractV1);
 
+    const runV1 = await fetch(\`${server.base}/modules/http_processor/run\`, {
+      method: "POST", headers, body: JSON.stringify({ input: [1, 2] })
+    });
+    const runV1Body = await runV1.json();
+    assert.equal(runV1.status, 200);
+    assert.deepEqual(runV1Body.module.result, [2, 4]);
+
     const promoted = await fetch(`${server.base}/modules/http_processor/promote`, {
       method: "POST", headers, body: JSON.stringify({ source: sourceV2, contract: contractV2 })
     });
@@ -320,6 +392,13 @@ test("HTTP route completes create/promote/rollback/delete through Python worker 
     assert.equal(promotedBody.module.version, 2);
     assert.equal(promotedBody.module.sourceReview.decision, "APPROVED");
     assert.deepEqual(promotedBody.module.contract, contractV2);
+
+    const runV2 = await fetch(\`${server.base}/modules/http_processor/run\`, {
+      method: "POST", headers, body: JSON.stringify({ input: [1, 2] })
+    });
+    const runV2Body = await runV2.json();
+    assert.equal(runV2.status, 200);
+    assert.deepEqual(runV2Body.module.result, [3, 6]);
 
     const rolledBack = await fetch(`${server.base}/modules/http_processor/rollback`, {
       method: "POST", headers, body: JSON.stringify({})
@@ -330,6 +409,13 @@ test("HTTP route completes create/promote/rollback/delete through Python worker 
     assert.equal(rollbackBody.module.rolledBack, true);
     assert.equal(rollbackBody.module.sourceReview.decision, "APPROVED");
     assert.deepEqual(rollbackBody.module.contract, contractV1);
+
+    const runV1Again = await fetch(\`${server.base}/modules/http_processor/run\`, {
+      method: "POST", headers, body: JSON.stringify({ input: [1, 2] })
+    });
+    const runV1AgainBody = await runV1Again.json();
+    assert.equal(runV1Again.status, 200);
+    assert.deepEqual(runV1AgainBody.module.result, [2, 4]);
 
     const listed = await fetch(`${server.base}/modules`, { headers: { "X-API-Key": "test-admin-key" } });
     const listBody = await listed.json();
