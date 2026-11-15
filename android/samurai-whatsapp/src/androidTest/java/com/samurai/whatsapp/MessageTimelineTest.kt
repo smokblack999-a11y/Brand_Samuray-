@@ -29,7 +29,7 @@ class MessageTimelineTest {
 
     @Test
     fun recordsNotificationWithSourceAndSeparateObservedTime() {
-        val sourceTime = 1_800_000_000_000L
+        val sourceTime = System.currentTimeMillis() - 1_000L
         MessageTimeline.recordNotificationCaptured(
             context,
             "com.whatsapp",
