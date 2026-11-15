@@ -94,15 +94,7 @@ jobs:
           emulator-boot-timeout: 900
           disable-linux-hw-accel: auto
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
-          script: |
-            cd android
-            ./gradlew :samurai-whatsapp:connectedDebugAndroidTest --stacktrace || {
-              echo "=== ADB device state ==="
-              adb devices -l || true
-              echo "=== Recent Android logcat ==="
-              adb logcat -d -b all -v threadtime | tail -n 500 || true
-              exit 1
-            }
+          script: cd android && ./gradlew :samurai-whatsapp:connectedDebugAndroidTest --stacktrace
 
       - name: Upload APKs
         if: success()
