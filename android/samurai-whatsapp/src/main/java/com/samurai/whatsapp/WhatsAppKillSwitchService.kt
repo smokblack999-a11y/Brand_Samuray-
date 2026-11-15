@@ -42,16 +42,6 @@ class WhatsAppKillSwitchService : VpnService() {
         runCatching {
             createNotificationChannel()
             val notification = buildNotification()
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-                startForeground(
-                    NOTIFICATION_ID,
-                    notification,
-                    ServiceInfo.FOREGROUND_SERVICE_TYPE_SYSTEM_EXEMPTED
-                )
-            } else {
-                startForeground(NOTIFICATION_ID, notification)
-            }
-
             val builder = Builder()
                 .setSession("SAMURAI WhatsApp Internet Block")
                 .setMtu(1500)
@@ -75,6 +65,18 @@ class WhatsAppKillSwitchService : VpnService() {
             val established = builder.establish()
                 ?: throw IllegalStateException("Android did not establish the VPN interface")
             tunnel = established
+
+            // SYSTEM_EXEMPTED is permitted for an active VPN app; establish the VPN first.
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                startForeground(
+                    NOTIFICATION_ID,
+                    notification,
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_SYSTEM_EXEMPTED
+                )
+            } else {
+                startForeground(NOTIFICATION_ID, notification)
+            }
+
             getSharedPreferences(PREFS, MODE_PRIVATE)
                 .edit()
                 .putBoolean(KEY_ENABLED, true)
