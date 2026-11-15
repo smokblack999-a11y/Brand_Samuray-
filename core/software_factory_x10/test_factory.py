@@ -33,6 +33,16 @@ class FactoryTests(unittest.TestCase):
         self.assertEqual(result["version"], 1)
         self.assertEqual(result["result"], {"received": {"items": [1, 2]}})
 
+    def test_run_blocks_legacy_modules_without_approved_source_review(self):
+        self.factory.create("processor", GOOD)
+        metadata = self.factory.registry.list()["processor"]
+        metadata.pop("sourceReview", None)
+        for entry in metadata["versions"]:
+            entry.pop("sourceReview", None)
+        self.factory.registry.put("processor", metadata)
+        with self.assertRaisesRegex(RuntimeError, "MODULE_REVIEW_REQUIRED"):
+            self.factory.run("processor", [1, 2, 3])
+
     def test_run_rejects_tampered_active_module_before_runner(self):
         self.factory.create("processor", GOOD)
         target = Path(self.tmp.name) / "modules/processor.py"
@@ -262,6 +272,22 @@ class DockerRunnerIntegrationTests(unittest.TestCase):
                 factory.create("wrong_contract_module", GOOD, wrong_contract)
             self.assertNotIn("wrong_contract_module", factory.registry.list())
             self.assertFalse((Path(tmp) / "modules/wrong_contract_module.py").exists())
+
+    def test_run_rejects_output_over_32k(self):
+        from software_factory_x10.runner import DockerSandboxRunner
+        with tempfile.TemporaryDirectory() as tmp:
+            factory = SoftwareFactory(tmp, runner=DockerSandboxRunner(timeout=15))
+            source = "\\n".join([
+                "def run(data):",
+                "    if data == 'large':",
+                "        return 'x' * 40000",
+                "    return list(data)",
+                ""
+            ])
+            factory.create("large_output_module", source)
+            with self.assertRaisesRegex(RuntimeError, "MODULE_OUTPUT_TOO_LARGE"):
+                factory.run("large_output_module", "large")
+            self.assertTrue(factory.destroy("large_output_module"))
 
     def test_real_docker_runner_denies_network(self):
         from software_factory_x10.runner import DockerSandboxRunner
