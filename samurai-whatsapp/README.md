@@ -12,7 +12,7 @@ An isolated Android companion app alongside the existing SamuraiOS app. It does 
 - Local notification archive capped at 200 records
 - User can pause/resume archiving and clear the archive; clearing also retires the old Keystore key
 - **Encrypted Media Vault:** import images, videos and audio through Android's system document picker; store files and index metadata encrypted in app-private storage using AES-GCM and Android Keystore; export, delete individual items or clear the vault
-- Media Vault guardrails: up to 100 items, 250 MiB per item, no broad storage permission, no network permission, no server upload
+- Media Vault guardrails: up to 100 items, 250 MiB per item and 1 GiB total, import/export off the UI thread, no broad storage permission, no network permission, no server upload
 - Instrumentation tests cover Media Vault encrypted round-trip, plaintext absence, unsupported MIME rejection, delete and clear/re-key behavior (CI pending)
 - App backup disabled
 
