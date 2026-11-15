@@ -19,7 +19,7 @@ class DockerSandboxRunner:
         module_file = Path(module_file).resolve()
         script = (
             "import importlib.util,json; "
-            "s=importlib.util.spec_from_file_location('candidate','/work/module.py'); "
+            "s=importlib.util.spec_from_file_location('candidate','/module.py'); "
             "m=importlib.util.module_from_spec(s); s.loader.exec_module(m); "
             "r=m.run([1,2,3]); "
             "assert r == [1,2,3], 'SMOKE_TEST_FAILED'"
@@ -29,7 +29,7 @@ class DockerSandboxRunner:
             "--cap-drop=ALL", "--security-opt=no-new-privileges",
             "--pids-limit=32", "--memory=128m", "--cpus=0.5",
             "--user=65534:65534",
-            "--mount", f"type=bind,src={module_file},dst=/work/module.py,readonly",
+            "--mount", f"type=bind,src={module_file},dst=/module.py,readonly",
             "--tmpfs", "/tmp:rw,noexec,nosuid,size=16m",
             self.image, "python", "-I", "-c", script
         ]
