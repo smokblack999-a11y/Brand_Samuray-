@@ -410,15 +410,15 @@ class MainActivity : Activity() {
             }
             runOnUiThread {
                 result.onSuccess { messages ->
-                    val transcript = messages.take(80).joinToString("\n\n") { message ->
+                    val transcript = messages.take(20).joinToString("\n\n") { message ->
                         val time = message.timestamp?.let {
                             DateFormat.format("dd.MM.yyyy HH:mm:ss", Date(it)).toString()
                         } ?: "Время не распознано"
                         val sender = message.sender ?: "Системное событие"
-                        "$time · $sender\n${message.text}"
+                        "$time · $sender\n${message.text.take(1200)}"
                     }
                     val suffix = if (messages.size > 80) {
-                        "\n\nПоказаны первые 80 из ${messages.size} сообщений."
+                        "\n\nПоказаны первые 20 из ${messages.size} сообщений."
                     } else ""
                     AlertDialog.Builder(this)
                         .setTitle(chat.chatName)
