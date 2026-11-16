@@ -30,7 +30,7 @@ Status labels:
 | Per-app network block (VPN) | Implemented in branch; runtime/device pending | Explicit Android VPN consent; allowlists only WhatsApp package UIDs; drops packets locally; not Always-on/Lockdown and fail-open if service stops |
 | Anti-Delete | Partial | A notification copy may survive later deletion only if Android first posts visible text; cannot guarantee hidden previews, muted/suppressed notifications, truncation or absent notifications |
 | One Tick / Hide Delivered | Experimental candidate; not implemented | Separate recipient-side rooted lab module, dedicated test number, exact host-version checks and second-device verification; no anti-ban guarantee |
-| Read Tracker for personal outgoing messages | Not implemented | No producer for outgoing SERVER/DEVICE/READ/PLAYED states; missing READ remains UNKNOWN |
+| Read Tracker for personal outgoing messages | Not implemented for personal WhatsApp; status reducer added | `MessageStatusReducer` now models verified server/device/read/played evidence for SAMURAI-owned messaging and supported integrations; it rejects untrusted sources and keeps missing signals UNKNOWN. No personal WhatsApp receipt source is connected. |
 | Exact personal read timestamp | Not available | Timeline does not infer read time; local observed-at time is not the recipient's server-side read time |
 | Business API read timeline | Feasible only for API-originated messages | Meta Business Platform status webhooks apply to outbound messages sent through that API; not personal-account tracking |
 | Last Seen / Online Tracker | Not implemented; disclosure-bound | Presence is not collected; future tracking may only record disclosed presence; hidden state remains unknown |
