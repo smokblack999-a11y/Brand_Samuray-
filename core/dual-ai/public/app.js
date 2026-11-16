@@ -95,10 +95,23 @@
     [el.exportTxt, el.exportJson, el.printPdf].forEach(button => button.disabled = !hasSession);
     if (session.final) {
       el.final.hidden = false;
-      el.final.replaceChildren(node("p", "eyebrow", "FINAL RESULT · " + session.status), node("h3", "", "Итоговый ответ"));
+      el.final.className = "final panel";
+      el.final.replaceChildren(node("p", "eyebrow", "APPROVED FINAL · " + session.status), node("h3", "", "Итоговый ответ"));
       el.final.append(node("div", "final-content", session.final));
+    } else if (session.status === "CONDITIONAL" && session.candidate) {
+      el.final.hidden = false;
+      el.final.className = "final panel conditional";
+      el.final.replaceChildren(
+        node("p", "eyebrow", "CONDITIONAL · NOT APPROVED"),
+        node("h3", "", "Кандидат ожидает доказательств"),
+        node("p", "notice error", "Kill Critic прошёл, но Evidence Verifier не получил независимые подтверждения. Ответ не считается утверждённым."),
+        node("div", "final-content", session.candidate)
+      );
+      const missing = session.verification && session.verification.missing || [];
+      if (missing.length) el.final.append(node("p", "confidence", "Не хватает подтверждений: " + missing.join(", ")));
     } else {
       el.final.hidden = true;
+      el.final.className = "final panel";
       el.final.replaceChildren();
     }
     setBusy(false);
@@ -151,7 +164,8 @@
     try {
       const result = await api("/api/dual-ai/turn", { method: "POST", body: JSON.stringify({ id: state.id }) });
       render(result.session);
-      setNotice(result.session.status === "COMPLETE" ? "Kill Critic одобрил результат: все пороги качества пройдены." :
+      setNotice(result.session.status === "COMPLETE" ? "Kill Critic и Evidence Verifier: результат прошёл доступные проверки." :
+        result.session.status === "CONDITIONAL" ? "Кандидат сохранён, но не утверждён: требуются независимые доказательства." :
         result.session.status === "BLOCKED" ? "Лимит раундов достигнут. Результат не утверждён." : "Ход завершён.");
       await refreshHistory();
       return true;
@@ -172,12 +186,6 @@
         const ok = await nextTurn();
         if (!ok || !state.session || state.session.status !== "RUNNING") break;
       }
-    } finally {
-      state.auto = false;
-      el.auto.textContent = "Автодиалог";
-      setBusy(false);
-    }
-  }
     } finally {
       state.auto = false;
       el.auto.textContent = "Автодиалог";
