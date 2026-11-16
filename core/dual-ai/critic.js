@@ -53,6 +53,19 @@ function parseVerdict(raw) {
   try {
     const value = JSON.parse(raw);
     if (!value || !["PASS", "FAIL"].includes(value.verdict)) throw new Error("bad_verdict");
+    const required = [
+      "confidence", "requirement_coverage", "factuality", "reasoning_quality",
+      "safety", "issues", "required_changes", "evidence_gaps"
+    ];
+    if (required.some(key => !Object.prototype.hasOwnProperty.call(value, key))) {
+      throw new Error("missing_critic_fields");
+    }
+    if (!["issues", "required_changes", "evidence_gaps"].every(key => Array.isArray(value[key]))) {
+      throw new Error("invalid_critic_arrays");
+    }
+    if (required.slice(0, 5).some(key => !Number.isFinite(Number(value[key])))) {
+      throw new Error("invalid_critic_scores");
+    }
     const parsed = {
       verdict: value.verdict,
       confidence: boundedScore(value.confidence),
