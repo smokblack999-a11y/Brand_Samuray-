@@ -93,6 +93,7 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        ocrCancelled.set(true)
         imageAnalysis?.clearAnalyzer()
         cameraProvider?.unbindAll()
         localVisionAnalyzer?.close()
@@ -169,6 +170,7 @@ class MainActivity : ComponentActivity() {
         visionText = TextView(this).apply { text = "Локальное зрение: инициализация..."; textSize = 14f; setTextColor(Color.CYAN); setPadding(0, 10, 0, 10) }
         root.addView(visionText)
         root.addView(Button(this).apply { text = "АНАЛИЗИРОВАТЬ В OPENAI"; setOnClickListener { confirmCloudVision() } })
+        root.addView(Button(this).apply { text = "РАСПОЗНАТЬ ТЕКСТ ЛОКАЛЬНО (RU + KZ)"; setOnClickListener { runLocalOcr() } })
         root.addView(TextView(this).apply { text = "Проектная галерея — приватное хранилище"; textSize = 18f; setTextColor(Color.WHITE); setPadding(0, 18, 0, 8) })
         galleryContainer = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         root.addView(galleryContainer)
@@ -272,7 +274,7 @@ class MainActivity : ComponentActivity() {
             val meta = Vault.metadata(photo)
             val text = TextView(this).apply { text = if (meta?.has("latitude") == true && !meta.isNull("latitude")) "${photo.name}\nGPS: ${meta.optDouble("latitude")}, ${meta.optDouble("longitude")}\n± ${meta.optDouble("accuracyMeters", 0.0)} m" else photo.name + "\nGPS: нет fix"; setTextColor(Color.LTGRAY); setPadding(12, 0, 0, 0) }
             row.addView(text, LinearLayout.LayoutParams(0, -2, 1f))
-            row.setOnClickListener { selectedPhoto = photo; outputText.text = "Выбрано: " + photo.name; openPhotoViewer(photo) }
+            row.setOnClickListener { ocrCancelled.set(true); selectedPhoto = photo; outputText.text = "Выбрано: " + photo.name; openPhotoViewer(photo) }
             galleryContainer.addView(row)
         }
     }
@@ -386,6 +388,35 @@ class MainActivity : ComponentActivity() {
     }
 
 
+    private val ocrCancelled = java.util.concurrent.atomic.AtomicBoolean(false)
+
+    private fun runLocalOcr() {
+        val photo = selectedPhoto ?: run { showToast("Сначала сделайте фото или выберите его в галерее"); return }
+        ocrCancelled.set(true)
+        val cancellation = java.util.concurrent.atomic.AtomicBoolean(false)
+        // The worker owns this token; selecting a new photo or closing the Activity invalidates stale output.
+        ocrCancelled.set(false)
+        outputText.text = "Подготовка локального OCR: проверка моделей русского и казахского..."
+        thread(name = "samurai-local-ocr") {
+            try {
+                val result = LocalOcrEngine(applicationContext).recognize(photo, cancellation)
+                mainHandler.post {
+                    if (isFinishing || isDestroyed || selectedPhoto != photo || cancellation.get()) return@post
+                    outputText.text = if (result.text.isBlank()) {
+                        "Текст не найден. Попробуйте более резкое фото или приблизьте документ."
+                    } else {
+                        "ЛОКАЛЬНЫЙ OCR · RU + KZ\nУверенность: " + result.meanConfidence + "% · " + result.elapsedMs + " мс\n\n" + result.text
+                    }
+                }
+            } catch (error: Exception) {
+                mainHandler.post {
+                    if (!isFinishing && !isDestroyed && selectedPhoto == photo) {
+                        outputText.text = "Локальный OCR недоступен: " + (error.localizedMessage ?: error.javaClass.simpleName)
+                    }
+                }
+            }
+        }
+    }
     private fun confirmCloudVision() {
         val photo = selectedPhoto ?: run { showToast("Сначала сделайте фото или выберите его в галерее"); return }
         if (coreUrl.isBlank() || coreApiKey.isBlank()) {
