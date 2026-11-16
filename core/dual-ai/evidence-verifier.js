@@ -1,17 +1,15 @@
 "use strict";
 
-const crypto = require("crypto");
-
 const RULES = [
-  { kind: "tests", pattern: /\\b(test|tests|testing|unit test|integration test|e2e|spec|тест|тесты|тестирование)\\b/i },
-  { kind: "build", pattern: /\\b(build|compile|compilation|apk|ipa|bundle|сборк|компиляц|apk)\\b/i },
-  { kind: "execution", pattern: /\\b(deploy|deployed|release|installed|published|launched|migration|production|развернул|установил|опубликовал|запустил)\\b/i },
-  { kind: "sources", pattern: /\\b(latest|current|today|recent|price|pricing|rate|exchange|news|source|citation|as of|сегодня|актуальн|последн|цена|курс|источник|ссылк)\\b/i },
-  { kind: "domain_review", pattern: /\\b(medical|clinical|diagnos|legal|law|tax|investment|financial advice|лекарств|медицин|диагноз|юрид|налог|инвестиц|финансов)\\b/i }
+  { kind: "tests", pattern: /\b(test|tests|testing|unit test|integration test|e2e|spec|тест|тесты|тестирование)\b/i },
+  { kind: "build", pattern: /\b(build|compile|compilation|apk|ipa|bundle|сборк|компиляц)\b/i },
+  { kind: "execution", pattern: /\b(deploy|deployed|release|installed|published|launched|migration|production|развернул|установил|опубликовал|запустил)\b/i },
+  { kind: "sources", pattern: /\b(latest|current|today|recent|price|pricing|rate|exchange|news|source|citation|as of|сегодня|актуальн|последн|цена|курс|источник|ссылк)\b/i },
+  { kind: "domain_review", pattern: /\b(medical|clinical|diagnos|legal|law|tax|investment|financial advice|лекарств|медицин|диагноз|юрид|налог|инвестиц|финансов)\b/i }
 ];
 
 function requiredEvidenceKinds(task, answer) {
-  const text = String(task || "") + "\\n" + String(answer || "");
+  const text = String(task || "") + "\n" + String(answer || "");
   return RULES.filter(rule => rule.pattern.test(text)).map(rule => rule.kind);
 }
 
@@ -19,8 +17,7 @@ function validServerEvidence(item) {
   if (!item || item.origin !== "server" || item.status !== "passed") return false;
   if (!["tests", "build", "execution", "sources", "domain_review"].includes(item.kind)) return false;
   if (typeof item.digest !== "string" || !/^[a-f0-9]{64}$/i.test(item.digest)) return false;
-  const timestamp = Date.parse(item.at);
-  return Number.isFinite(timestamp);
+  return Number.isFinite(Date.parse(item.at));
 }
 
 function verifyEvidence({ task, answer, evidence = [] } = {}) {
