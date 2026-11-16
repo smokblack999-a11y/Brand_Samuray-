@@ -232,7 +232,7 @@
   el.next.addEventListener("click", nextTurn);
   el.auto.addEventListener("click", () => state.auto ? state.stopAuto = true : runAuto());
   el.stop.addEventListener("click", stopSession);
-  $("#newSession").addEventListener("click", () => {
+  $("#retryTask").addEventListener("click", () => {\n    if (!el.task.value.trim()) { setNotice("Нет задачи для повторного запуска.", true); return; }\n    startSession().catch(error => { setBusy(false); setNotice(error.message, true); });\n  });\n  $("#newSession").addEventListener("click", () => {
     state.stopAuto = true; state.id = null; state.session = null;
     el.task.value = ""; el.aTurns.replaceChildren(node("p", "empty", "Ответы Model A появятся здесь."));
     el.bTurns.replaceChildren(node("p", "empty", "Критика Model B появится здесь."));
