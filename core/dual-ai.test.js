@@ -79,8 +79,19 @@ test("Kill Critic accepts only a fully clean high-confidence verdict", () => {
   assert.equal(verdict.verdict, "PASS");
 });
 
-test("Kill Critic fails closed on malformed JSON", () => {
-  const verdict = critic.parseVerdict("not-json");
-  assert.equal(verdict.verdict, "FAIL");
-  assert.ok(verdict.issues.includes("invalid_critic_output"));
+test("Kill Critic fails closed on malformed JSON and incomplete verdicts", () => {
+  const malformed = critic.parseVerdict("not-json");
+  assert.equal(malformed.verdict, "FAIL");
+  assert.ok(malformed.issues.includes("invalid_critic_output"));
+
+  const incomplete = critic.parseVerdict(JSON.stringify({
+    verdict: "PASS",
+    confidence: 1,
+    requirement_coverage: 1,
+    factuality: 1,
+    reasoning_quality: 1,
+    safety: 1
+  }));
+  assert.equal(incomplete.verdict, "FAIL");
+  assert.ok(incomplete.issues.includes("invalid_critic_output"));
 });
