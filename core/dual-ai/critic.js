@@ -126,4 +126,4 @@ async function review({ task, answer, provider, model }) {
   return verdict;
 }
 
-module.exports = { review };
+module.exports = { review, parseVerdict, deterministicChecks, GATE };
