@@ -126,3 +126,10 @@ test("evidence verifier accepts only typed server-origin proof records", () => {
   assert.equal(result.status, "VERIFIED");
   assert.equal(result.verified, true);
 });
+
+
+test("evidence policy recognizes Russian engineering and current-fact requests", () => {
+  const verifier = require("./dual-ai/evidence-verifier");
+  const result = verifier.verifyEvidence({ task: "Собери и протестируй приложение", answer: "Проверь актуальную цену." });
+  assert.deepEqual(result.required, ["tests", "build", "sources"]);
+});
