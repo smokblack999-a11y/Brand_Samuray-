@@ -34,9 +34,9 @@ The Vision route validates image MIME and file signature, enforces a size limit 
 - Business decisions must be checked against authoritative Core records and, where required, a human reviewer.
 - V1 does not implement continuous cloud video streaming, background surveillance, voice control, screen-control automation, or autonomous actions. Those are later modules requiring separate permissions, explicit controls and end-to-end tests.
 
-## Next stage: Cyrillic OCR
+## OCR limits
 
-The implementation contract, model selection, offline privacy requirements and acceptance gates are documented in [SAMURAI-REAL-VISION-OCR-V1.md](SAMURAI-REAL-VISION-OCR-V1.md). OCR is not implemented or enabled in this revision.
+The local OCR engine reads still images only. It does not run on every camera frame, does not upload photos or extracted text, and does not verify document authenticity or payment. First use downloads the two language packs (about 8.6 MB total) over HTTPS; later use is offline. Golden-set accuracy and physical-device performance are not yet certified.
 
 ## Verification
 
