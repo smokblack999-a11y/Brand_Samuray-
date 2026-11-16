@@ -74,6 +74,7 @@ jobs:
           grep -Fq 'com/samurai/whatsapp/WhatsAppExportArchive' <<< "$DEX_CONTENT"
           grep -Fq 'com/samurai/whatsapp/StatusSaver' <<< "$DEX_CONTENT"
           grep -Fq 'com/samurai/whatsapp/MessageTimeline' <<< "$DEX_CONTENT"
+          grep -Fq 'com/samurai/whatsapp/MessageStatusReducer' <<< "$DEX_CONTENT"
           grep -Fq 'com/samurai/whatsapp/AppLock' <<< "$DEX_CONTENT"
           grep -Fq 'com/samurai/whatsapp/WhatsAppKillSwitchService' <<< "$DEX_CONTENT"
           MANIFEST="samurai-whatsapp/src/main/AndroidManifest.xml"
