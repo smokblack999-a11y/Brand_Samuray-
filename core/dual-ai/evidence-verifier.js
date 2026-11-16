@@ -2,7 +2,7 @@
 
 const RULES = [
   { kind: "tests", pattern: /(test|tests|testing|unit test|integration test|e2e|spec|тест|тесты|тестирование)/i },
-  { kind: "build", pattern: /(build|compile|compilation|apk|ipa|bundle|сборк|компиляц)/i },
+  { kind: "build", pattern: /(build|compile|compilation|apk|ipa|bundle|сборк|собер|компиляц)/i },
   { kind: "execution", pattern: /(deploy|deployed|release|installed|published|launched|migration|production|развернул|установил|опубликовал|запустил)/i },
   { kind: "sources", pattern: /(latest|current|today|recent|price|pricing|rate|exchange|news|source|citation|as of|сегодня|актуальн|последн|цена|курс|источник|ссылк)/i },
   { kind: "domain_review", pattern: /(medical|clinical|diagnos|legal|law|tax|investment|financial advice|лекарств|медицин|диагноз|юрид|налог|инвестиц|финансов)/i }
