@@ -1,0 +1,15 @@
+"use strict";
+const fs=require("node:fs");
+const path=require("node:path");
+const crypto=require("node:crypto");
+class DurableQueue {
+ constructor({file,maxAttempts=8}={}) { if(!file) throw new TypeError("file required"); this.file=path.resolve(file); this.maxAttempts=Math.max(1,Number(maxAttempts)||8); this.items=new Map(); this.seen=new Set(); this.tail=Promise.resolve(); this.loaded=false; }
+ _serial(fn){ const p=this.tail.then(fn,fn); this.tail=p.catch(()=>{}); return p; }
+ async _append(r){ await fs.promises.mkdir(path.dirname(this.file),{recursive:true}); const h=await fs.promises.open(this.file,"a",0o600); try { await h.writeFile(JSON.stringify(r)+"\n","utf8"); await h.sync(); } finally { await h.close(); } }
+ _apply(r){ if(r.type==="enqueue"){this.seen.add(r.key);this.items.set(r.id,{id:r.id,key:r.key,payload:r.payload,attempts:0,state:"pending"});} else {const x=this.items.get(r.id);if(!x)return;if(r.type==="ack")x.state="done";if(r.type==="dead")x.state="dead";if(r.type==="retry"){x.attempts=r.attempts;x.state="pending";x.lastError=r.error;}} }
+ async load(){return this._serial(async()=>{if(this.loaded)return;await fs.promises.mkdir(path.dirname(this.file),{recursive:true});let raw="";try{raw=await fs.promises.readFile(this.file,"utf8");}catch(e){if(e.code!=="ENOENT")throw e;}const lines=raw.split("\n");for(let i=0;i<lines.length;i++){if(!lines[i])continue;let r;try{r=JSON.parse(lines[i]);}catch(e){if(i===lines.length-1)break;throw new Error("queue log corruption at line "+(i+1));}this._apply(r);}this.loaded=true;});}
+ async enqueue(key,payload){if(!key||typeof key!=="string")throw new TypeError("idempotency key required");return this._serial(async()=>{if(!this.loaded)throw new Error("load queue first");if(this.seen.has(key)){const x=[...this.items.values()].find(v=>v.key===key);return{accepted:false,duplicate:true,id:x?.id||null};}const r={type:"enqueue",id:crypto.randomUUID(),key,payload,at:new Date().toISOString()};await this._append(r);this._apply(r);return{accepted:true,duplicate:false,id:r.id};});}
+ async processOne(handler){if(typeof handler!=="function")throw new TypeError("handler required");return this._serial(async()=>{if(!this.loaded)throw new Error("load queue first");const x=[...this.items.values()].find(v=>v.state==="pending");if(!x)return{processed:false};try{await handler(x.payload,{id:x.id,key:x.key,attempt:x.attempts+1});const r={type:"ack",id:x.id,at:new Date().toISOString()};await this._append(r);this._apply(r);return{processed:true,ok:true,id:x.id};}catch(e){const attempts=x.attempts+1;const r={type:attempts>=this.maxAttempts?"dead":"retry",id:x.id,attempts,error:String(e?.message||"handler failed").slice(0,500),at:new Date().toISOString()};await this._append(r);this._apply(r);return{processed:true,ok:false,dead:r.type==="dead",id:x.id};}});}
+ snapshot(){const a=[...this.items.values()];return{pending:a.filter(x=>x.state==="pending").length,done:a.filter(x=>x.state==="done").length,dead:a.filter(x=>x.state==="dead").length,total:a.length};}
+}
+module.exports={DurableQueue};
