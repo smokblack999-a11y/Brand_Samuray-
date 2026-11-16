@@ -18,12 +18,17 @@ function requiredEvidenceKinds(task, answer) {
   return RULES.filter(rule => rule.pattern.test(text)).map(rule => rule.kind);
 }
 
+function subjectHashFor(task, answer) {
+  return crypto.createHash("sha256").update(String(task || "") + "\n" + String(answer || "")).digest("hex");
+}
+
 function canonical(item) {
   return JSON.stringify({
     kind: item.kind,
     status: item.status,
     origin: item.origin,
     digest: item.digest,
+    subjectHash: item.subjectHash,
     at: item.at
   });
 }
@@ -33,17 +38,22 @@ function signatureFor(item) {
   return crypto.createHmac("sha256", SIGNING_KEY).update(canonical(item)).digest("hex");
 }
 
-function createEvidenceRecord({ kind, digest, at = new Date().toISOString(), status = "passed" } = {}) {
-  if (!ALLOWED_KINDS.has(kind) || status !== "passed" || !/^[a-f0-9]{64}$/i.test(String(digest || "")) || !Number.isFinite(Date.parse(at))) {
+function createEvidenceRecord({ kind, digest, subjectHash, at = new Date().toISOString(), status = "passed" } = {}) {
+  if (!ALLOWED_KINDS.has(kind) || status !== "passed" ||
+      !/^[a-f0-9]{64}$/i.test(String(digest || "")) ||
+      !/^[a-f0-9]{64}$/i.test(String(subjectHash || "")) ||
+      !Number.isFinite(Date.parse(at))) {
     throw new Error("invalid_evidence_record");
   }
-  const record = { kind, status, origin: "server", digest: String(digest).toLowerCase(), at };
+  const record = { kind, status, origin: "server", digest: String(digest).toLowerCase(), subjectHash: String(subjectHash).toLowerCase(), at };
   return { ...record, signature: signatureFor(record) };
 }
 
 function validServerEvidence(item) {
   if (!item || item.origin !== "server" || item.status !== "passed" || !ALLOWED_KINDS.has(item.kind)) return false;
-  if (typeof item.digest !== "string" || !/^[a-f0-9]{64}$/i.test(item.digest) || !Number.isFinite(Date.parse(item.at))) return false;
+  if (typeof item.digest !== "string" || !/^[a-f0-9]{64}$/i.test(item.digest) ||
+      typeof item.subjectHash !== "string" || !/^[a-f0-9]{64}$/i.test(item.subjectHash) ||
+      !Number.isFinite(Date.parse(item.at))) return false;
   if (typeof item.signature !== "string" || !/^[a-f0-9]{64}$/i.test(item.signature) || SIGNING_KEY.length < 32) return false;
   const expected = Buffer.from(signatureFor(item), "hex");
   const actual = Buffer.from(item.signature, "hex");
@@ -55,9 +65,10 @@ function verifyEvidence({ task, answer, evidence = [] } = {}) {
   if (!required.length) {
     return { status: "NOT_REQUIRED", verified: true, required: [], accepted: [], missing: [], note: "No external execution or time-sensitive evidence requirement was detected." };
   }
+  const expectedSubjectHash = subjectHashFor(task, answer);
   const accepted = (Array.isArray(evidence) ? evidence : [])
-    .filter(validServerEvidence)
-    .map(item => ({ kind: item.kind, digest: item.digest, at: item.at }));
+    .filter(item => validServerEvidence(item) && item.subjectHash === expectedSubjectHash)
+    .map(item => ({ kind: item.kind, digest: item.digest, subjectHash: item.subjectHash, at: item.at }));
   const acceptedKinds = new Set(accepted.map(item => item.kind));
   const missing = required.filter(kind => !acceptedKinds.has(kind));
   return {
@@ -67,9 +78,9 @@ function verifyEvidence({ task, answer, evidence = [] } = {}) {
     accepted,
     missing,
     note: missing.length
-      ? "A model's statement or user-provided text is not evidence. A valid server HMAC proof is still required."
-      : "All detected evidence categories have matching HMAC-authenticated server proof records."
+      ? "A model claim, unsigned record, or proof for another task/answer is not evidence. Matching HMAC-authenticated server proof is required."
+      : "All detected evidence categories have matching HMAC-authenticated proof bound to this exact task and candidate."
   };
 }
 
-module.exports = { verifyEvidence, requiredEvidenceKinds, validServerEvidence, createEvidenceRecord };
+module.exports = { verifyEvidence, requiredEvidenceKinds, validServerEvidence, createEvidenceRecord, subjectHashFor };
