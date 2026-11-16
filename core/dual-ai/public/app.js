@@ -100,15 +100,35 @@
       b: { provider: $("#bProvider").value, model: $("#bModel").value.trim() || undefined }
     };
   }
+  async function loadConfig() {
+    const result = await api("/api/dual-ai/config");
+    const cfg = result.config;
+    if (!$("#aModel").value) $("#aModel").value = cfg.defaults.a.model;
+    if (!$("#bModel").value) $("#bModel").value = cfg.defaults.b.model;
+    $("#aProvider").value = cfg.defaults.a.provider;
+    $("#bProvider").value = cfg.defaults.b.provider;
+    const unavailable = cfg.providers.filter(item => !item.configured).map(item => item.provider);
+    const diversity = cfg.modelDiversity && cfg.modelDiversity.sameDefaultModel
+      ? " Важно: обе роли сейчас используют одну модель; для более независимой критики назначь B другой модели."
+      : "";
+    setNotice("Конфигурация загружена. Недоступные провайдеры: " + (unavailable.join(", ") || "нет") + "." + diversity);
+    return cfg;
+  }
   async function startSession() {
     state.stopAuto = true;
     state.apiKey = el.apiKey.value.trim();
     if (!state.apiKey) throw new Error("Введи CORE_API_KEY для доступа к SAMURAI Core.");
     setBusy(true);
     try {
-      const result = await api("/api/dual-ai/session", { method: "POST", body: JSON.stringify(sessionPayload()) });
+      const cfg = await loadConfig();
+      const payload = sessionPayload();
+      const providerA = cfg.providers.find(item => item.provider === payload.a.provider);
+      const providerB = cfg.providers.find(item => item.provider === payload.b.provider);
+      if (!providerA || !providerA.configured) throw new Error("Провайдер Model A не настроен на сервере.");
+      if (!providerB || !providerB.configured) throw new Error("Провайдер Model B не настроен на сервере.");
+      const result = await api("/api/dual-ai/session", { method: "POST", body: JSON.stringify(payload) });
       render(result.session);
-      setNotice("Сессия создана. Выполняется первый ход Model A.");
+      setNotice("Сессия создана. Первый ход Model A.");
       await nextTurn();
       await refreshHistory();
     } finally {
@@ -116,16 +136,18 @@
     }
   }
   async function nextTurn() {
-    if (!state.id || state.busy) return;
+    if (!state.id || state.busy) return false;
     setBusy(true);
     try {
       const result = await api("/api/dual-ai/turn", { method: "POST", body: JSON.stringify({ id: state.id }) });
       render(result.session);
-      setNotice(result.session.status === "COMPLETE" ? "Kill Critic одобрил результат (PASS)." :
-        result.session.status === "BLOCKED" ? "Достигнут лимит раундов. Результат не утверждён." : "Ход завершён.");
+      setNotice(result.session.status === "COMPLETE" ? "Kill Critic одобрил результат: все пороги качества пройдены." :
+        result.session.status === "BLOCKED" ? "Лимит раундов достигнут. Результат не утверждён." : "Ход завершён.");
       await refreshHistory();
+      return true;
     } catch (error) {
       setNotice(error.message, true);
+      return false;
     } finally {
       setBusy(false);
     }
@@ -137,9 +159,15 @@
     el.auto.textContent = "Остановить автодиалог";
     try {
       while (!state.stopAuto && state.session && state.session.status === "RUNNING") {
-        await nextTurn();
-        if (state.session.status !== "RUNNING") break;
+        const ok = await nextTurn();
+        if (!ok || !state.session || state.session.status !== "RUNNING") break;
       }
+    } finally {
+      state.auto = false;
+      el.auto.textContent = "Автодиалог";
+      setBusy(false);
+    }
+  }
     } finally {
       state.auto = false;
       el.auto.textContent = "Автодиалог";
@@ -232,7 +260,11 @@
   el.next.addEventListener("click", nextTurn);
   el.auto.addEventListener("click", () => state.auto ? state.stopAuto = true : runAuto());
   el.stop.addEventListener("click", stopSession);
-  $("#retryTask").addEventListener("click", () => {\n    if (!el.task.value.trim()) { setNotice("Нет задачи для повторного запуска.", true); return; }\n    startSession().catch(error => { setBusy(false); setNotice(error.message, true); });\n  });\n  $("#newSession").addEventListener("click", () => {
+  $("#retryTask").addEventListener("click", () => {
+    if (!el.task.value.trim()) { setNotice("Нет задачи для повторного запуска.", true); return; }
+    startSession().catch(error => { setBusy(false); setNotice(error.message, true); });
+  });
+  $("#newSession").addEventListener("click", () => {
     state.stopAuto = true; state.id = null; state.session = null;
     el.task.value = ""; el.aTurns.replaceChildren(node("p", "empty", "Ответы Model A появятся здесь."));
     el.bTurns.replaceChildren(node("p", "empty", "Критика Model B появится здесь."));
@@ -245,5 +277,6 @@
   el.exportTxt.addEventListener("click", () => download("samurai-dual-ai-" + state.id + ".txt", "text/plain;charset=utf-8", transcript()));
   el.exportJson.addEventListener("click", () => download("samurai-dual-ai-" + state.id + ".json", "application/json;charset=utf-8", JSON.stringify(state.session, null, 2)));
   el.printPdf.addEventListener("click", () => window.print());
+  window.addEventListener("pagehide", () => { state.apiKey = ""; el.apiKey.value = ""; });
   checkCore();
 })();
