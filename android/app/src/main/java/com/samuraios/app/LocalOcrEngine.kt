@@ -51,10 +51,10 @@ class LocalOcrEngine(private val context: Context) {
         val api = TessBaseAPI()
         try {
             check(api.init(dataRoot.absolutePath, "rus+kaz")) { "Tesseract не смог загрузить модели rus+kaz" }
-            api.setPageSegMode(TessBaseAPI.PageSegMode.AUTO)
+            api.setPageSegMode(TessBaseAPI.PageSegMode.PSM_AUTO)
             api.setImage(bitmap)
             if (cancelled.get()) throw InterruptedException("OCR отменён")
-            val text = api.utF8Text?.trim().orEmpty()
+            val text = api.getUTF8Text()?.trim().orEmpty()
             val confidence = api.meanConfidence()
             if (cancelled.get()) throw InterruptedException("OCR отменён")
             return LocalOcrResult(text, confidence, (System.nanoTime() - started) / 1_000_000L)
