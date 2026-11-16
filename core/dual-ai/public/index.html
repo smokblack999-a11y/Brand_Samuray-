@@ -1,1 +1,84 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>SAMURAI AI DUAL</title><link rel="stylesheet" href="/dual-ai/style.css"></head><body><main><header><b>SAMURAI AI DUAL</b><span id="state">IDLE</span><span id="phase">—</span></header><section class="controls"><input id="apiKey" type="password" placeholder="Core API key"><textarea id="task" placeholder="Enter task..."></textarea><div class="row"><select id="aProvider"><option>openai</option><option>anthropic</option><option>ollama</option></select><input id="aModel" placeholder="Model A"><select id="bProvider"><option>openai</option><option>anthropic</option><option>ollama</option></select><input id="bModel" placeholder="Model B / Critic"></div><div class="row"><button id="start">START</button><button id="next" disabled>NEXT TURN</button><button id="stop" disabled>STOP</button><button id="save" disabled>EXPORT JSON</button></div></section><section class="grid"><article><h2>MODEL A · GENERATOR</h2><div id="a"></div></article><article><h2>MODEL B · KILL CRITIC</h2><div id="b"></div></article></section><pre id="log"></pre></main><script src="/dual-ai/app.js"></script></body></html>
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#080c13">
+  <title>SAMURAI · DUAL AI</title>
+  <link rel="stylesheet" href="/dual-ai/style.css?v=2">
+</head>
+<body>
+  <main class="shell">
+    <header class="topbar">
+      <a class="brand" href="/dual-ai/" aria-label="SAMURAI Dual AI">
+        <span class="brand-mark">S</span>
+        <span><b>SAMURAI</b><small>DUAL INTELLIGENCE</small></span>
+      </a>
+      <div class="top-status">
+        <span id="connection" class="status-dot offline">CORE NOT CHECKED</span>
+        <span id="state" class="pill">IDLE</span>
+      </div>
+    </header>
+
+    <section class="hero">
+      <div>
+        <p class="eyebrow">MULTI-AGENT WORKSPACE / V2</p>
+        <h1>Два ИИ. Один проверяемый результат.</h1>
+        <p class="sub">Model A предлагает решение. Model B проверяет его через Kill Critic. Каждый шаг остаётся под твоим контролем.</p>
+      </div>
+      <div class="hero-mark" aria-hidden="true">A<span>×</span>B</div>
+    </section>
+
+    <section class="setup panel">
+      <div class="section-head"><div><p class="eyebrow">01 / CONNECTION</p><h2>Подключение и задача</h2></div><button id="checkCore" class="button ghost">Проверить Core</button></div>
+      <label class="field-label" for="apiKey">SAMURAI Core API key <span>хранится только в памяти этой вкладки</span></label>
+      <input id="apiKey" type="password" autocomplete="off" placeholder="Вставь CORE_API_KEY">
+      <label class="field-label" for="task">Задача для обеих моделей</label>
+      <textarea id="task" rows="4" maxlength="12000" placeholder="Опиши задачу, ограничения и ожидаемый результат..."></textarea>
+      <div class="model-grid">
+        <div class="model-config model-a">
+          <div class="model-title"><span class="agent-icon">A</span><div><b>MODEL A</b><small>Генератор / исполнитель</small></div></div>
+          <label for="aProvider">Провайдер</label><select id="aProvider"><option value="openai">OpenAI</option><option value="anthropic">Anthropic</option><option value="ollama">Ollama (local)</option></select>
+          <label for="aModel">Модель</label><input id="aModel" placeholder="Например: gpt-5">
+        </div>
+        <div class="model-config model-b">
+          <div class="model-title"><span class="agent-icon">B</span><div><b>MODEL B · KILL CRITIC</b><small>Аудитор / критик</small></div></div>
+          <label for="bProvider">Провайдер</label><select id="bProvider"><option value="openai">OpenAI</option><option value="anthropic">Anthropic</option><option value="ollama">Ollama (local)</option></select>
+          <label for="bModel">Модель</label><input id="bModel" placeholder="Например: gpt-5">
+        </div>
+      </div>
+      <div class="actions">
+        <button id="start" class="button primary">Запустить диалог</button>
+        <button id="retryTask" class="button ghost">Повторить задачу</button><button id="newSession" class="button ghost">Новая задача</button>
+      </div>
+      <p id="notice" class="notice" role="status">API-ключ не сохраняется в localStorage и не выводится в интерфейс.</p>
+    </section>
+
+    <section class="workspace">
+      <div class="section-head workspace-head"><div><p class="eyebrow">02 / LIVE SESSION</p><h2>Диалог моделей</h2></div><div class="session-meta"><span id="phase">Ожидание сессии</span><span id="round">—</span></div></div>
+      <div class="agents">
+        <article class="agent-panel panel">
+          <div class="agent-header"><span class="agent-icon">A</span><div><h3>MODEL A</h3><small>Решение и исправления</small></div><span id="aCount" class="count">0</span></div>
+          <div id="aTurns" class="turn-list"><p class="empty">Ответы Model A появятся здесь.</p></div>
+        </article>
+        <article class="agent-panel panel">
+          <div class="agent-header"><span class="agent-icon critic">B</span><div><h3>KILL CRITIC</h3><small>Проверка качества и доказательств</small></div><span id="bCount" class="count">0</span></div>
+          <div id="bTurns" class="turn-list"><p class="empty">Критика Model B появится здесь.</p></div>
+        </article>
+      </div>
+      <div class="session-actions panel">
+        <div class="session-actions-left"><button id="next" class="button primary" disabled>Следующий ход</button><button id="auto" class="button ghost" disabled>Автодиалог</button><button id="stop" class="button danger" disabled>Остановить</button></div>
+        <div class="session-actions-right"><button id="exportTxt" class="button ghost" disabled>TXT</button><button id="exportJson" class="button ghost" disabled>JSON</button><button id="printPdf" class="button ghost" disabled>Печать / PDF</button></div>
+      </div>
+      <div id="final" class="final panel" hidden></div>
+    </section>
+
+    <aside class="history panel">
+      <div class="section-head"><div><p class="eyebrow">03 / MEMORY</p><h2>История сессий</h2></div><button id="refreshHistory" class="button ghost">Обновить</button></div>
+      <div id="historyList" class="history-list"><p class="empty">История загрузится после подключения к Core.</p></div>
+    </aside>
+    <footer> SAMURAI OS <span>·</span> DUAL AI <span>·</span> API-driven, no simulated model responses</footer>
+  </main>
+  <script src="/dual-ai/app.js?v=2" defer></script>
+</body>
+</html>
