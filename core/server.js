@@ -15,6 +15,7 @@ const { requireWebAppAuth } = require("./webapp-auth");
 const { emitHamylionEvent } = require("./hamylion-adapter");
 const dualAI = require("./dual-ai/engine");
 const { checkDraft } = require("./kill-critic");
+const { createVisionRouter } = require("./vision/vision-router");
 
 const app = express();
 const PORT = Number(process.env.PORT || 8787);
@@ -77,8 +78,10 @@ app.use((req, res, next) => {
 
 const leadRateLimit = createRateLimiter({ windowMs: LEAD_RATE_LIMIT_WINDOW_MS, max: LEAD_RATE_LIMIT_MAX });
 const dualRateLimit = createRateLimiter({ windowMs: Math.max(1000, Number(process.env.DUAL_AI_RATE_LIMIT_WINDOW_MS || 60000)), max: Math.max(1, Number(process.env.DUAL_AI_RATE_LIMIT_MAX || 10)) });
+const visionRateLimit = createRateLimiter({ windowMs: Math.max(1000, Number(process.env.VISION_RATE_LIMIT_WINDOW_MS || 60000)), max: Math.max(1, Number(process.env.VISION_RATE_LIMIT_MAX || 5)) });
 app.use("/dual-ai", express.static(path.join(__dirname, "dual-ai", "public"), { index: "index.html" }));
 app.use("/mini-app", express.static(path.join(__dirname, "mini-app"), { index: "index.html" }));
+app.use("/api/vision", requireApiKey, createVisionRouter({ rateLimiter: visionRateLimit }));
 
 app.get("/health", (_req, res) => res.json({ ok: true, service: "SamuraiOS Core", version: "2.7.0" }));
 app.get("/ready", (req, res) => {
