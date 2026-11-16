@@ -9,6 +9,7 @@ const path = require("path");
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "samurai-dual-"));
 process.env.DATA_DIR = tmp;
 process.env.DUAL_AI_MAX_ROUNDS = "3";
+process.env.EVIDENCE_SIGNING_KEY = "samurai-test-evidence-signing-key-32-bytes";
 
 const engine = require("./dual-ai/engine");
 const critic = require("./dual-ai/critic");
@@ -107,20 +108,21 @@ test("evidence verifier requires server proof for code and current-fact claims",
   assert.ok(current.missing.includes("sources"));
 });
 
-test("evidence verifier rejects model text and malformed proof as evidence", () => {
+test("evidence verifier rejects unsigned and malformed proof records", () => {
   const verifier = require("./dual-ai/evidence-verifier");
-  const fake = { kind: "tests", status: "passed", origin: "model", digest: "a".repeat(64), at: new Date().toISOString() };
+  const fake = { kind: "tests", status: "passed", origin: "server", digest: "a".repeat(64), at: new Date().toISOString() };
   assert.equal(verifier.verifyEvidence({ task: "Run tests", answer: "All tests passed.", evidence: [fake] }).verified, false);
-  const malformed = { ...fake, origin: "server", digest: "not-a-hash" };
+  const malformed = { ...fake, digest: "not-a-hash" };
   assert.equal(verifier.validServerEvidence(malformed), false);
+  const forged = { ...fake, digest: "a".repeat(64) };
+  assert.equal(verifier.validServerEvidence(forged), false);
 });
 
-test("evidence verifier accepts only typed server-origin proof records", () => {
+test("evidence verifier accepts only HMAC-authenticated server proof records", () => {
   const verifier = require("./dual-ai/evidence-verifier");
   const at = new Date().toISOString();
-  const evidence = ["tests", "build"].map(kind => ({
-    kind, status: "passed", origin: "server",
-    digest: require("crypto").createHash("sha256").update(kind + at).digest("hex"), at
+  const evidence = ["tests", "build"].map(kind => verifier.createEvidenceRecord({
+    kind, digest: require("crypto").createHash("sha256").update(kind + at).digest("hex"), at
   }));
   const result = verifier.verifyEvidence({ task: "Build and test the Android app", answer: "Candidate implementation.", evidence });
   assert.equal(result.status, "VERIFIED");
