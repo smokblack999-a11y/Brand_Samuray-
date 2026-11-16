@@ -97,3 +97,9 @@ Code and automated tests have been added to the feature branch. They are **not C
 - **Package visibility:** manifest queries only com.whatsapp and com.whatsapp.w4b; no broad QUERY_ALL_PACKAGES permission.
 
 The latest emulator attempt built both apps and passed DEX verification, but instrumentation crashed before any test completed (0/0). APK upload was skipped. No Galaxy A54 physical-device validation is claimed.
+
+## Message-status evidence model (added 2026-11-17)
+
+The Android companion now includes `MessageStatusReducer` and instrumentation coverage for verified status evidence. It models server acceptance, device delivery, confirmed read, and media-played states only when an approved source supplies the event. Unsupported sources and invalid timestamps are ignored; an empty event set remains `UNKNOWN`.
+
+This is a reusable foundation for a SAMURAI-owned messenger and official WhatsApp Business Platform webhooks. It is **not connected to personal WhatsApp outgoing messages**, does not alter WhatsApp ticks, and cannot reveal read receipts or presence hidden by another person's privacy settings.
