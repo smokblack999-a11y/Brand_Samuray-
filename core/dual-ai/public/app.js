@@ -62,7 +62,19 @@
             body.append(list);
           }
         }
-        if (turn.confidence !== undefined) body.append(node("small", "confidence", "Уверенность критика: " + Number(turn.confidence).toFixed(2)));
+        if (turn.confidence !== undefined) {
+          body.append(node("small", "confidence", "Уверенность критика: " + Number(turn.confidence).toFixed(2)));
+          const scores = [
+            ["Требования", turn.requirement_coverage],
+            ["Факты", turn.factuality],
+            ["Логика", turn.reasoning_quality],
+            ["Безопасность", turn.safety]
+          ].filter(([, score]) => score !== undefined);
+          if (scores.length) {
+            const scoreLine = node("p", "confidence", scores.map(([name, score]) => name + ": " + Math.round(Number(score) * 100) + "%").join(" · "));
+            body.append(scoreLine);
+          }
+        }
       }
       card.append(meta, body);
       target.append(card);
@@ -105,8 +117,6 @@
     const cfg = result.config;
     if (!$("#aModel").value) $("#aModel").value = cfg.defaults.a.model;
     if (!$("#bModel").value) $("#bModel").value = cfg.defaults.b.model;
-    $("#aProvider").value = cfg.defaults.a.provider;
-    $("#bProvider").value = cfg.defaults.b.provider;
     const unavailable = cfg.providers.filter(item => !item.configured).map(item => item.provider);
     const diversity = cfg.modelDiversity && cfg.modelDiversity.sameDefaultModel
       ? " Важно: обе роли сейчас используют одну модель; для более независимой критики назначь B другой модели."
