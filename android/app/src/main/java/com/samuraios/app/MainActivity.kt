@@ -93,7 +93,7 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
-        ocrCancelled.set(true)
+        ocrCancellation?.set(true)
         imageAnalysis?.clearAnalyzer()
         cameraProvider?.unbindAll()
         localVisionAnalyzer?.close()
@@ -274,7 +274,7 @@ class MainActivity : ComponentActivity() {
             val meta = Vault.metadata(photo)
             val text = TextView(this).apply { text = if (meta?.has("latitude") == true && !meta.isNull("latitude")) "${photo.name}\nGPS: ${meta.optDouble("latitude")}, ${meta.optDouble("longitude")}\n± ${meta.optDouble("accuracyMeters", 0.0)} m" else photo.name + "\nGPS: нет fix"; setTextColor(Color.LTGRAY); setPadding(12, 0, 0, 0) }
             row.addView(text, LinearLayout.LayoutParams(0, -2, 1f))
-            row.setOnClickListener { ocrCancelled.set(true); selectedPhoto = photo; outputText.text = "Выбрано: " + photo.name; openPhotoViewer(photo) }
+            row.setOnClickListener { ocrCancellation?.set(true); selectedPhoto = photo; outputText.text = "Выбрано: " + photo.name; openPhotoViewer(photo) }
             galleryContainer.addView(row)
         }
     }
@@ -388,14 +388,14 @@ class MainActivity : ComponentActivity() {
     }
 
 
-    private val ocrCancelled = java.util.concurrent.atomic.AtomicBoolean(false)
+    @Volatile private var ocrCancellation: java.util.concurrent.atomic.AtomicBoolean? = null
 
     private fun runLocalOcr() {
         val photo = selectedPhoto ?: run { showToast("Сначала сделайте фото или выберите его в галерее"); return }
-        ocrCancelled.set(true)
+        ocrCancellation?.set(true)
         val cancellation = java.util.concurrent.atomic.AtomicBoolean(false)
-        // The worker owns this token; selecting a new photo or closing the Activity invalidates stale output.
-        ocrCancelled.set(false)
+        // Selecting another photo or destroying the Activity invalidates this worker.
+        ocrCancellation = cancellation
         outputText.text = "Подготовка локального OCR: проверка моделей русского и казахского..."
         thread(name = "samurai-local-ocr") {
             try {
