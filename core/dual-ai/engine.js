@@ -5,7 +5,6 @@ const { complete, configured } = require("./providers");
 const { review } = require("./critic");
 const { SYSTEM_A, revisionPrompt } = require("./prompts");
 const { verifyEvidence } = require("./evidence-verifier");
-const { verifyEvidence } = require("./evidence-verifier");
 const store = require("./store");
 
 const MAX_ROUNDS = Math.max(1, Math.min(Number(process.env.DUAL_AI_MAX_ROUNDS || 3), 5));
