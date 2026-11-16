@@ -95,3 +95,34 @@ test("Kill Critic fails closed on malformed JSON and incomplete verdicts", () =>
   assert.equal(incomplete.verdict, "FAIL");
   assert.ok(incomplete.issues.includes("invalid_critic_output"));
 });
+
+
+test("evidence verifier requires server proof for code and current-fact claims", () => {
+  const verifier = require("./dual-ai/evidence-verifier");
+  const code = verifier.verifyEvidence({ task: "Build and test the Android app", answer: "Implementation is ready." });
+  assert.equal(code.status, "REQUIRED");
+  assert.deepEqual(code.missing, ["tests", "build"]);
+  const current = verifier.verifyEvidence({ task: "Find the latest market price", answer: "The current price is ..." });
+  assert.equal(current.status, "REQUIRED");
+  assert.ok(current.missing.includes("sources"));
+});
+
+test("evidence verifier rejects model text and malformed proof as evidence", () => {
+  const verifier = require("./dual-ai/evidence-verifier");
+  const fake = { kind: "tests", status: "passed", origin: "model", digest: "a".repeat(64), at: new Date().toISOString() };
+  assert.equal(verifier.verifyEvidence({ task: "Run tests", answer: "All tests passed.", evidence: [fake] }).verified, false);
+  const malformed = { ...fake, origin: "server", digest: "not-a-hash" };
+  assert.equal(verifier.validServerEvidence(malformed), false);
+});
+
+test("evidence verifier accepts only typed server-origin proof records", () => {
+  const verifier = require("./dual-ai/evidence-verifier");
+  const at = new Date().toISOString();
+  const evidence = ["tests", "build"].map(kind => ({
+    kind, status: "passed", origin: "server",
+    digest: require("crypto").createHash("sha256").update(kind + at).digest("hex"), at
+  }));
+  const result = verifier.verifyEvidence({ task: "Build and test the Android app", answer: "Candidate implementation.", evidence });
+  assert.equal(result.status, "VERIFIED");
+  assert.equal(result.verified, true);
+});
