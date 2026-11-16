@@ -114,19 +114,24 @@ test("evidence verifier rejects unsigned and malformed proof records", () => {
   assert.equal(verifier.verifyEvidence({ task: "Run tests", answer: "All tests passed.", evidence: [fake] }).verified, false);
   const malformed = { ...fake, digest: "not-a-hash" };
   assert.equal(verifier.validServerEvidence(malformed), false);
-  const forged = { ...fake, digest: "a".repeat(64) };
+  const forged = { ...fake, digest: "a".repeat(64), subjectHash: "b".repeat(64) };
   assert.equal(verifier.validServerEvidence(forged), false);
 });
 
 test("evidence verifier accepts only HMAC-authenticated server proof records", () => {
   const verifier = require("./dual-ai/evidence-verifier");
   const at = new Date().toISOString();
+  const task = "Build and test the Android app";
+  const answer = "Candidate implementation.";
+  const subjectHash = verifier.subjectHashFor(task, answer);
   const evidence = ["tests", "build"].map(kind => verifier.createEvidenceRecord({
-    kind, digest: require("crypto").createHash("sha256").update(kind + at).digest("hex"), at
+    kind, subjectHash, digest: require("crypto").createHash("sha256").update(kind + at).digest("hex"), at
   }));
-  const result = verifier.verifyEvidence({ task: "Build and test the Android app", answer: "Candidate implementation.", evidence });
+  const result = verifier.verifyEvidence({ task, answer, evidence });
   assert.equal(result.status, "VERIFIED");
   assert.equal(result.verified, true);
+  const replayed = verifier.verifyEvidence({ task, answer: answer + " altered", evidence });
+  assert.equal(replayed.verified, false);
 });
 
 
