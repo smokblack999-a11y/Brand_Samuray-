@@ -21,7 +21,7 @@ PASS requires:
 - no evidence gaps;
 - valid structured critic output.
 
-Malformed or incomplete critic output fails closed. A PASS is an automated model assessment, not a guarantee of truth. The Evidence Verifier applies a separate fail-closed policy: coding/build tasks require server-origin test/build proof; deployment claims require execution proof; current or time-sensitive claims require source proof; high-impact medical/legal/financial topics require domain-review proof. Model-generated statements and user-supplied text are never accepted as proof. If proof is absent, the candidate remains visible as `CONDITIONAL` and is not exposed as an approved `final`. The current version defines and tests the proof contract; trusted runners/adapters that produce these proof records are a separate integration step.
+Malformed or incomplete critic output fails closed. A PASS is an automated model assessment, not a guarantee of truth. The Evidence Verifier applies a separate fail-closed policy: coding/build tasks require server-origin test/build proof; deployment claims require execution proof; current or time-sensitive claims require source proof; high-impact medical/legal/financial topics require domain-review proof. Model-generated statements and user-supplied text are never accepted as proof. If proof is absent, the candidate remains visible as `CONDITIONAL` and is not exposed as an approved `final`. Proof records must carry an HMAC signature created with the server-only `EVIDENCE_SIGNING_KEY` (minimum 32 characters); unsigned or user/model-supplied records fail validation. The current version defines and tests the signed proof contract; trusted runners/adapters that produce these records are a separate integration step.
 
 ## Providers
 
@@ -35,6 +35,7 @@ Optional role configuration:
 - `DUAL_AI_B_PROVIDER`, `DUAL_AI_B_MODEL`
 - `DUAL_AI_MAX_ROUNDS`
 - `DUAL_AI_TIMEOUT_MS`
+- `EVIDENCE_SIGNING_KEY` — server-only random key, at least 32 characters, required to sign and verify evidence receipts
 
 Use different model families for A and B when possible to reduce correlated blind spots. The API key remains on the Core server; the browser only sends the existing Core `X-API-Key` for authorization.
 
