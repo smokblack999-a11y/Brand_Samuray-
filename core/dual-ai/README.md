@@ -21,7 +21,7 @@ PASS requires:
 - no evidence gaps;
 - valid structured critic output.
 
-Malformed or incomplete critic output fails closed. A PASS is an automated model assessment, not a guarantee of truth or a substitute for external verification in high-stakes decisions.
+Malformed or incomplete critic output fails closed. A PASS is an automated model assessment, not a guarantee of truth. The Evidence Verifier applies a separate fail-closed policy: coding/build tasks require server-origin test/build proof; deployment claims require execution proof; current or time-sensitive claims require source proof; high-impact medical/legal/financial topics require domain-review proof. Model-generated statements and user-supplied text are never accepted as proof. If proof is absent, the candidate remains visible as `CONDITIONAL` and is not exposed as an approved `final`. The current version defines and tests the proof contract; trusted runners/adapters that produce these proof records are a separate integration step.
 
 ## Providers
 
