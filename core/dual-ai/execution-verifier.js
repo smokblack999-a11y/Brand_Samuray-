@@ -4,11 +4,12 @@ const crypto = require("node:crypto");
 const { execFile } = require("node:child_process");
 const { promisify } = require("node:util");
 const path = require("node:path");
-const { verifyEvidence, createEvidenceRecord, subjectHashFor, requiredEvidenceKinds } = require("./evidence-verifier");
+const { createEvidenceRecord } = require("./evidence-verifier");
 
 const execFileAsync = promisify(execFile);
+const REPO_DIR = path.resolve(__dirname, "../..");
 const CORE_DIR = path.resolve(__dirname, "..");
-const DEFAULT_TIMEOUT_MS = 120000;
+const DEFAULT_TIMEOUT_MS = 25000;
 const MAX_BUFFER_BYTES = 2 * 1024 * 1024;
 
 function sha256(value) {
@@ -19,55 +20,71 @@ function runnerStatus() {
   const keyConfigured = String(process.env.EVIDENCE_SIGNING_KEY || "").length >= 32;
   return {
     enabled: keyConfigured,
-    profile: "core-tests",
-    checks: ["npm test"],
+    profile: "samurai-core-tests",
+    commands: ["git rev-parse HEAD", "git status --porcelain --untracked-files=no", "npm test"],
     timeoutMs: DEFAULT_TIMEOUT_MS,
     reason: keyConfigured ? null : "EVIDENCE_SIGNING_KEY_MISSING"
   };
 }
 
-async function runCoreTests({ task, answer, timeoutMs = DEFAULT_TIMEOUT_MS } = {}) {
-  const required = requiredEvidenceKinds(task, answer);
-  if (!required.includes("tests")) {
-    return { status: "NOT_REQUIRED", evidence: [], checks: [], verification: verifyEvidence({ task, answer }) };
-  }
+async function runFixed(executable, args, cwd, timeout) {
+  return execFileAsync(executable, args, {
+    cwd,
+    timeout,
+    maxBuffer: MAX_BUFFER_BYTES,
+    encoding: "utf8",
+    windowsHide: true,
+    shell: false,
+    env: {
+      PATH: process.env.PATH || "",
+      HOME: process.env.HOME || "",
+      TMPDIR: process.env.TMPDIR || "",
+      CI: "1",
+      NODE_ENV: "test"
+    }
+  });
+}
 
+async function runCoreTests({ timeoutMs = DEFAULT_TIMEOUT_MS } = {}) {
   const config = runnerStatus();
   if (!config.enabled) {
+    return { status: "BLOCKED", reason: config.reason, checks: [], receipt: null };
+  }
+
+  const timeout = Math.max(1000, Math.min(Number(timeoutMs) || DEFAULT_TIMEOUT_MS, DEFAULT_TIMEOUT_MS));
+  const startedAt = new Date().toISOString();
+  let head;
+  let before;
+  try {
+    [head, before] = await Promise.all([
+      runFixed("git", ["rev-parse", "HEAD"], REPO_DIR, 5000),
+      runFixed("git", ["status", "--porcelain", "--untracked-files=no"], REPO_DIR, 5000)
+    ]);
+  } catch (error) {
     return {
       status: "BLOCKED",
-      reason: config.reason,
-      evidence: [],
+      reason: "GIT_METADATA_UNAVAILABLE",
+      detail: String(error.message || error).slice(0, 500),
       checks: [],
-      verification: verifyEvidence({ task, answer })
+      receipt: null
     };
   }
 
-  const boundedTimeout = Math.max(1000, Math.min(Number(timeoutMs) || DEFAULT_TIMEOUT_MS, 180000));
-  const startedAt = new Date().toISOString();
-  const command = { executable: "npm", args: ["test"], cwd: CORE_DIR };
+  const commit = String(head.stdout || "").trim();
+  const beforeStatus = String(before.stdout || "");
+  if (!/^[a-f0-9]{40,64}$/i.test(commit)) {
+    return { status: "BLOCKED", reason: "INVALID_GIT_HEAD", checks: [], receipt: null };
+  }
+
   let result;
   try {
-    result = await execFileAsync(command.executable, command.args, {
-      cwd: command.cwd,
-      timeout: boundedTimeout,
-      maxBuffer: MAX_BUFFER_BYTES,
-      encoding: "utf8",
-      windowsHide: true,
-      shell: false,
-      env: {
-        PATH: process.env.PATH || "",
-        HOME: process.env.HOME || "",
-        TMPDIR: process.env.TMPDIR || "",
-        CI: "1",
-        NODE_ENV: "test"
-      }
-    });
+    result = await runFixed("npm", ["test"], CORE_DIR, timeout);
   } catch (error) {
     const output = [error.stdout || "", error.stderr || "", error.message || "execution_failed"].join("\n");
     return {
       status: "FAILED",
       reason: error.killed ? "TIMEOUT_OR_TERMINATED" : "TESTS_FAILED",
+      workspace: { commit, clean: beforeStatus.length === 0, workingTreeDigest: sha256(beforeStatus) },
       checks: [{
         name: "core-tests",
         status: "failed",
@@ -76,27 +93,50 @@ async function runCoreTests({ task, answer, timeoutMs = DEFAULT_TIMEOUT_MS } = {
         startedAt,
         completedAt: new Date().toISOString()
       }],
-      evidence: [],
-      verification: verifyEvidence({ task, answer })
+      receipt: null
+    };
+  }
+
+  let after;
+  try {
+    after = await runFixed("git", ["status", "--porcelain", "--untracked-files=no"], REPO_DIR, 5000);
+  } catch (error) {
+    return { status: "BLOCKED", reason: "POST_RUN_GIT_METADATA_UNAVAILABLE", checks: [], receipt: null };
+  }
+
+  const afterStatus = String(after.stdout || "");
+  if (beforeStatus !== afterStatus) {
+    return {
+      status: "BLOCKED",
+      reason: "WORKSPACE_CHANGED_DURING_RUN",
+      workspace: { commit, clean: beforeStatus.length === 0 },
+      checks: [],
+      receipt: null
     };
   }
 
   const output = [result.stdout || "", result.stderr || ""].join("\n");
+  const workingTreeDigest = sha256(beforeStatus);
   const digest = sha256(JSON.stringify({
-    profile: "core-tests",
-    command,
+    profile: "samurai-core-tests",
+    commit,
+    workingTreeDigest,
+    executable: "npm",
+    args: ["test"],
     exitCode: 0,
     output
   }));
+  const subjectHash = sha256(["SAMURAI_CORE_WORKSPACE_V1", commit, workingTreeDigest].join("\n"));
   const receipt = createEvidenceRecord({
     kind: "tests",
     digest,
-    subjectHash: subjectHashFor(task, answer),
+    subjectHash,
     at: new Date().toISOString()
   });
-  const evidence = [receipt];
+
   return {
     status: "PASSED",
+    workspace: { commit, clean: beforeStatus.length === 0, workingTreeDigest },
     checks: [{
       name: "core-tests",
       status: "passed",
@@ -106,8 +146,7 @@ async function runCoreTests({ task, answer, timeoutMs = DEFAULT_TIMEOUT_MS } = {
       completedAt: new Date().toISOString(),
       digest
     }],
-    evidence,
-    verification: verifyEvidence({ task, answer, evidence })
+    receipt
   };
 }
 
