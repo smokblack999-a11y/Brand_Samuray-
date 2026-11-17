@@ -146,6 +146,6 @@ test("execution verifier exposes only a fixed SAMURAI Core test profile", () => 
   const runner = require("./dual-ai/execution-verifier");
   const status = runner.runnerStatus();
   assert.equal(status.profile, "samurai-core-tests");
-  assert.deepEqual(status.commands, ["git rev-parse HEAD", "git status --porcelain --untracked-files=no", "npm test"]);
+  assert.deepEqual(status.commands, ["git rev-parse HEAD", "git status --porcelain --untracked-files=all", "git diff --binary HEAD", "npm test"]);
   assert.equal(status.enabled, true);
 });
