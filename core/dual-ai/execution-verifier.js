@@ -10,7 +10,7 @@ const execFileAsync = promisify(execFile);
 const REPO_DIR = path.resolve(__dirname, "../..");
 const CORE_DIR = path.resolve(__dirname, "..");
 const DEFAULT_TIMEOUT_MS = 18000;
-const MAX_BUFFER_BYTES = 2 * 1024 * 1024;
+const MAX_BUFFER_BYTES = 8 * 1024 * 1024;
 
 function sha256(value) {
   return crypto.createHash("sha256").update(String(value)).digest("hex");
@@ -21,7 +21,7 @@ function runnerStatus() {
   return {
     enabled: keyConfigured,
     profile: "samurai-core-tests",
-    commands: ["git rev-parse HEAD", "git status --porcelain --untracked-files=no", "npm test"],
+    commands: ["git rev-parse HEAD", "git status --porcelain --untracked-files=all", "git diff --binary HEAD", "npm test"],
     timeoutMs: DEFAULT_TIMEOUT_MS,
     reason: keyConfigured ? null : "EVIDENCE_SIGNING_KEY_MISSING"
   };
@@ -55,10 +55,12 @@ async function runCoreTests({ timeoutMs = DEFAULT_TIMEOUT_MS } = {}) {
   const startedAt = new Date().toISOString();
   let head;
   let before;
+  let beforeDiff;
   try {
-    [head, before] = await Promise.all([
+    [head, before, beforeDiff] = await Promise.all([
       runFixed("git", ["rev-parse", "HEAD"], REPO_DIR, 5000),
-      runFixed("git", ["status", "--porcelain", "--untracked-files=no"], REPO_DIR, 5000)
+      runFixed("git", ["status", "--porcelain", "--untracked-files=all"], REPO_DIR, 5000),
+      runFixed("git", ["diff", "--binary", "HEAD"], REPO_DIR, 5000)
     ]);
   } catch (error) {
     return {
@@ -72,6 +74,10 @@ async function runCoreTests({ timeoutMs = DEFAULT_TIMEOUT_MS } = {}) {
 
   const commit = String(head.stdout || "").trim();
   const beforeStatus = String(before.stdout || "");
+  const beforeDiffText = String(beforeDiff.stdout || "");
+  if (beforeStatus.split("\n").some(line => line.startsWith("??"))) {
+    return { status: "BLOCKED", reason: "UNTRACKED_FILES_PRESENT", checks: [], receipt: null };
+  }
   if (!/^[a-f0-9]{40,64}$/i.test(commit)) {
     return { status: "BLOCKED", reason: "INVALID_GIT_HEAD", checks: [], receipt: null };
   }
@@ -99,13 +105,18 @@ async function runCoreTests({ timeoutMs = DEFAULT_TIMEOUT_MS } = {}) {
 
   let after;
   try {
-    after = await runFixed("git", ["status", "--porcelain", "--untracked-files=no"], REPO_DIR, 5000);
+    const [statusAfter, diffAfter] = await Promise.all([
+      runFixed("git", ["status", "--porcelain", "--untracked-files=all"], REPO_DIR, 5000),
+      runFixed("git", ["diff", "--binary", "HEAD"], REPO_DIR, 5000)
+    ]);
+    after = { stdout: statusAfter.stdout, diff: diffAfter.stdout };
   } catch (error) {
     return { status: "BLOCKED", reason: "POST_RUN_GIT_METADATA_UNAVAILABLE", checks: [], receipt: null };
   }
 
   const afterStatus = String(after.stdout || "");
-  if (beforeStatus !== afterStatus) {
+  const afterDiffText = String(after.diff || "");
+  if (beforeStatus !== afterStatus || beforeDiffText !== afterDiffText) {
     return {
       status: "BLOCKED",
       reason: "WORKSPACE_CHANGED_DURING_RUN",
@@ -116,7 +127,7 @@ async function runCoreTests({ timeoutMs = DEFAULT_TIMEOUT_MS } = {}) {
   }
 
   const output = [result.stdout || "", result.stderr || ""].join("\n");
-  const workingTreeDigest = sha256(beforeStatus);
+  const workingTreeDigest = sha256(JSON.stringify({ status: beforeStatus, diff: beforeDiffText }));
   const digest = sha256(JSON.stringify({
     profile: "samurai-core-tests",
     commit,
