@@ -84,3 +84,7 @@ Do not mark gate 5 or 6 successful based on CI or emulator evidence. The current
 - Wa Enhancer: https://github.com/Xposed-Modules-Repo/com.wmods.wppenhacer
 - WAHA presence: https://waha.devlike.pro/docs/how-to/presence/
 - WAHA events: https://waha.devlike.pro/docs/how-to/events/
+
+## Receipt display policy update (2026-11-17)
+
+`ReceiptDisplayPolicy` now supports `ALWAYS_SINGLE_TICK` for SAMURAI-owned message views. This masks the local icon only and retains the verified underlying status; it does not change WhatsApp delivery/read network receipts, does not make a recipient see one tick, and is not yet wired to a WhatsApp conversation UI. The Android instrumentation suite includes tests for masking, standard verified status, unknown status, and evidence preservation. A separate WhatsApp client integration remains unimplemented and requires a version-pinned, isolated compatibility study; no hooks are installed into the user's primary WhatsApp.
