@@ -109,11 +109,11 @@ test("does not confuse removed or added source lines with file headers", () => {
     "@@ -1,2 +1,2 @@",
     "--- this is a removed source comment",
     "+++ this is an added source comment"
-  ].join("\\n");
+  ].join("\n");
   assert.deepEqual(validateUnifiedDiff(diff).files, ["core/comments.js"]);
 });
 
 test("rejects a patch with no target path", () => {
-  const diff = "--- /dev/null\\n+++ /dev/null\\n@@ -0,0 +0,0 @@\\n";
+  const diff = "--- /dev/null\n+++ /dev/null\n@@ -0,0 +0,0 @@\n";
   assert.throws(() => validateUnifiedDiff(diff), { message: "PATCH_FILE_PATH_MISSING" });
 });
