@@ -1,0 +1,175 @@
+name: SAMURAI NEXUS Isolated Patch Sandbox
+
+on:
+  pull_request:
+    paths:
+      - "core/**"
+      - ".github/workflows/nexus-sandbox.yml"
+
+permissions:
+  contents: read
+  attestations: write
+  id-token: write
+
+concurrency:
+  group: nexus-sandbox-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  isolated-patch-test:
+    name: Apply candidate patch in isolated container
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      REPOSITORY: ${{ github.repository }}
+    steps:
+      - name: Checkout exact candidate and base history
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Validate candidate diff and build base source context
+        id: prepare
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$BASE_SHA"
+          test -n "$HEAD_SHA"
+          mkdir -p "$RUNNER_TEMP/nexus-base" "$RUNNER_TEMP/nexus-evidence"
+
+          git diff --binary --no-ext-diff --no-renames "$BASE_SHA" "$HEAD_SHA" -- core/ > "$RUNNER_TEMP/candidate.patch"
+          test -s "$RUNNER_TEMP/candidate.patch"
+
+          git show "$BASE_SHA:core/interop/patch-candidate.js" > "$RUNNER_TEMP/patch-candidate-base.js"
+          node - <<'NODE'
+          const fs = require("node:fs");
+          const path = require("node:path");
+          const { validateUnifiedDiff } = require(path.join(process.env.RUNNER_TEMP, "patch-candidate-base.js"));
+          const { validateSandboxFiles } = require("./core/interop/patch-sandbox.js");
+          const patch = fs.readFileSync(path.join(process.env.RUNNER_TEMP, "candidate.patch"), "utf8");
+          const parsed = validateUnifiedDiff(patch);
+          const files = validateSandboxFiles(parsed.files);
+          fs.writeFileSync(path.join(process.env.RUNNER_TEMP, "nexus-evidence", "changed-files.json"), JSON.stringify(files, null, 2));
+          console.log("Validated candidate files:", files.join(", "));
+          NODE
+
+          git archive "$BASE_SHA" core | tar -x -C "$RUNNER_TEMP/nexus-base"
+          test -f "$RUNNER_TEMP/nexus-base/core/package-lock.json"
+
+      - name: Build trusted base test image
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker build --pull -t samurai-nexus-sandbox:base -f - "$RUNNER_TEMP/nexus-base/core" <<'DOCKERFILE'
+          FROM node:22-bookworm-slim
+          RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates \
+              && rm -rf /var/lib/apt/lists/*
+          WORKDIR /base
+          COPY . .
+          RUN npm ci --ignore-scripts --no-audit --no-fund
+          RUN mkdir -p /input /workspace && chown -R node:node /base /input /workspace
+          USER node
+          DOCKERFILE
+
+      - name: Apply patch and run tests with no network
+        id: sandbox
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +e
+          docker run --rm \
+            --network none \
+            --read-only \
+            --cap-drop ALL \
+            --security-opt no-new-privileges \
+            --pids-limit 128 \
+            --memory 1536m \
+            --cpus 2 \
+            --tmpfs /workspace:rw,nosuid,nodev,size=1g,uid=1000,gid=1000 \
+            --tmpfs /tmp:rw,nosuid,nodev,size=256m,uid=1000,gid=1000 \
+            --mount "type=bind,src=$RUNNER_TEMP/candidate.patch,dst=/input/candidate.patch,readonly" \
+            --entrypoint /bin/sh \
+            samurai-nexus-sandbox:base \
+            -lc 'cp -a /base/. /workspace/ && cd /workspace && git apply --check /input/candidate.patch && git apply /input/candidate.patch && npm test' \
+            > "$RUNNER_TEMP/nexus-test.log" 2>&1
+          rc=$?
+          set -e
+          cat "$RUNNER_TEMP/nexus-test.log"
+          echo "exit_code=$rc" >> "$GITHUB_OUTPUT"
+          if [ "$rc" -ne 0 ]; then
+            exit "$rc"
+          fi
+
+      - name: Create candidate-bound evidence receipt
+        if: always() && steps.prepare.outcome == 'success'
+        shell: bash
+        env:
+          SANDBOX_EXIT_CODE: ${{ steps.sandbox.outputs.exit_code }}
+        run: |
+          set -euo pipefail
+          node - <<'NODE'
+          const fs = require("node:fs");
+          const path = require("node:path");
+          const { createSandboxReceipt } = require("./core/interop/patch-sandbox.js");
+          const patch = fs.readFileSync(path.join(process.env.RUNNER_TEMP, "candidate.patch"));
+          const logPath = path.join(process.env.RUNNER_TEMP, "nexus-test.log");
+          const log = fs.existsSync(logPath) ? fs.readFileSync(logPath) : Buffer.from("Sandbox did not start");
+          const exitCode = process.env.SANDBOX_EXIT_CODE;
+          const receipt = createSandboxReceipt({
+            repository: process.env.REPOSITORY,
+            baseSha: process.env.BASE_SHA,
+            headSha: process.env.HEAD_SHA,
+            patch,
+            testLog: log,
+            runId: process.env.GITHUB_RUN_ID,
+            conclusion: exitCode === "0" ? "success" : "failure"
+          });
+          const dir = path.join(process.env.RUNNER_TEMP, "nexus-evidence");
+          fs.writeFileSync(path.join(dir, "receipt.json"), JSON.stringify(receipt, null, 2) + "\n");
+          console.log("Receipt:", receipt.receiptSha256);
+          NODE
+
+      - name: Upload patch, test log and receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nexus-sandbox-evidence-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/candidate.patch
+            ${{ runner.temp }}/nexus-test.log
+            ${{ runner.temp }}/nexus-evidence/
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Attest successful sandbox receipt
+        if: steps.sandbox.outputs.exit_code == '0'
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: ${{ runner.temp }}/nexus-evidence/receipt.json
+
+      - name: Publish sandbox summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "## NEXUS isolated patch sandbox"
+            echo "- Base SHA: `$BASE_SHA`"
+            echo "- Candidate SHA: `$HEAD_SHA`"
+            echo "- Test container network: disabled"
+            echo "- Container secrets: none"
+            echo "- Sandbox exit code: `${{ steps.sandbox.outputs.exit_code || 'not-started' }}`"
+            if [ -f "$RUNNER_TEMP/nexus-evidence/receipt.json" ]; then
+              echo "- Evidence receipt: generated and uploaded"
+            else
+              echo "- Evidence receipt: not generated"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
