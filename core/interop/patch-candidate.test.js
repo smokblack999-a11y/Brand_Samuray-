@@ -100,3 +100,20 @@ test("rejects too many changed files", () => {
   for (let i = 0; i < MAX_PATCH_FILES + 1; i++) parts.push(diffFor(`core/file-${i}.js`));
   assert.throws(() => validateUnifiedDiff(parts.join("\n")), { message: "PATCH_TOO_MANY_FILES" });
 });
+
+test("does not confuse removed or added source lines with file headers", () => {
+  const diff = [
+    "diff --git a/core/comments.js b/core/comments.js",
+    "--- a/core/comments.js",
+    "+++ b/core/comments.js",
+    "@@ -1,2 +1,2 @@",
+    "--- this is a removed source comment",
+    "+++ this is an added source comment"
+  ].join("\\n");
+  assert.deepEqual(validateUnifiedDiff(diff).files, ["core/comments.js"]);
+});
+
+test("rejects a patch with no target path", () => {
+  const diff = "--- /dev/null\\n+++ /dev/null\\n@@ -0,0 +0,0 @@\\n";
+  assert.throws(() => validateUnifiedDiff(diff), { message: "PATCH_FILE_PATH_MISSING" });
+});
