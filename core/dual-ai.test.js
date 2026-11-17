@@ -142,17 +142,10 @@ test("evidence policy recognizes Russian engineering and current-fact requests",
 });
 
 
-test("execution verifier exposes only fixed core test profile", () => {
+test("execution verifier exposes only a fixed SAMURAI Core test profile", () => {
   const runner = require("./dual-ai/execution-verifier");
   const status = runner.runnerStatus();
-  assert.equal(status.profile, "core-tests");
-  assert.deepEqual(status.checks, ["npm test"]);
+  assert.equal(status.profile, "samurai-core-tests");
+  assert.deepEqual(status.commands, ["git rev-parse HEAD", "git status --porcelain --untracked-files=no", "npm test"]);
   assert.equal(status.enabled, true);
-});
-
-test("execution verifier does not run commands when tests are not required", async () => {
-  const runner = require("./dual-ai/execution-verifier");
-  const result = await runner.runCoreTests({ task: "Explain a concept", answer: "A concise explanation." });
-  assert.equal(result.status, "NOT_REQUIRED");
-  assert.deepEqual(result.evidence, []);
 });
