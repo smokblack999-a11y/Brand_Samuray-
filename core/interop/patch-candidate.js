@@ -84,6 +84,7 @@ function validateUnifiedDiff(input) {
       if (!current || !oldPath || newPath) throw new Error("PATCH_HEADER_ORDER_INVALID");
       const raw = line.slice(4).trim().split("\t")[0];
       newPath = raw === "/dev/null" ? raw : normalizePatchPath(raw, "b");
+      if (oldPath === "/dev/null" && newPath === "/dev/null") throw new Error("PATCH_FILE_PATH_MISSING");
       if (oldPath !== "/dev/null" && newPath !== "/dev/null" && oldPath !== newPath) {
         throw new Error("PATCH_PATH_MISMATCH");
       }
