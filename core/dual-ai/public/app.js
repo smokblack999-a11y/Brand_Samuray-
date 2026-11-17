@@ -108,6 +108,21 @@
         node("div", "final-content", session.candidate)
       );
       const missing = session.verification && session.verification.missing || [];
+      if (session.execution) {
+        el.final.append(node("p", "confidence", "Автопроверка: " + session.execution.status +
+          (session.execution.reason ? " · " + session.execution.reason : "")));
+        (session.execution.checks || []).forEach(check => {
+          el.final.append(node("p", "confidence", check.name + ": " + check.status +
+            (check.exitCode !== undefined && check.exitCode !== null ? " · exit " + check.exitCode : "")));
+          if (check.output) {
+            const details = node("details", "execution-log");
+            details.append(node("summary", "", "Показать журнал проверки"));
+            const pre = node("pre", "execution-output", check.output);
+            details.append(pre);
+            el.final.append(details);
+          }
+        });
+      }
       if (missing.length) el.final.append(node("p", "confidence", "Не хватает подтверждений: " + missing.join(", ")));
     } else {
       el.final.hidden = true;
@@ -165,7 +180,7 @@
       const result = await api("/api/dual-ai/turn", { method: "POST", body: JSON.stringify({ id: state.id }) });
       render(result.session);
       setNotice(result.session.status === "COMPLETE" ? "Kill Critic и Evidence Verifier: результат прошёл доступные проверки." :
-        result.session.status === "CONDITIONAL" ? "Кандидат сохранён, но не утверждён: требуются независимые доказательства." :
+        result.session.status === "CONDITIONAL" ? "Кандидат сохранён, но не утверждён: автопроверка не подтвердила все обязательные условия." :
         result.session.status === "BLOCKED" ? "Лимит раундов достигнут. Результат не утверждён." : "Ход завершён.");
       await refreshHistory();
       return true;
