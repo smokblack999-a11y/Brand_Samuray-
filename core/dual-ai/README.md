@@ -21,7 +21,7 @@ PASS requires:
 - no evidence gaps;
 - valid structured critic output.
 
-Malformed or incomplete critic output fails closed. A PASS is an automated model assessment, not a guarantee of truth. The Evidence Verifier applies a separate fail-closed policy: coding/build tasks require server-origin test/build proof; deployment claims require execution proof; current or time-sensitive claims require source proof; high-impact medical/legal/financial topics require domain-review proof. Model-generated statements and user-supplied text are never accepted as proof. If proof is absent, the candidate remains visible as `CONDITIONAL` and is not exposed as an approved `final`. Proof records must carry an HMAC signature created with the server-only `EVIDENCE_SIGNING_KEY` (minimum 32 characters); unsigned or user/model-supplied records fail validation. The current version defines and tests the signed proof contract; trusted runners/adapters that produce these records are a separate integration step.
+Malformed or incomplete critic output fails closed. A PASS is an automated model assessment, not a guarantee of truth. The Evidence Verifier applies a separate fail-closed policy: coding/build tasks require server-origin test/build proof; deployment claims require execution proof; current or time-sensitive claims require source proof; high-impact medical/legal/financial topics require domain-review proof. Model-generated statements and user-supplied text are never accepted as proof. If proof is absent, the candidate remains visible as `CONDITIONAL` and is not exposed as an approved `final`. Proof records must carry an HMAC signature created with the server-only `EVIDENCE_SIGNING_KEY` (minimum 32 characters); unsigned or user/model-supplied records fail validation. The protected Execution Verifier exposes a manual fixed profile for the SAMURAI Core workspace: `git rev-parse HEAD`, tracked-worktree status, and `npm test`. It accepts no command, shell string, or working directory from the API caller. Successful output is hashed and signed with `EVIDENCE_SIGNING_KEY`, bound to the exact repository commit and tracked-worktree fingerprint. This proves only that the selected Core workspace test suite passed; it does not prove an arbitrary model-generated patch, Android APK build, deployment, or external factual claim. It is deliberately not fed into the Dual AI candidate gate until an isolated patch workspace exists.
 
 ## Providers
 
@@ -36,6 +36,14 @@ Optional role configuration:
 - `DUAL_AI_MAX_ROUNDS`
 - `DUAL_AI_TIMEOUT_MS`
 - `EVIDENCE_SIGNING_KEY` — server-only random key, at least 32 characters, required to sign and verify evidence receipts
+
+Generate a key locally (never paste it into chat or commit it):
+
+```sh
+node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
+```
+
+Store the generated value in the Core server's private `.env` as `EVIDENCE_SIGNING_KEY=...` and restart Core.
 
 Use different model families for A and B when possible to reduce correlated blind spots. The API key remains on the Core server; the browser only sends the existing Core `X-API-Key` for authorization.
 
