@@ -7,10 +7,10 @@ const MAX_PATH_LENGTH = 240;
 function normalizePatchPath(raw, prefix) {
   const value = String(raw || "").trim();
   if (!value || value === "/dev/null") return value;
-  if (value.startsWith("/") || value.startsWith("\\\\") || /^[A-Za-z]:/.test(value)) {
+  if (value.startsWith("/") || value.startsWith("\\") || /^[A-Za-z]:/.test(value)) {
     throw new Error("INVALID_PATCH_PATH");
   }
-  if (value.includes("\\\\") || value.includes("\0") || value.length > MAX_PATH_LENGTH) {
+  if (value.includes("\\") || value.includes("\0") || value.length > MAX_PATH_LENGTH) {
     throw new Error("INVALID_PATCH_PATH");
   }
   const expected = prefix + "/";
@@ -20,7 +20,7 @@ function normalizePatchPath(raw, prefix) {
   if (!pathValue || segments.some(part => !part || part === "." || part === ".." || part.toLowerCase() === ".git")) {
     throw new Error("INVALID_PATCH_PATH");
   }
-  if (!/^[A-Za-z0-9._/@+\\- ]+$/.test(pathValue)) throw new Error("INVALID_PATCH_PATH");
+  if (!/^[A-Za-z0-9._/@+ -]+$/.test(pathValue)) throw new Error("INVALID_PATCH_PATH");
   return pathValue;
 }
 
@@ -55,7 +55,7 @@ function validateUnifiedDiff(input) {
     if (line.startsWith("GIT binary patch") || line.startsWith("Binary files ")) {
       throw new Error("BINARY_PATCH_NOT_SUPPORTED");
     }
-    if (/^(new|old) file mode 120000$/.test(line) || /^new mode 120000$/.test(line) || /^old mode 120000$/.test(line)) {
+    if (/^(new|old) file mode 120000$/.test(line)) {
       throw new Error("SYMLINK_PATCH_NOT_SUPPORTED");
     }
     if (/^(rename|copy) (from|to) /.test(line)) throw new Error("PATCH_RENAME_NOT_SUPPORTED");
