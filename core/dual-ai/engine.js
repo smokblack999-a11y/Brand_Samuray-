@@ -5,6 +5,7 @@ const { complete, configured } = require("./providers");
 const { review } = require("./critic");
 const { SYSTEM_A, revisionPrompt } = require("./prompts");
 const { verifyEvidence } = require("./evidence-verifier");
+const executionVerifier = require("./execution-verifier");
 const store = require("./store");
 
 const MAX_ROUNDS = Math.max(1, Math.min(Number(process.env.DUAL_AI_MAX_ROUNDS || 3), 5));
@@ -51,6 +52,7 @@ function safeSession(session) {
     turns: session.turns,
     quality: session.quality || null,
     verification: session.verification || null,
+    execution: session.execution || null,
     candidate: session.candidate || null,
     final: session.final || null,
     createdAt: session.createdAt,
@@ -89,6 +91,7 @@ function create({ task, a, b } = {}) {
     turns: [],
     quality: null,
     verification: null,
+    execution: null,
     candidate: null,
     final: null,
     createdAt: now(),
@@ -149,7 +152,9 @@ async function next(id) {
       addTurn(session, { agent: "B", kind: "CRITIC", round: session.round, ...verdict });
 
       if (verdict.verdict === "PASS") {
-        const verification = verifyEvidence({ task: session.task, answer: session.a.last.content });
+        const execution = await executionVerifier.runCoreTests({ task: session.task, answer: session.a.last.content });
+        session.execution = execution;
+        const verification = verifyEvidence({ task: session.task, answer: session.a.last.content, evidence: execution.evidence });
         session.verification = verification;
         if (verification.verified) {
           session.status = "COMPLETE";
