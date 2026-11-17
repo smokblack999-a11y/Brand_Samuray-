@@ -45,6 +45,8 @@ The UI is served at `/dual-ai/`. It uses existing protected endpoints:
 - `GET /api/dual-ai/config`
 - `GET /api/dual-ai/sessions`
 - `GET /api/dual-ai/session/:id`
+- `GET /api/execution-verifier/status` — protected runner status
+- `POST /api/execution-verifier/core-tests` — run the fixed Core test profile (one run per minute)
 - `POST /api/dual-ai/session`
 - `POST /api/dual-ai/turn`
 - `POST /api/dual-ai/stop`
