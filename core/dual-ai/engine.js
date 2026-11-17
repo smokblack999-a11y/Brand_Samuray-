@@ -4,6 +4,7 @@ const crypto = require("crypto");
 const { complete, configured } = require("./providers");
 const { review } = require("./critic");
 const { SYSTEM_A, revisionPrompt } = require("./prompts");
+const { verifyEvidence } = require("./evidence-verifier");
 const store = require("./store");
 
 const MAX_ROUNDS = Math.max(1, Math.min(Number(process.env.DUAL_AI_MAX_ROUNDS || 3), 5));
@@ -49,6 +50,8 @@ function safeSession(session) {
     b: session.b,
     turns: session.turns,
     quality: session.quality || null,
+    verification: session.verification || null,
+    candidate: session.candidate || null,
     final: session.final || null,
     createdAt: session.createdAt,
     updatedAt: session.updatedAt
@@ -85,6 +88,8 @@ function create({ task, a, b } = {}) {
     b: normalizeModel(b, defaults.b),
     turns: [],
     quality: null,
+    verification: null,
+    candidate: null,
     final: null,
     createdAt: now(),
     updatedAt: now()
@@ -144,9 +149,19 @@ async function next(id) {
       addTurn(session, { agent: "B", kind: "CRITIC", round: session.round, ...verdict });
 
       if (verdict.verdict === "PASS") {
-        session.status = "COMPLETE";
-        session.phase = "DONE";
-        session.final = session.a.last.content;
+        const verification = verifyEvidence({ task: session.task, answer: session.a.last.content });
+        session.verification = verification;
+        if (verification.verified) {
+          session.status = "COMPLETE";
+          session.phase = "DONE";
+          session.final = session.a.last.content;
+          session.candidate = null;
+        } else {
+          session.status = "CONDITIONAL";
+          session.phase = "EVIDENCE_REQUIRED";
+          session.final = null;
+          session.candidate = session.a.last.content;
+        }
       } else if (session.round >= session.maxRounds) {
         session.status = "BLOCKED";
         session.phase = "MAX_ROUNDS";

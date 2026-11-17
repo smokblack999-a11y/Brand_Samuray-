@@ -7,7 +7,7 @@
     notice: $("#notice"), phase: $("#phase"), round: $("#round"), aTurns: $("#aTurns"),
     bTurns: $("#bTurns"), aCount: $("#aCount"), bCount: $("#bCount"), final: $("#final"),
     history: $("#historyList"), start: $("#start"), next: $("#next"), auto: $("#auto"),
-    stop: $("#stop"), exportTxt: $("#exportTxt"), exportJson: $("#exportJson"), printPdf: $("#printPdf")
+    stop: $("#stop"), exportTxt: $("#exportTxt"), exportJson: $("#exportJson"), printPdf: $("#printPdf"), runCoreTests: $("#runCoreTests"), executionResult: $("#executionResult")
   };
 
   function setNotice(message, error = false) {
@@ -95,14 +95,86 @@
     [el.exportTxt, el.exportJson, el.printPdf].forEach(button => button.disabled = !hasSession);
     if (session.final) {
       el.final.hidden = false;
-      el.final.replaceChildren(node("p", "eyebrow", "FINAL RESULT · " + session.status), node("h3", "", "Итоговый ответ"));
+      el.final.className = "final panel";
+      el.final.replaceChildren(node("p", "eyebrow", "APPROVED FINAL · " + session.status), node("h3", "", "Итоговый ответ"));
       el.final.append(node("div", "final-content", session.final));
+    } else if (session.status === "CONDITIONAL" && session.candidate) {
+      el.final.hidden = false;
+      el.final.className = "final panel conditional";
+      el.final.replaceChildren(
+        node("p", "eyebrow", "CONDITIONAL · NOT APPROVED"),
+        node("h3", "", "Кандидат ожидает доказательств"),
+        node("p", "notice error", "Kill Critic прошёл, но Evidence Verifier не получил независимые подтверждения. Ответ не считается утверждённым."),
+        node("div", "final-content", session.candidate)
+      );
+      const missing = session.verification && session.verification.missing || [];
+      if (session.execution) {
+        el.final.append(node("p", "confidence", "Автопроверка: " + session.execution.status +
+          (session.execution.reason ? " · " + session.execution.reason : "")));
+        (session.execution.checks || []).forEach(check => {
+          el.final.append(node("p", "confidence", check.name + ": " + check.status +
+            (check.exitCode !== undefined && check.exitCode !== null ? " · exit " + check.exitCode : "")));
+          if (check.output) {
+            const details = node("details", "execution-log");
+            details.append(node("summary", "", "Показать журнал проверки"));
+            const pre = node("pre", "execution-output", check.output);
+            details.append(pre);
+            el.final.append(details);
+          }
+        });
+      }
+      if (missing.length) el.final.append(node("p", "confidence", "Не хватает подтверждений: " + missing.join(", ")));
     } else {
       el.final.hidden = true;
+      el.final.className = "final panel";
       el.final.replaceChildren();
     }
     setBusy(false);
   }
+  async function runCoreWorkspaceTests() {
+    state.apiKey = el.apiKey.value.trim();
+    if (!state.apiKey) { setNotice("Введи CORE_API_KEY для запуска защищённой проверки.", true); return; }
+    el.runCoreTests.disabled = true;
+    el.executionResult.hidden = true;
+    setNotice("Запускаю фиксированный профиль SAMURAI Core: npm test. Произвольные команды не принимаются.");
+    try {
+      const response = await api("/api/execution-verifier/core-tests", { method: "POST", body: "{}" });
+      const result = response.result || {};
+      const workspace = result.workspace || {};
+      setNotice("Core tests: " + result.status + (workspace.commit ? " · commit " + workspace.commit.slice(0, 12) : "") +
+        (result.receipt ? " · HMAC receipt создана" : ""));
+      el.executionResult.hidden = false;
+      el.executionResult.replaceChildren(
+        node("b", "", "SAMURAI CORE · " + result.status),
+        node("p", "confidence", result.reason || (workspace.clean ? "Tracked worktree clean" : "Tracked worktree had pre-existing changes"))
+      );
+      if (result.checks && result.checks.length) {
+        result.checks.forEach(check => {
+          el.executionResult.append(node("p", "confidence", check.name + ": " + check.status +
+            (check.exitCode !== undefined && check.exitCode !== null ? " · exit " + check.exitCode : "")));
+          if (check.output) {
+            const details = node("details", "execution-log");
+            details.append(node("summary", "", "Показать журнал npm test"));
+            details.append(node("pre", "execution-output", check.output));
+            el.executionResult.append(details);
+          }
+        });
+      }
+      if (result.receipt) {
+        const details = node("details", "execution-log");
+        details.append(node("summary", "", "Показать подписанную квитанцию"));
+        details.append(node("pre", "execution-output", JSON.stringify(result.receipt, null, 2)));
+        el.executionResult.append(details);
+      }
+    } catch (error) {
+      setNotice("Execution Verifier: " + error.message, true);
+      el.executionResult.hidden = false;
+      el.executionResult.textContent = "Проверка не завершена. Смотри статус Core и EVIDENCE_SIGNING_KEY.";
+    } finally {
+      el.runCoreTests.disabled = false;
+    }
+  }
+
   function sessionPayload() {
     const task = el.task.value.trim();
     if (!task) throw new Error("Сначала введи задачу.");
@@ -151,7 +223,8 @@
     try {
       const result = await api("/api/dual-ai/turn", { method: "POST", body: JSON.stringify({ id: state.id }) });
       render(result.session);
-      setNotice(result.session.status === "COMPLETE" ? "Kill Critic одобрил результат: все пороги качества пройдены." :
+      setNotice(result.session.status === "COMPLETE" ? "Kill Critic и Evidence Verifier: результат прошёл доступные проверки." :
+        result.session.status === "CONDITIONAL" ? "Кандидат сохранён, но не утверждён: автопроверка не подтвердила все обязательные условия." :
         result.session.status === "BLOCKED" ? "Лимит раундов достигнут. Результат не утверждён." : "Ход завершён.");
       await refreshHistory();
       return true;
@@ -172,12 +245,6 @@
         const ok = await nextTurn();
         if (!ok || !state.session || state.session.status !== "RUNNING") break;
       }
-    } finally {
-      state.auto = false;
-      el.auto.textContent = "Автодиалог";
-      setBusy(false);
-    }
-  }
     } finally {
       state.auto = false;
       el.auto.textContent = "Автодиалог";
@@ -267,6 +334,7 @@
 
   $("#checkCore").addEventListener("click", checkCore);
   el.start.addEventListener("click", () => startSession().catch(error => { setBusy(false); setNotice(error.message, true); }));
+  el.runCoreTests.addEventListener("click", runCoreWorkspaceTests);
   el.next.addEventListener("click", nextTurn);
   el.auto.addEventListener("click", () => state.auto ? state.stopAuto = true : runAuto());
   el.stop.addEventListener("click", stopSession);

@@ -9,6 +9,7 @@ const path = require("path");
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "samurai-dual-"));
 process.env.DATA_DIR = tmp;
 process.env.DUAL_AI_MAX_ROUNDS = "3";
+process.env.EVIDENCE_SIGNING_KEY = "samurai-test-evidence-signing-key-32-bytes";
 
 const engine = require("./dual-ai/engine");
 const critic = require("./dual-ai/critic");
@@ -94,4 +95,57 @@ test("Kill Critic fails closed on malformed JSON and incomplete verdicts", () =>
   }));
   assert.equal(incomplete.verdict, "FAIL");
   assert.ok(incomplete.issues.includes("invalid_critic_output"));
+});
+
+
+test("evidence verifier requires server proof for code and current-fact claims", () => {
+  const verifier = require("./dual-ai/evidence-verifier");
+  const code = verifier.verifyEvidence({ task: "Build and test the Android app", answer: "Implementation is ready." });
+  assert.equal(code.status, "REQUIRED");
+  assert.deepEqual(code.missing, ["tests", "build"]);
+  const current = verifier.verifyEvidence({ task: "Find the latest market price", answer: "The current price is ..." });
+  assert.equal(current.status, "REQUIRED");
+  assert.ok(current.missing.includes("sources"));
+});
+
+test("evidence verifier rejects unsigned and malformed proof records", () => {
+  const verifier = require("./dual-ai/evidence-verifier");
+  const fake = { kind: "tests", status: "passed", origin: "server", digest: "a".repeat(64), at: new Date().toISOString() };
+  assert.equal(verifier.verifyEvidence({ task: "Run tests", answer: "All tests passed.", evidence: [fake] }).verified, false);
+  const malformed = { ...fake, digest: "not-a-hash" };
+  assert.equal(verifier.validServerEvidence(malformed), false);
+  const forged = { ...fake, digest: "a".repeat(64), subjectHash: "b".repeat(64) };
+  assert.equal(verifier.validServerEvidence(forged), false);
+});
+
+test("evidence verifier accepts only HMAC-authenticated server proof records", () => {
+  const verifier = require("./dual-ai/evidence-verifier");
+  const at = new Date().toISOString();
+  const task = "Build and test the Android app";
+  const answer = "Candidate implementation.";
+  const subjectHash = verifier.subjectHashFor(task, answer);
+  const evidence = ["tests", "build"].map(kind => verifier.createEvidenceRecord({
+    kind, subjectHash, digest: require("crypto").createHash("sha256").update(kind + at).digest("hex"), at
+  }));
+  const result = verifier.verifyEvidence({ task, answer, evidence });
+  assert.equal(result.status, "VERIFIED");
+  assert.equal(result.verified, true);
+  const replayed = verifier.verifyEvidence({ task, answer: answer + " altered", evidence });
+  assert.equal(replayed.verified, false);
+});
+
+
+test("evidence policy recognizes Russian engineering and current-fact requests", () => {
+  const verifier = require("./dual-ai/evidence-verifier");
+  const result = verifier.verifyEvidence({ task: "Собери и протестируй приложение", answer: "Проверь актуальную цену." });
+  assert.deepEqual(result.required, ["tests", "build", "sources"]);
+});
+
+
+test("execution verifier exposes only a fixed SAMURAI Core test profile", () => {
+  const runner = require("./dual-ai/execution-verifier");
+  const status = runner.runnerStatus();
+  assert.equal(status.profile, "samurai-core-tests");
+  assert.deepEqual(status.commands, ["git rev-parse HEAD", "git status --porcelain --untracked-files=all", "git diff --binary HEAD", "npm test"]);
+  assert.equal(status.enabled, true);
 });

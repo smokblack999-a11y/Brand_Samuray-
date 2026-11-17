@@ -11,6 +11,7 @@ const telegramCamera = require("./telegram-camera");
 const { saveLead, claimEvent, updateLead, listLeads, stats } = require("./store");
 const { createRateLimiter } = require("./rate-limit");
 const dualAI = require("./dual-ai/engine");
+const executionVerifier = require("./dual-ai/execution-verifier");
 const agentControl = require("./agent-control");
 const agentControlGithub = require("./agent-control-github");
 
@@ -74,6 +75,7 @@ app.use((req, res, next) => {
 
 const leadRateLimit = createRateLimiter({ windowMs: LEAD_RATE_LIMIT_WINDOW_MS, max: LEAD_RATE_LIMIT_MAX });
 const dualRateLimit = createRateLimiter({ windowMs: Math.max(1000, Number(process.env.DUAL_AI_RATE_LIMIT_WINDOW_MS || 60000)), max: Math.max(1, Number(process.env.DUAL_AI_RATE_LIMIT_MAX || 10)) });
+const executionRateLimit = createRateLimiter({ windowMs: 60000, max: 1 });
 app.use("/dual-ai", express.static(path.join(__dirname, "dual-ai", "public"), { index: "index.html" }));
 
 app.get("/health", (_req, res) => res.json({ ok: true, service: "SamuraiOS Core", version: "2.7.0" }));
@@ -185,6 +187,20 @@ app.post("/api/agent-control/github/webhook", (req, res) => {
     return res.status(result.duplicate ? 200 : 202).json({ ok: true, ...result, requestId: req.requestId });
   } catch (error) {
     return res.status(400).json(errorBody(error.code || "AGENT_WEBHOOK_REJECTED", error.message, req.requestId));
+  }
+});
+
+app.get("/api/execution-verifier/status", requireApiKey, (req, res) => {
+  return res.json({ ok: true, verifier: executionVerifier.runnerStatus(), requestId: req.requestId });
+});
+
+app.post("/api/execution-verifier/core-tests", requireApiKey, executionRateLimit, async (req, res) => {
+  try {
+    const result = await executionVerifier.runCoreTests();
+    return res.json({ ok: result.status === "PASSED", result, requestId: req.requestId });
+  } catch (error) {
+    console.error(JSON.stringify({ event: "execution_verifier_failed", requestId: req.requestId, code: error.code || "EXECUTION_VERIFIER_ERROR" }));
+    return res.status(500).json(errorBody("EXECUTION_VERIFIER_ERROR", "Execution verifier failed", req.requestId));
   }
 });
 
