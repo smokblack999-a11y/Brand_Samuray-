@@ -7,7 +7,7 @@
     notice: $("#notice"), phase: $("#phase"), round: $("#round"), aTurns: $("#aTurns"),
     bTurns: $("#bTurns"), aCount: $("#aCount"), bCount: $("#bCount"), final: $("#final"),
     history: $("#historyList"), start: $("#start"), next: $("#next"), auto: $("#auto"),
-    stop: $("#stop"), exportTxt: $("#exportTxt"), exportJson: $("#exportJson"), printPdf: $("#printPdf")
+    stop: $("#stop"), exportTxt: $("#exportTxt"), exportJson: $("#exportJson"), printPdf: $("#printPdf"), runCoreTests: $("#runCoreTests"), executionResult: $("#executionResult")
   };
 
   function setNotice(message, error = false) {
@@ -131,6 +131,50 @@
     }
     setBusy(false);
   }
+  async function runCoreWorkspaceTests() {
+    state.apiKey = el.apiKey.value.trim();
+    if (!state.apiKey) { setNotice("Введи CORE_API_KEY для запуска защищённой проверки.", true); return; }
+    el.runCoreTests.disabled = true;
+    el.executionResult.hidden = true;
+    setNotice("Запускаю фиксированный профиль SAMURAI Core: npm test. Произвольные команды не принимаются.");
+    try {
+      const response = await api("/api/execution-verifier/core-tests", { method: "POST", body: "{}" });
+      const result = response.result || {};
+      const workspace = result.workspace || {};
+      setNotice("Core tests: " + result.status + (workspace.commit ? " · commit " + workspace.commit.slice(0, 12) : "") +
+        (result.receipt ? " · HMAC receipt создана" : ""));
+      el.executionResult.hidden = false;
+      el.executionResult.replaceChildren(
+        node("b", "", "SAMURAI CORE · " + result.status),
+        node("p", "confidence", result.reason || (workspace.clean ? "Tracked worktree clean" : "Tracked worktree had pre-existing changes"))
+      );
+      if (result.checks && result.checks.length) {
+        result.checks.forEach(check => {
+          el.executionResult.append(node("p", "confidence", check.name + ": " + check.status +
+            (check.exitCode !== undefined && check.exitCode !== null ? " · exit " + check.exitCode : "")));
+          if (check.output) {
+            const details = node("details", "execution-log");
+            details.append(node("summary", "", "Показать журнал npm test"));
+            details.append(node("pre", "execution-output", check.output));
+            el.executionResult.append(details);
+          }
+        });
+      }
+      if (result.receipt) {
+        const details = node("details", "execution-log");
+        details.append(node("summary", "", "Показать подписанную квитанцию"));
+        details.append(node("pre", "execution-output", JSON.stringify(result.receipt, null, 2)));
+        el.executionResult.append(details);
+      }
+    } catch (error) {
+      setNotice("Execution Verifier: " + error.message, true);
+      el.executionResult.hidden = false;
+      el.executionResult.textContent = "Проверка не завершена. Смотри статус Core и EVIDENCE_SIGNING_KEY.";
+    } finally {
+      el.runCoreTests.disabled = false;
+    }
+  }
+
   function sessionPayload() {
     const task = el.task.value.trim();
     if (!task) throw new Error("Сначала введи задачу.");
@@ -290,6 +334,7 @@
 
   $("#checkCore").addEventListener("click", checkCore);
   el.start.addEventListener("click", () => startSession().catch(error => { setBusy(false); setNotice(error.message, true); }));
+  el.runCoreTests.addEventListener("click", runCoreWorkspaceTests);
   el.next.addEventListener("click", nextTurn);
   el.auto.addEventListener("click", () => state.auto ? state.stopAuto = true : runAuto());
   el.stop.addEventListener("click", stopSession);
