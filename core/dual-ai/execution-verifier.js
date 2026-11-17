@@ -9,7 +9,7 @@ const { createEvidenceRecord } = require("./evidence-verifier");
 const execFileAsync = promisify(execFile);
 const REPO_DIR = path.resolve(__dirname, "../..");
 const CORE_DIR = path.resolve(__dirname, "..");
-const DEFAULT_TIMEOUT_MS = 25000;
+const DEFAULT_TIMEOUT_MS = 18000;
 const MAX_BUFFER_BYTES = 2 * 1024 * 1024;
 
 function sha256(value) {
