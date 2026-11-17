@@ -197,8 +197,7 @@ app.get("/api/execution-verifier/status", requireApiKey, (req, res) => {
 app.post("/api/execution-verifier/core-tests", requireApiKey, executionRateLimit, async (req, res) => {
   try {
     const result = await executionVerifier.runCoreTests();
-    const status = result.status === "PASSED" ? 200 : result.status === "FAILED" ? 422 : 503;
-    return res.status(status).json({ ok: result.status === "PASSED", result, requestId: req.requestId });
+    return res.json({ ok: result.status === "PASSED", result, requestId: req.requestId });
   } catch (error) {
     console.error(JSON.stringify({ event: "execution_verifier_failed", requestId: req.requestId, code: error.code || "EXECUTION_VERIFIER_ERROR" }));
     return res.status(500).json(errorBody("EXECUTION_VERIFIER_ERROR", "Execution verifier failed", req.requestId));
