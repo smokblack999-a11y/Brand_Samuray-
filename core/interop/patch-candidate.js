@@ -16,6 +16,7 @@ function normalizePatchPath(raw, prefix) {
   const expected = prefix + "/";
   if (!value.startsWith(expected)) throw new Error("INVALID_PATCH_PATH");
   const pathValue = value.slice(expected.length);
+  if (/^[A-Za-z]:/.test(pathValue)) throw new Error("INVALID_PATCH_PATH");
   const segments = pathValue.split("/");
   if (!pathValue || segments.some(part => !part || part === "." || part === ".." || part.toLowerCase() === ".git")) {
     throw new Error("INVALID_PATCH_PATH");
@@ -71,7 +72,7 @@ function validateUnifiedDiff(input) {
       continue;
     }
 
-    if (line.startsWith("--- ")) {
+    if (line.startsWith("--- ") && !fileHasHunk) {
       if (current && (oldPath || newPath || fileHasHunk)) finishFile();
       if (!current) current = "header";
       const raw = line.slice(4).trim().split("\t")[0];
@@ -79,7 +80,7 @@ function validateUnifiedDiff(input) {
       continue;
     }
 
-    if (line.startsWith("+++ ")) {
+    if (line.startsWith("+++ ") && !fileHasHunk) {
       if (!current || !oldPath || newPath) throw new Error("PATCH_HEADER_ORDER_INVALID");
       const raw = line.slice(4).trim().split("\t")[0];
       newPath = raw === "/dev/null" ? raw : normalizePatchPath(raw, "b");
