@@ -14,13 +14,13 @@ function validateSandboxFiles(files) {
 
   const normalized = [...new Set(files.map(file => String(file || "")))];
   for (const file of normalized) {
-    if (!file.startsWith("core/") || !file.endsWith(".js")) {
-      throw new Error("SANDBOX_FILE_TYPE_BLOCKED");
-    }
     if (file.includes("\\") || file.split("/").some(part =>
       !part || part === "." || part === ".." || part.toLowerCase() === ".git"
     )) {
       throw new Error("SANDBOX_PATH_BLOCKED");
+    }
+    if (!file.startsWith("core/") || !file.endsWith(".js")) {
+      throw new Error("SANDBOX_FILE_TYPE_BLOCKED");
     }
     if (/^core\/(?:node_modules|\.git|data)(?:\/|$)/i.test(file) ||
         /(?:^|\/)(?:\.env(?:\.|$)|package(?:-lock)?\.json$|Dockerfile$)/i.test(file)) {
