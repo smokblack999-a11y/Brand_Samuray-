@@ -161,15 +161,15 @@ jobs:
         shell: bash
         run: |
           {
-            echo "## NEXUS isolated patch sandbox"
-            echo "- Base SHA: `$BASE_SHA`"
-            echo "- Candidate SHA: `$HEAD_SHA`"
-            echo "- Test container network: disabled"
-            echo "- Container secrets: none"
-            echo "- Sandbox exit code: `${{ steps.sandbox.outputs.exit_code || 'not-started' }}`"
+            printf '%s\n' "## NEXUS isolated patch sandbox"
+            printf '%s\n' "- Base SHA: $BASE_SHA"
+            printf '%s\n' "- Candidate SHA: $HEAD_SHA"
+            printf '%s\n' "- Test container network: disabled"
+            printf '%s\n' "- Container secrets: none"
+            printf '%s\n' "- Sandbox exit code: ${{ steps.sandbox.outputs.exit_code || 'not-started' }}"
             if [ -f "$RUNNER_TEMP/nexus-evidence/receipt.json" ]; then
-              echo "- Evidence receipt: generated and uploaded"
+              printf '%s\n' "- Evidence receipt: generated and uploaded"
             else
-              echo "- Evidence receipt: not generated"
+              printf '%s\n' "- Evidence receipt: not generated"
             fi
           } >> "$GITHUB_STEP_SUMMARY"
