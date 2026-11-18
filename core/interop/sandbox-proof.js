@@ -353,7 +353,7 @@ async function ingestSandboxArtifact({runId, expected, evidenceRoot} = {}) {
       testLogPath = safeEvidenceFile(downloadRoot, "nexus-test.log");
     } catch (error) {
       if (String(error.code || "").startsWith("SANDBOX_ARTIFACT_")) throw error;
-      throw errorWithCode("SANDBOX_ARTIFACT_LAYOUT_INVALID", String(error.message || error));
+      throw errorWithCode("SANDBOX_ARTIFACT_LAYOUT_INVALID", "SANDBOX_ARTIFACT_LAYOUT_INVALID: " + String(error.message || error));
     }
 
     const patchBytes = fs.readFileSync(patchPath);
