@@ -55,11 +55,17 @@ jobs:
           test -f "$APK"
           unzip -t "$APK"
           unzip -p "$APK" assets/xposed_init | grep -Fx "com.samurai.xposed.lab.SamuraiXposedEntry"
-          unzip -p "$APK" AndroidManifest.xml > /tmp/samurai-xposed-manifest.bin
-          strings /tmp/samurai-xposed-manifest.bin | grep -F "xposedmodule"
-          strings /tmp/samurai-xposed-manifest.bin | grep -F "com.whatsapp"
-          strings /tmp/samurai-xposed-manifest.bin | grep -F "com.whatsapp.w4b"
-          echo "SAMURAI Xposed lab APK archive checks: PASS"
+          AAPT="$(find "$ANDROID_HOME/build-tools" -type f -name aapt | sort -V | tail -n 1)"
+          test -x "$AAPT"
+          "$AAPT" dump badging "$APK" | grep -F "package: name='com.samurai.xposed.lab'"
+          "$AAPT" dump xmltree "$APK" AndroidManifest.xml > /tmp/samurai-xposed-manifest.txt
+          grep -F "xposedmodule" /tmp/samurai-xposed-manifest.txt
+          grep -F "xposedminversion" /tmp/samurai-xposed-manifest.txt
+          grep -F "xposedscope" /tmp/samurai-xposed-manifest.txt
+          grep -Fq 'com.whatsapp' android/samurai-xposed-lab/src/main/res/values/arrays.xml
+          grep -Fq 'com.whatsapp.w4b' android/samurai-xposed-lab/src/main/res/values/arrays.xml
+          grep -Fq "compileOnly 'de.robv.android.xposed:api:82'" android/samurai-xposed-lab/build.gradle
+          echo "SAMURAI Xposed lab APK archive and metadata checks: PASS"
 
       - name: Upload lab APK
         uses: actions/upload-artifact@v4
