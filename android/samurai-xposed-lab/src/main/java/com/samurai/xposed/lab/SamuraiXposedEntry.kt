@@ -1,44 +1,91 @@
 package com.samurai.xposed.lab
 
 import android.app.Application
+import android.content.Context
 import android.content.pm.PackageInfo
 import android.os.Build
 import de.robv.android.xposed.IXposedHookLoadPackage
+import de.robv.android.xposed.XC_MethodHook
 import de.robv.android.xposed.XposedBridge
+import de.robv.android.xposed.XposedHelpers
 import de.robv.android.xposed.callbacks.XC_LoadPackage
-import android.app.AndroidAppHelper
 
 /**
  * Non-mutating Xposed entry point.
  *
- * It records only the exact target package, process name and installed version.
- * It does not inspect chats, message content, contacts, media or credentials;
- * it does not hook or alter message/receipt/presence methods.
+ * Waits for Application.attach(Context) to obtain a real package context. It
+ * records only package/process/version metadata. It does not inspect chats,
+ * message content, contacts, media, notifications or credentials and does not
+ * hook message, receipt, presence or View Once methods.
  */
 class SamuraiXposedEntry : IXposedHookLoadPackage {
     override fun handleLoadPackage(lpparam: XC_LoadPackage.LoadPackageParam) {
         if (lpparam.packageName !in CompatibilityGate.supportedPackages) return
 
-        val app = AndroidAppHelper.currentApplication()
-        val packageInfo = app?.let { readPackageInfo(it as Application, lpparam.packageName) }
-        val versionName = packageInfo?.versionName
-        val versionCode = packageInfo?.let { info ->
+        if (lpparam.processName != lpparam.packageName) {
+            logDecision(
+                HostIdentity(
+                    packageName = lpparam.packageName,
+                    processName = lpparam.processName ?: "",
+                    versionName = null,
+                    versionCode = 0L
+                ),
+                CompatibilityDecision.SECONDARY_PROCESS
+            )
+            return
+        }
+
+        runCatching {
+            XposedHelpers.findAndHookMethod(
+                Application::class.java,
+                "attach",
+                Context::class.java,
+                object : XC_MethodHook() {
+                    override fun afterHookedMethod(param: MethodHookParam) {
+                        val context = param.args?.firstOrNull() as? Context ?: return
+                        val identity = readHostIdentity(context, lpparam)
+                        val decision = CompatibilityGate.evaluate(identity, emptySet())
+                        logDecision(identity, decision)
+                    }
+                }
+            )
+        }.onFailure { error ->
+            XposedBridge.log(
+                "[SAMURAI-XPOSED-LAB] diagnostic hook registration failed: " +
+                    error.javaClass.simpleName
+            )
+        }
+    }
+
+    private fun readHostIdentity(
+        context: Context,
+        lpparam: XC_LoadPackage.LoadPackageParam
+    ): HostIdentity {
+        val info = readPackageInfo(context, lpparam.packageName)
+        val versionCode = info?.let {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                info.longVersionCode
+                it.longVersionCode
             } else {
                 @Suppress("DEPRECATION")
-                info.versionCode.toLong()
+                it.versionCode.toLong()
             }
         } ?: 0L
 
-        val identity = HostIdentity(
-            packageName = lpparam.packageName,
+        return HostIdentity(
+            packageName = context.packageName,
             processName = lpparam.processName ?: "",
-            versionName = versionName,
+            versionName = info?.versionName,
             versionCode = versionCode
         )
-        val decision = CompatibilityGate.evaluate(identity, emptySet())
+    }
 
+    private fun readPackageInfo(context: Context, packageName: String): PackageInfo? =
+        runCatching {
+            @Suppress("DEPRECATION")
+            context.packageManager.getPackageInfo(packageName, 0)
+        }.getOrNull()
+
+    private fun logDecision(identity: HostIdentity, decision: CompatibilityDecision) {
         XposedBridge.log(
             "[SAMURAI-XPOSED-LAB] diagnostic-only " +
                 "package=${identity.packageName} " +
@@ -48,10 +95,4 @@ class SamuraiXposedEntry : IXposedHookLoadPackage {
                 "decision=$decision hooks=DISABLED"
         )
     }
-
-    private fun readPackageInfo(app: Application, packageName: String): PackageInfo? =
-        runCatching {
-            @Suppress("DEPRECATION")
-            app.packageManager.getPackageInfo(packageName, 0)
-        }.getOrNull()
 }
