@@ -38,6 +38,9 @@ jobs:
         with:
           packages: "platform-tools platforms;android-35 build-tools;35.0.0"
 
+      - name: Validate offline APK auditor
+        run: python3 -m unittest qa.tests.test_apk_compat_audit -v
+
       - name: Build and test lab module
         working-directory: android
         run: |
