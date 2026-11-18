@@ -288,7 +288,7 @@ test("X19 E2E fail-closed path reaches proof only after evidence, sandbox and CI
 });
 
 
-test("X19 runtime job persists orchestrator state through proof receipt", async () => {
+test("X19 runtime job persists orchestrator state through proof receipt", async t => {
   const payload = {
     workflow_run: {
       id: 992001,
