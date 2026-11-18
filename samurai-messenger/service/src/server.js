@@ -109,6 +109,22 @@ function createApp({ pool, jwtSecret, allowedOrigin = "https://localhost" }) {
     } catch (error) { next(error); }
   });
 
+  app.post("/v1/auth/logout", async (req, res, next) => {
+    try {
+      const token = req.body && req.body.refreshToken;
+      if (typeof token !== "string" || token.length < 32) return res.status(400).json({ ok: false, error: "INVALID_REFRESH_TOKEN" });
+      const result = await pool.query("UPDATE messenger_sessions SET revoked_at=now() WHERE refresh_token_hash=$1 AND revoked_at IS NULL RETURNING id", [hashToken(token)]);
+      return res.json({ ok: true, revoked: result.rowCount > 0 });
+    } catch (error) { next(error); }
+  });
+
+  app.post("/v1/auth/logout-all", auth, async (req, res, next) => {
+    try {
+      const result = await pool.query("UPDATE messenger_sessions SET revoked_at=now() WHERE user_id=$1 AND revoked_at IS NULL RETURNING id", [req.user.sub]);
+      return res.json({ ok: true, revokedSessions: result.rowCount });
+    } catch (error) { next(error); }
+  });
+
   app.get("/v1/me", auth, async (req, res, next) => {
     try {
       const result = await pool.query("SELECT id, username, display_name FROM messenger_users WHERE id=$1 AND deleted_at IS NULL", [req.user.sub]);
