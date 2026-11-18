@@ -39,17 +39,17 @@ function installGithubProofFixture(t, {repository, baseSha, headSha, sandboxRunI
   const cli = path.join(bin, "gh");
   const script = [
     "#!/bin/sh",
-    "printf '%s\\\\n' \\"$@\\" >> \\"$GH_TEST_ARGS_FILE\\"",
-    "if [ \\"$1\\" = \\"attestation\\" ]; then",
-    "  printf '%s\\\\n' '[{\\"verificationResult\\":{\\"verified\\":true}}]'",
-    "elif [ \\"$1\\" = \\"run\\" ] && [ \\"$3\\" = \\"$GH_SANDBOX_RUN_ID\\" ]; then",
-    "  printf '%s\\\\n' \\"$GH_SANDBOX_RUN_JSON\\"",
-    "elif [ \\"$1\\" = \\"run\\" ] && [ \\"$3\\" = \\"$GH_CI_RUN_ID\\" ]; then",
-    "  printf '%s\\\\n' \\"$GH_CI_RUN_JSON\\"",
+    "printf '%s\\n' \"$@\" >> \"$GH_TEST_ARGS_FILE\"",
+    "if [ \"$1\" = \"attestation\" ]; then",
+    "  printf '%s\\n' '[{\"verificationResult\":{\"verified\":true}}]'",
+    "elif [ \"$1\" = \"run\" ] && [ \"$3\" = \"$GH_SANDBOX_RUN_ID\" ]; then",
+    "  printf '%s\\n' \"$GH_SANDBOX_RUN_JSON\"",
+    "elif [ \"$1\" = \"run\" ] && [ \"$3\" = \"$GH_CI_RUN_ID\" ]; then",
+    "  printf '%s\\n' \"$GH_CI_RUN_JSON\"",
     "else",
     "  exit 64",
     "fi"
-  ].join("\\n") + "\\n";
+  ].join("\n") + "\n";
   fs.writeFileSync(cli, script, {mode: 0o755});
 
   const previous = {
@@ -81,7 +81,7 @@ function installGithubProofFixture(t, {repository, baseSha, headSha, sandboxRunI
     runId: String(sandboxRunId),
     conclusion: "success"
   });
-  fs.writeFileSync(receiptPath, JSON.stringify(receipt, null, 2) + "\\n");
+  fs.writeFileSync(receiptPath, JSON.stringify(receipt, null, 2) + "\n");
 
   t.after(() => {
     process.env.PATH = previous.path;
@@ -332,7 +332,7 @@ test("X19 runtime job persists orchestrator state through proof receipt", async 
   });
   assert.equal(proposed.orchestrator.state, "SANDBOX_REQUIRED");
 
-  const patch = "--- a/core/agent-control.js\\n+++ b/core/agent-control.js\\n@@ -1,1 +1,2 @@\\n const existing = true;\\n+const repaired = true;";
+  const patch = "--- a/core/agent-control.js\n+++ b/core/agent-control.js\n@@ -1,1 +1,2 @@\n const existing = true;\n+const repaired = true;";
   const evidence = installGithubProofFixture(t, {
     repository: REPOSITORY,
     baseSha: BASE_SHA,
