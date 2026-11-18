@@ -1,0 +1,66 @@
+name: SAMURAI Xposed Lab
+
+on:
+  push:
+    branches: [ "feat/samurai-xposed-lab-v1" ]
+    paths:
+      - "android/**"
+      - ".github/workflows/samurai-xposed-lab.yml"
+  pull_request:
+    paths:
+      - "android/**"
+      - ".github/workflows/samurai-xposed-lab.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: samurai-xposed-lab-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  xposed-lab:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4
+        with:
+          packages: "platform-tools platforms;android-35 build-tools;35.0.0"
+
+      - name: Build and test lab module
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          ./gradlew :samurai-xposed-lab:testDebugUnitTest :samurai-xposed-lab:assembleDebug --stacktrace
+
+      - name: Verify Xposed module package
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="android/samurai-xposed-lab/build/outputs/apk/debug/samurai-xposed-lab-debug.apk"
+          test -f "$APK"
+          unzip -t "$APK"
+          unzip -p "$APK" assets/xposed_init | grep -Fx "com.samurai.xposed.lab.SamuraiXposedEntry"
+          unzip -p "$APK" AndroidManifest.xml > /tmp/samurai-xposed-manifest.bin
+          strings /tmp/samurai-xposed-manifest.bin | grep -F "xposedmodule"
+          strings /tmp/samurai-xposed-manifest.bin | grep -F "com.whatsapp"
+          strings /tmp/samurai-xposed-manifest.bin | grep -F "com.whatsapp.w4b"
+          echo "SAMURAI Xposed lab APK archive checks: PASS"
+
+      - name: Upload lab APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: SAMURAI-Xposed-Lab-debug-apk
+          path: android/samurai-xposed-lab/build/outputs/apk/debug/samurai-xposed-lab-debug.apk
+          if-no-files-found: error
