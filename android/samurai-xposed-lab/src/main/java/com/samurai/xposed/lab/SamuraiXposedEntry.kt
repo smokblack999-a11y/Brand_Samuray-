@@ -6,7 +6,7 @@ import android.os.Build
 import de.robv.android.xposed.IXposedHookLoadPackage
 import de.robv.android.xposed.XposedBridge
 import de.robv.android.xposed.callbacks.XC_LoadPackage
-import de.robv.android.xposed.AndroidAppHelper
+import android.app.AndroidAppHelper
 
 /**
  * Non-mutating Xposed entry point.
