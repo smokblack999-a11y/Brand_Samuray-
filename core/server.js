@@ -76,6 +76,7 @@ app.use((req, res, next) => {
 const leadRateLimit = createRateLimiter({ windowMs: LEAD_RATE_LIMIT_WINDOW_MS, max: LEAD_RATE_LIMIT_MAX });
 const dualRateLimit = createRateLimiter({ windowMs: Math.max(1000, Number(process.env.DUAL_AI_RATE_LIMIT_WINDOW_MS || 60000)), max: Math.max(1, Number(process.env.DUAL_AI_RATE_LIMIT_MAX || 10)) });
 const executionRateLimit = createRateLimiter({ windowMs: 60000, max: 1 });
+const sandboxIngestRateLimit = createRateLimiter({ windowMs: 60000, max: 3 });
 app.use("/dual-ai", express.static(path.join(__dirname, "dual-ai", "public"), { index: "index.html" }));
 
 app.get("/health", (_req, res) => res.json({ ok: true, service: "SamuraiOS Core", version: "2.7.0" }));
@@ -143,6 +144,10 @@ app.post("/api/agent-control/jobs/:id/propose", requireApiKey, (req, res) =>
 
 app.post("/api/agent-control/jobs/:id/sandbox", requireApiKey, async (req, res) =>
   agentJobAction(agentControl.recordSandbox, req, res)
+);
+
+app.post("/api/agent-control/jobs/:id/sandbox/ingest", requireApiKey, sandboxIngestRateLimit, async (req, res) =>
+  agentJobAction(agentControl.ingestSandbox, req, res)
 );
 
 app.post("/api/agent-control/jobs/:id/ci", requireApiKey, async (req, res) =>
