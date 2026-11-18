@@ -16,9 +16,7 @@ const ac = require("./agent-control");
 
 function installGithubProofFixture(t, {repository, baseSha, headSha, sandboxRunId, ciRunId, patch}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "agent-control-proof-"));
-  const bin = path.join(dir, "bin");
   const evidenceDir = path.join(dir, "evidence");
-  fs.mkdirSync(bin);
   fs.mkdirSync(evidenceDir);
   const argsPath = path.join(dir, "gh-args.txt");
 
@@ -36,34 +34,34 @@ function installGithubProofFixture(t, {repository, baseSha, headSha, sandboxRunI
     workflowName: "SamuraiOS Core CI",
     event: "pull_request"
   });
-  const cli = path.join(bin, "gh");
-  const script = [
-    "#!/bin/sh",
-    "printf '%s\\n' \"$@\" >> \"$GH_TEST_ARGS_FILE\"",
-    "if [ \"$1\" = \"attestation\" ]; then",
-    "  printf '%s\\n' '[{\"verificationResult\":{\"verified\":true}}]'",
-    "elif [ \"$1\" = \"run\" ] && [ \"$3\" = \"$GH_SANDBOX_RUN_ID\" ]; then",
-    "  printf '%s\\n' \"$GH_SANDBOX_RUN_JSON\"",
-    "elif [ \"$1\" = \"run\" ] && [ \"$3\" = \"$GH_CI_RUN_ID\" ]; then",
-    "  printf '%s\\n' \"$GH_CI_RUN_JSON\"",
-    "else",
-    "  exit 64",
-    "fi"
-  ].join("\n") + "\n";
-  fs.writeFileSync(cli, script, {mode: 0o755});
+  const cli = path.join(dir, "mock-gh.js");
+  const script = `"use strict";
+const fs = require("node:fs");
+const args = process.argv.slice(2);
+fs.appendFileSync(process.env.GH_TEST_ARGS_FILE, args.join("\\n") + "\\n");
+let output;
+if (args[0] === "attestation") output = '[{"verificationResult":{"verified":true}}]';
+else if (args[0] === "run" && args[2] === process.env.GH_SANDBOX_RUN_ID) output = process.env.GH_SANDBOX_RUN_JSON;
+else if (args[0] === "run" && args[2] === process.env.GH_CI_RUN_ID) output = process.env.GH_CI_RUN_JSON;
+else process.exit(64);
+process.stdout.write(output + "\\n");
+`;
+  fs.writeFileSync(cli, script, "utf8");
 
   const previous = {
-    path: process.env.PATH,
     args: process.env.GH_TEST_ARGS_FILE,
     evidenceDir: process.env.NEXUS_EVIDENCE_DIR,
+    exec: process.env.NEXUS_GH_TEST_EXEC,
+    nodeEnv: process.env.NODE_ENV,
     sandboxRunId: process.env.GH_SANDBOX_RUN_ID,
     ciRunId: process.env.GH_CI_RUN_ID,
     sandboxRunJson: process.env.GH_SANDBOX_RUN_JSON,
     ciRunJson: process.env.GH_CI_RUN_JSON
   };
-  process.env.PATH = bin + path.delimiter + (previous.path || "");
   process.env.GH_TEST_ARGS_FILE = argsPath;
   process.env.NEXUS_EVIDENCE_DIR = evidenceDir;
+  process.env.NEXUS_GH_TEST_EXEC = cli;
+  process.env.NODE_ENV = "test";
   process.env.GH_SANDBOX_RUN_ID = String(sandboxRunId);
   process.env.GH_CI_RUN_ID = String(ciRunId);
   process.env.GH_SANDBOX_RUN_JSON = sandboxRun;
@@ -84,10 +82,11 @@ function installGithubProofFixture(t, {repository, baseSha, headSha, sandboxRunI
   fs.writeFileSync(receiptPath, JSON.stringify(receipt, null, 2) + "\n");
 
   t.after(() => {
-    process.env.PATH = previous.path;
     const keys = [
       ["GH_TEST_ARGS_FILE", previous.args],
       ["NEXUS_EVIDENCE_DIR", previous.evidenceDir],
+      ["NEXUS_GH_TEST_EXEC", previous.exec],
+      ["NODE_ENV", previous.nodeEnv],
       ["GH_SANDBOX_RUN_ID", previous.sandboxRunId],
       ["GH_CI_RUN_ID", previous.ciRunId],
       ["GH_SANDBOX_RUN_JSON", previous.sandboxRunJson],
