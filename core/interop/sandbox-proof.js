@@ -90,6 +90,54 @@ async function runGh(args, options = {}) {
   });
 }
 
+
+async function verifySandboxRun({runId, repository, headSha} = {}) {
+  if (!/^[1-9][0-9]*$/.test(String(runId || "")) ||
+      !validRepository(repository) ||
+      !isSha(headSha)) {
+    throw new Error("SANDBOX_RUN_EXPECTED_CONTEXT_INVALID");
+  }
+
+  let result;
+  try {
+    result = await runGh([
+      "run", "view", String(runId),
+      "--repo", repository,
+      "--json", "status,conclusion,headSha,workflowName,event"
+    ]);
+  } catch (error) {
+    throw new Error("SANDBOX_RUN_LOOKUP_FAILED:" + String(error.message || error).slice(0, 300));
+  }
+
+  let run;
+  try {
+    run = JSON.parse(String(result.stdout || "").trim());
+  } catch {
+    throw new Error("SANDBOX_RUN_OUTPUT_INVALID");
+  }
+  if (!run || run.status !== "completed" || run.conclusion !== "success") {
+    throw new Error("SANDBOX_RUN_NOT_SUCCESSFUL");
+  }
+  if (String(run.headSha || "").toLowerCase() !== headSha.toLowerCase()) {
+    throw new Error("SANDBOX_RUN_HEAD_MISMATCH");
+  }
+  if (run.workflowName !== "SAMURAI NEXUS Isolated Patch Sandbox" || run.event !== "pull_request") {
+    throw new Error("SANDBOX_RUN_IDENTITY_MISMATCH");
+  }
+
+  return Object.freeze({
+    verified: true,
+    verifier: "gh-run-view",
+    repository,
+    runId: String(runId),
+    headSha: run.headSha.toLowerCase(),
+    workflowName: run.workflowName,
+    event: run.event,
+    conclusion: run.conclusion,
+    verifiedAt: new Date().toISOString()
+  });
+}
+
 async function verifySandboxAttestation({receiptPath, patchPath, expected} = {}) {
   if (typeof receiptPath !== "string" || typeof patchPath !== "string") {
     throw new Error("SANDBOX_EVIDENCE_PATHS_REQUIRED");
@@ -144,6 +192,12 @@ async function verifySandboxAttestation({receiptPath, patchPath, expected} = {})
     throw new Error("SANDBOX_ATTESTATION_NOT_FOUND");
   }
 
+  const sandboxRun = await verifySandboxRun({
+    runId: validated.workflowRunId,
+    repository: validated.repository,
+    headSha: validated.headSha
+  });
+
   return Object.freeze({
     schema: SANDBOX_PROOF_SCHEMA,
     verified: true,
@@ -157,6 +211,7 @@ async function verifySandboxAttestation({receiptPath, patchPath, expected} = {})
     signerWorkflow,
     predicateType: SLSA_PREDICATE,
     attestationCount: attestations.length,
+    sandboxRun,
     verifiedAt: new Date().toISOString()
   });
 }
@@ -220,5 +275,6 @@ module.exports = {
   sha256,
   validateSandboxReceipt,
   verifySandboxAttestation,
+  verifySandboxRun,
   verifyCiRun
 };
