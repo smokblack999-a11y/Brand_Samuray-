@@ -78,7 +78,7 @@ class MessengerHomeActivity : Activity() {
             setText(query)
         }
         root.addView(search, LinearLayout.LayoutParams(-1, dp(48)).apply { topMargin = dp(18); bottomMargin = dp(14) })
-        search.addTextChangedListener(SimpleTextWatcher { showHome(it) })
+        search.setOnEditorActionListener { _, _, _ -> showHome(search.text.toString()); true }
 
         val filters = row()
         listOf("Все", "Непрочитанные", "Личные", "Группы").forEach { filter ->
