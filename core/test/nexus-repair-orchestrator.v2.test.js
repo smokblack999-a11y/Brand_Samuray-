@@ -204,3 +204,34 @@ test("CI proof rejects a run for a different commit", async t => {
   });
   await assert.rejects(o.recordCI(job, {runId: "44165311953"}), /CI_RUN_HEAD_MISMATCH/);
 });
+
+
+test("public nextState cannot bypass sandbox, CI or proof verification gates", () => {
+  const base = o.createJob({
+    resource: "github://" + REPOSITORY + "/pull/151",
+    repository: REPOSITORY,
+    baseSha: BASE_SHA,
+    headSha: HEAD_SHA,
+    changedFiles: ["core/server.js"],
+    conclusion: "failure"
+  });
+  const diagnosing = o.nextState(base, "DIAGNOSING");
+  assert.throws(() => o.nextState(diagnosing, "SANDBOX_REQUIRED", {
+    critic: {decision: "ALLOW"}
+  }), /verified_transition_requires_proof/);
+
+  const sandboxed = {...diagnosing, state: "SANDBOX_REQUIRED"};
+  assert.throws(() => o.nextState(sandboxed, "CI_REQUIRED", {
+    sandbox: {verified: true}
+  }), /verified_transition_requires_proof/);
+
+  const ciReady = {...diagnosing, state: "CI_REQUIRED"};
+  assert.throws(() => o.nextState(ciReady, "PROOF_READY", {
+    ci: {verified: true, conclusion: "success"}
+  }), /verified_transition_requires_proof/);
+
+  const proofReady = {...diagnosing, state: "PROOF_READY"};
+  assert.throws(() => o.nextState(proofReady, "READY_FOR_REVIEW", {
+    proof: {proofHash: "fake"}
+  }), /verified_transition_requires_proof/);
+});
