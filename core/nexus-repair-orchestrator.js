@@ -2,8 +2,18 @@
 
 const crypto = require("node:crypto");
 const policy = require("./nexus-resource-policy");
+const {validateUnifiedDiff} = require("./interop/patch-candidate");
+const {validateSandboxFiles} = require("./interop/patch-sandbox");
+const {verifySandboxAttestation, verifyCiRun} = require("./interop/sandbox-proof");
 
 const MAX_ATTEMPTS = 3;
+const VERIFIED_TRANSITIONS = new Set([
+  "SANDBOX_REQUIRED",
+  "CI_REQUIRED",
+  "PROOF_READY",
+  "READY_FOR_REVIEW"
+]);
+const TRANSITION_CAPABILITY = Symbol("nexus-verified-transition");
 
 const JOB_STATES = Object.freeze([
   "QUEUED",
@@ -37,17 +47,47 @@ function hash(value) {
   return crypto.createHash("sha256").update(JSON.stringify(value)).digest("hex");
 }
 
+function sha256(value) {
+  return crypto.createHash("sha256").update(value).digest("hex");
+}
+
+function isSha(value) {
+  return /^[a-f0-9]{40}$/i.test(String(value || ""));
+}
+
+function resolveEventContext(event) {
+  const workflowRun = event.workflow_run || {};
+  const pullRequest = (Array.isArray(event.pull_requests) && event.pull_requests[0]) ||
+    (Array.isArray(workflowRun.pull_requests) && workflowRun.pull_requests[0]) ||
+    event.pullRequest || {};
+  const repository = event.repository?.full_name ||
+    event.repository_full_name ||
+    (typeof event.repository === "string" ? event.repository : null) ||
+    pullRequest.base?.repo?.full_name ||
+    null;
+
+  return {
+    repository,
+    baseSha: event.baseSha || event.base_sha || event.base?.sha || workflowRun.base?.sha || pullRequest.base?.sha || null,
+    headSha: event.headSha || event.head_sha || workflowRun.head_sha || event.head?.sha || pullRequest.head?.sha || null,
+    workflowRunId: event.workflowRunId || workflowRun.id || null
+  };
+}
+
 function createJob(event, options = {}) {
   if (!event || !event.resource) throw new Error("resource_identity_missing");
+  const context = resolveEventContext(event);
   return {
-    schema: "nexus-repair-job/v2",
+    schema: "nexus-repair-job/v3",
     jobId: options.jobId || crypto.randomUUID(),
     resource: String(event.resource),
-    workflowRunId: event.workflowRunId || null,
+    repository: context.repository,
+    baseSha: context.baseSha,
+    headSha: context.headSha,
+    workflowRunId: context.workflowRunId,
     changedFiles: policy.normalizeFiles(event.changedFiles),
-    headSha: event.headSha || null,
     failure: {
-      conclusion: event.conclusion || "failure",
+      conclusion: event.conclusion || event.workflow_run?.conclusion || "failure",
       message: event.message || null
     },
     attempt: 0,
@@ -57,9 +97,12 @@ function createJob(event, options = {}) {
   };
 }
 
-function nextState(job, next, evidence = {}) {
+function nextState(job, next, evidence = {}, capability) {
   if (!job || !EDGES[job.state]?.includes(next)) {
     throw new Error("invalid_job_transition:" + job?.state + "->" + next);
+  }
+  if (VERIFIED_TRANSITIONS.has(next) && capability !== TRANSITION_CAPABILITY) {
+    throw new Error("verified_transition_requires_proof:" + next);
   }
   return Object.freeze({
     ...job,
@@ -75,10 +118,11 @@ function nextState(job, next, evidence = {}) {
 }
 
 function evaluateRepair(job, proposal = {}) {
+  const diff = typeof proposal.diff === "string" ? proposal.diff : "";
   const evaluation = policy.transition("CI_FAILED", "REPAIR_PROPOSED", {
     resource: job.resource,
     files: proposal.changedFiles || job.changedFiles,
-    diff: proposal.diff || "",
+    diff,
     actor: proposal.actor || "x10think"
   });
 
@@ -89,53 +133,159 @@ function evaluateRepair(job, proposal = {}) {
     };
   }
 
+  const contextMissing = [];
+  if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(String(job.repository || ""))) {
+    contextMissing.push("repository");
+  }
+  if (!isSha(job.baseSha)) contextMissing.push("base_sha");
+  if (!isSha(job.headSha)) contextMissing.push("head_sha");
+  if (!diff) contextMissing.push("candidate_patch");
+
+  if (contextMissing.length) {
+    const blocked = {
+      ...evaluation,
+      decision: "BLOCK",
+      reasons: [...evaluation.reasons, "sandbox_proof_context_missing"],
+      missingProofContext: contextMissing
+    };
+    return {
+      job: nextState(job, "STOPPED", {critic: evaluation, proofGate: blocked}),
+      evaluation: blocked
+    };
+  }
+
+  let parsedPatch;
+  try {
+    parsedPatch = validateUnifiedDiff(diff);
+    const sandboxFiles = validateSandboxFiles(parsedPatch.files);
+    const declaredFiles = policy.normalizeFiles(proposal.changedFiles || job.changedFiles).sort();
+    const parsedFiles = [...sandboxFiles].sort();
+    if (declaredFiles.length !== parsedFiles.length ||
+        declaredFiles.some((file, index) => file !== parsedFiles[index])) {
+      throw new Error("PATCH_FILE_SET_MISMATCH");
+    }
+  } catch (error) {
+    const blocked = {
+      ...evaluation,
+      decision: "BLOCK",
+      reasons: [...evaluation.reasons, "sandbox_patch_validation_failed"],
+      patchValidationError: String(error?.message || error).slice(0, 160)
+    };
+    return {
+      job: nextState(job, "CRITIC_BLOCKED", {critic: blocked}),
+      evaluation: blocked
+    };
+  }
+
+  const patchSha256 = sha256(Buffer.from(parsedPatch.diff, "utf8"));
+  const prepared = {...job, patchSha256};
   return {
-    job: nextState(job, "SANDBOX_REQUIRED", {critic: evaluation}),
+    job: nextState(prepared, "SANDBOX_REQUIRED", {
+      critic: evaluation,
+      candidate: {
+        repository: job.repository,
+        baseSha: job.baseSha.toLowerCase(),
+        headSha: job.headSha.toLowerCase(),
+        patchSha256
+      }
+    }, TRANSITION_CAPABILITY),
     evaluation
   };
 }
 
-function recordSandbox(job, result) {
-  if (!result || typeof result.passed !== "boolean") {
-    throw new Error("sandbox_result_required");
+async function recordSandbox(job, result) {
+  if (!job || job.state !== "SANDBOX_REQUIRED") {
+    throw new Error("sandbox_requires_sandbox_required_state");
+  }
+  if (!result || typeof result.receiptPath !== "string" || typeof result.patchPath !== "string") {
+    throw new Error("sandbox_proof_required");
   }
 
-  if (result.passed) {
-    return nextState(job, "CI_REQUIRED", {
-      sandbox: {passed: true, runId: result.runId || null}
+  let proof;
+  try {
+    proof = await verifySandboxAttestation({
+      receiptPath: result.receiptPath,
+      patchPath: result.patchPath,
+      expected: {
+        repository: job.repository,
+        baseSha: job.baseSha,
+        headSha: job.headSha
+      }
     });
+    if (proof.patchSha256 !== job.patchSha256) {
+      throw new Error("SANDBOX_PATCH_DOES_NOT_MATCH_CANDIDATE");
+    }
+  } catch (error) {
+    const attempt = job.attempt + 1;
+    const reason = String(error?.message || error).slice(0, 180);
+    return nextState(
+      {...job, attempt},
+      attempt >= job.maxAttempts ? "STOPPED" : "SANDBOX_FAILED",
+      {sandbox: {verified: false, reason}}
+    );
   }
 
-  const attempt = job.attempt + 1;
-  return nextState(
-    {...job, attempt},
-    attempt >= job.maxAttempts ? "STOPPED" : "SANDBOX_FAILED",
-    {sandbox: {passed: false, runId: result.runId || null}}
-  );
+  return nextState(job, "CI_REQUIRED", {
+    sandbox: {
+      ...proof,
+      verified: true
+    }
+  }, TRANSITION_CAPABILITY);
 }
 
-function recordCI(job, result) {
-  if (!result || !["success", "failure"].includes(result.conclusion)) {
-    throw new Error("ci_result_required");
+async function recordCI(job, result) {
+  if (!job || job.state !== "CI_REQUIRED") {
+    throw new Error("ci_requires_ci_required_state");
+  }
+  if (!result || !/^[1-9][0-9]*$/.test(String(result.runId || ""))) {
+    throw new Error("ci_run_id_required");
   }
 
-  if (result.conclusion === "success") {
+  const proof = await verifyCiRun({
+    runId: result.runId,
+    repository: job.repository,
+    headSha: job.headSha
+  });
+
+  if (proof.conclusion === "success") {
     return nextState(job, "PROOF_READY", {
-      ci: {conclusion: "success", runId: result.runId || null}
-    });
+      ci: {...proof, verified: true}
+    }, TRANSITION_CAPABILITY);
   }
 
   const attempt = job.attempt + 1;
   return nextState(
     {...job, attempt},
     attempt >= job.maxAttempts ? "STOPPED" : "CI_FAILED",
-    {ci: {conclusion: "failure", runId: result.runId || null}}
+    {ci: {...proof, verified: true}}
   );
 }
 
-function finalizeProof(job, {afterSha, validations = []} = {}) {
-  if (job.state !== "PROOF_READY") {
+function finalizeProof(job, {afterSha} = {}) {
+  if (!job || job.state !== "PROOF_READY") {
     throw new Error("proof_requires_ci_success");
+  }
+
+  const evidence = job.evidence || {};
+  if (evidence.critic?.decision !== "ALLOW") {
+    throw new Error("proof_requires_kill_critic_acceptance");
+  }
+  if (evidence.sandbox?.verified !== true ||
+      evidence.sandbox.repository !== job.repository ||
+      evidence.sandbox.baseSha !== String(job.baseSha).toLowerCase() ||
+      evidence.sandbox.headSha !== String(job.headSha).toLowerCase() ||
+      evidence.sandbox.patchSha256 !== job.patchSha256) {
+    throw new Error("proof_requires_matching_attested_sandbox");
+  }
+  if (evidence.ci?.verified !== true ||
+      evidence.ci.conclusion !== "success" ||
+      evidence.ci.repository !== job.repository ||
+      evidence.ci.headSha !== String(job.headSha).toLowerCase()) {
+    throw new Error("proof_requires_matching_ci_run");
+  }
+  if (!isSha(job.baseSha) || !isSha(job.headSha) ||
+      (afterSha && String(afterSha).toLowerCase() !== String(job.headSha).toLowerCase())) {
+    throw new Error("proof_candidate_sha_mismatch");
   }
 
   const evaluation = policy.evaluate({
@@ -153,13 +303,13 @@ function finalizeProof(job, {afterSha, validations = []} = {}) {
 
   const receipt = policy.createProofReceipt({
     evaluation,
-    beforeSha: job.headSha,
-    afterSha: afterSha || job.headSha,
-    validations: [...new Set(["critic", "sandbox", "ci", ...validations])]
+    beforeSha: job.baseSha,
+    afterSha: job.headSha,
+    validations: ["critic", "sandbox", "ci", "github_attestation", "github_actions_ci"]
   });
 
   return {
-    job: nextState(job, "READY_FOR_REVIEW", {proof: receipt}),
+    job: nextState(job, "READY_FOR_REVIEW", {proof: receipt}, TRANSITION_CAPABILITY),
     receipt
   };
 }

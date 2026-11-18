@@ -125,11 +125,11 @@ app.post("/api/agent-control/jobs/:id/evidence", requireApiKey, async (req, res)
   }
 });
 
-function agentJobAction(action, req, res) {
+async function agentJobAction(action, req, res) {
   try {
     const job = agentControl.getJob(req.params.id);
     if (!job) return res.status(404).json(errorBody("AGENT_JOB_NOT_FOUND", "Agent-control job not found", req.requestId));
-    const updated = action(job, req.body || {});
+    const updated = await action(job, req.body || {});
     return res.json({ ok: true, job: updated, requestId: req.requestId });
   } catch (error) {
     const status = error.code === "JOB_NOT_FOUND" ? 404 : 400;
@@ -141,11 +141,11 @@ app.post("/api/agent-control/jobs/:id/propose", requireApiKey, (req, res) =>
   agentJobAction(agentControl.proposeRepair, req, res)
 );
 
-app.post("/api/agent-control/jobs/:id/sandbox", requireApiKey, (req, res) =>
+app.post("/api/agent-control/jobs/:id/sandbox", requireApiKey, async (req, res) =>
   agentJobAction(agentControl.recordSandbox, req, res)
 );
 
-app.post("/api/agent-control/jobs/:id/ci", requireApiKey, (req, res) =>
+app.post("/api/agent-control/jobs/:id/ci", requireApiKey, async (req, res) =>
   agentJobAction(agentControl.recordCI, req, res)
 );
 
