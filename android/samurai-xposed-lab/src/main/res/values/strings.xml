@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">SAMURAI Xposed Lab</string>
+    <string name="xposed_description">Isolated compatibility diagnostics for WhatsApp test clients. No message or receipt hooks are enabled.</string>
+</resources>
