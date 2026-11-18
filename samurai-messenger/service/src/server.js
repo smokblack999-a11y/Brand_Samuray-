@@ -93,14 +93,14 @@ function createApp({ pool, jwtSecret, allowedOrigin = "https://localhost" }) {
       try {
         await client.query("BEGIN");
         const found = await client.query(
-          "SELECT s.id AS session_id, u.id, u.username, u.display_name FROM messenger_sessions s JOIN messenger_users u ON u.id=s.user_id WHERE s.refresh_token_hash=$1 AND s.revoked_at IS NULL AND s.expires_at>now() FOR UPDATE",
+          "SELECT s.id AS session_id, s.device_id, u.id, u.username, u.display_name FROM messenger_sessions s JOIN messenger_users u ON u.id=s.user_id WHERE s.refresh_token_hash=$1 AND s.revoked_at IS NULL AND s.expires_at>now() FOR UPDATE",
           [hashToken(token)]
         );
         if (!found.rowCount) { await client.query("ROLLBACK"); return res.status(401).json({ ok: false, error: "INVALID_REFRESH_TOKEN" }); }
         const row = found.rows[0];
         const next = newRefreshToken();
         await client.query("UPDATE messenger_sessions SET revoked_at=now() WHERE id=$1", [row.session_id]);
-        await client.query("INSERT INTO messenger_sessions(user_id, refresh_token_hash, expires_at) VALUES($1,$2,now()+interval '30 days')", [row.id, hashToken(next)]);
+        await client.query("INSERT INTO messenger_sessions(user_id, device_id, refresh_token_hash, expires_at) VALUES($1,$2,$3,now()+interval '30 days')", [row.id, row.device_id, hashToken(next)]);
         await client.query("COMMIT");
         const user = { id: row.id, username: row.username, display_name: row.display_name };
         return res.json({ ok: true, user, accessToken: issueAccessToken(user, jwtSecret), refreshToken: next, tokenType: "Bearer", expiresIn: 900 });
@@ -193,7 +193,7 @@ function createApp({ pool, jwtSecret, allowedOrigin = "https://localhost" }) {
       if (!member.rowCount) return res.status(404).json({ ok: false, error: "CONVERSATION_NOT_FOUND" });
       const limit = Math.max(1, Math.min(Number(req.query.limit) || 50, 100));
       const result = await pool.query(
-        "SELECT id,conversation_id,sender_id,client_message_id,payload_ciphertext,payload_nonce,protocol_version,created_at FROM messenger_messages WHERE conversation_id=$1 AND deleted_at IS NULL ORDER BY created_at DESC,id DESC LIMIT $2",
+        "SELECT m.id,m.conversation_id,m.sender_id,m.client_message_id,m.payload_ciphertext,m.payload_nonce,m.protocol_version,m.created_at, (SELECT max(dr.acknowledged_at) FROM messenger_delivery_receipts dr JOIN messenger_devices dd ON dd.id=dr.device_id WHERE dr.message_id=m.id AND dd.user_id<>m.sender_id) AS delivered_at, (SELECT max(rr.read_at) FROM messenger_read_receipts rr WHERE rr.message_id=m.id AND rr.user_id<>m.sender_id) AS read_at FROM messenger_messages m WHERE m.conversation_id=$1 AND m.deleted_at IS NULL ORDER BY m.created_at DESC,m.id DESC LIMIT $2",
         [req.params.id, limit]
       );
       res.json({ ok: true, messages: result.rows.map(m => ({ ...m, payload_ciphertext: m.payload_ciphertext.toString("base64"), payload_nonce: m.payload_nonce.toString("base64") })) });
@@ -205,7 +205,7 @@ function createApp({ pool, jwtSecret, allowedOrigin = "https://localhost" }) {
       const own = await pool.query("SELECT send_delivery_receipts FROM messenger_user_privacy WHERE user_id=$1", [req.user.sub]);
       if (!own.rowCount || !own.rows[0].send_delivery_receipts) return res.json({ ok: true, acknowledged: false, reason: "PRIVATE_BY_RECIPIENT_SETTING" });
       const result = await pool.query(
-        "INSERT INTO messenger_delivery_receipts(message_id,device_id) SELECT m.id,d.id FROM messenger_messages m JOIN messenger_memberships x ON x.conversation_id=m.conversation_id AND x.user_id=$2 AND x.left_at IS NULL JOIN messenger_devices d ON d.user_id=$2 AND d.revoked_at IS NULL WHERE m.id=$1 ON CONFLICT DO NOTHING RETURNING message_id",
+        "INSERT INTO messenger_delivery_receipts(message_id,device_id) SELECT m.id,d.id FROM messenger_messages m JOIN messenger_memberships x ON x.conversation_id=m.conversation_id AND x.user_id=$2 AND x.left_at IS NULL JOIN messenger_devices d ON d.user_id=$2 AND d.revoked_at IS NULL WHERE m.id=$1 AND m.sender_id<>$2 ON CONFLICT DO NOTHING RETURNING message_id",
         [req.params.id, req.user.sub]
       );
       res.json({ ok: true, acknowledged: result.rowCount > 0 });
@@ -238,8 +238,9 @@ function attachRealtime(server, { jwtSecret }) {
     const url = new URL(req.url, "http://localhost");
     if (url.pathname !== "/v1/realtime") return socket.destroy();
     try {
-      const token = url.searchParams.get("access_token");
-      const user = verifyAccessToken(token, jwtSecret);
+      const match = /^Bearer ([A-Za-z0-9._-]+)$/.exec(req.headers.authorization || "");
+      if (!match) throw new Error("Missing bearer token");
+      const user = verifyAccessToken(match[1], jwtSecret);
       wss.handleUpgrade(req, socket, head, ws => { ws.userId = user.sub; wss.emit("connection", ws, req); });
     } catch { socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n"); socket.destroy(); }
   });
@@ -254,7 +255,12 @@ async function main() {
   if (secret.length < 32) throw new Error("JWT_SECRET must contain at least 32 characters");
   const app = createApp({ pool, jwtSecret: secret, allowedOrigin: process.env.CORS_ORIGIN || "https://localhost" });
   const server = http.createServer(app);
-  attachRealtime(server, { jwtSecret: secret });
+  const realtime = attachRealtime(server, { jwtSecret: secret });
+  app.locals.broadcastToUser = (userId, payload) => {
+    for (const client of realtime.clients) {
+      if (client.readyState === 1 && client.userId === userId) client.send(JSON.stringify(payload));
+    }
+  };
   const port = Number(process.env.PORT || 8790);
   server.listen(port, "0.0.0.0", () => process.stdout.write("SAMURAI Messenger API listening on " + port + "\n"));
   const shutdown = () => server.close(() => pool.end().finally(() => process.exit(0)));
