@@ -5,6 +5,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const policy = require("./nexus-resource-policy");
 const orchestrator = require("./nexus-repair-orchestrator");
+const sandboxProof = require("./interop/sandbox-proof");
 
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, "data");
 const QUEUE_FILE = path.join(DATA_DIR, "agent-control-queue.jsonl");
@@ -274,6 +275,36 @@ async function recordSandbox(job, result) {
   return updated;
 }
 
+
+async function ingestSandbox(job, options = {}) {
+  if (!job) {
+    const error = new Error("job_not_found");
+    error.code = "JOB_NOT_FOUND";
+    throw error;
+  }
+  if (!job.orchestrator) {
+    const error = new Error("ORCHESTRATOR_JOB_MISSING");
+    error.code = "ORCHESTRATOR_JOB_MISSING";
+    throw error;
+  }
+  if (job.orchestrator.state !== "SANDBOX_REQUIRED") {
+    const error = new Error("SANDBOX_INGEST_REQUIRES_SANDBOX_REQUIRED_STATE");
+    error.code = "SANDBOX_INGEST_REQUIRES_SANDBOX_REQUIRED_STATE";
+    throw error;
+  }
+
+  const evidence = await sandboxProof.ingestSandboxArtifact({
+    runId: options.runId,
+    expected: {
+      repository: job.orchestrator.repository,
+      baseSha: job.orchestrator.baseSha,
+      headSha: job.orchestrator.headSha
+    }
+  });
+
+  return recordSandbox(job, evidence);
+}
+
 async function recordCI(job, result) {
   if (!job) throw new Error("job_not_found");
   if (!job.orchestrator) throw new Error("ORCHESTRATOR_JOB_MISSING");
@@ -317,6 +348,7 @@ module.exports = {
   collectGithubEvidence,
   proposeRepair,
   recordSandbox,
+  ingestSandbox,
   recordCI,
   finalizeProof,
   health,
