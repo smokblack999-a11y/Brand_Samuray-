@@ -357,7 +357,7 @@ test("X19 runtime job persists orchestrator state through proof receipt", async 
   assert.equal(ac.getJob(ingested.job.id).execution.autonomousWrite, false);
   assert.equal(ac.getJob(ingested.job.id).execution.autonomousMerge, false);
   const ghArgs = fs.readFileSync(evidence.argsPath, "utf8");
-  assert.ok(ghArgs.includes("\nattestation\nverify\n"));
+  assert.ok(ghArgs.startsWith("attestation\nverify\n"));
   assert.ok(ghArgs.includes("\nrun\nview\n992003\n"));
   assert.ok(ghArgs.includes("\nrun\nview\n992004\n"));
 });
