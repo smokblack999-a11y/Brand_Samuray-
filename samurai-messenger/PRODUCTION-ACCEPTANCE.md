@@ -14,11 +14,11 @@ A release is not "complete" until every P0 item below has implementation evidenc
 
 | ID | Capability | Acceptance evidence | State |
 |---|---|---|---|
-| P0-01 | Account creation and login | Secure account lifecycle, password hashing, session revocation, rate limits | NOT IMPLEMENTED |
-| P0-02 | Direct conversations | Two independent accounts exchange persisted messages | NOT IMPLEMENTED |
-| P0-03 | Message delivery | Server-accepted, recipient-device-delivered and failed states are distinct | NOT IMPLEMENTED |
-| P0-04 | Read receipts | Per-conversation opt-in/out; sender sees "read" only when recipient permits it | NOT IMPLEMENTED |
-| P0-05 | One-check privacy mode | Suppresses the recipient-delivered acknowledgement sent by this SAMURAI client; UI labels the state honestly and never fabricates network delivery | NOT IMPLEMENTED |
+| P0-01 | Account creation and login | Registration/login, bcrypt password hashing, 15-minute access JWTs, 30-day rotating hashed refresh tokens, logout and revoke-all endpoints; review pending | PARTIAL — API implemented, no Android client or deployed DB |
+| P0-02 | Direct conversations | Two independent accounts exchange persisted messages | PARTIAL — REST API and SQL model; no two-device proof |
+| P0-03 | Message delivery | Server-accepted, recipient-device-delivered and failed states are distinct | PARTIAL — accepted + receipt endpoint; no Android client / delivery E2E |
+| P0-04 | Read receipts | Per-conversation opt-in/out; sender sees read only when recipient permits it | PARTIAL — account-level privacy API and receipt endpoint |
+| P0-05 | One-check privacy mode | Suppresses the recipient-delivered acknowledgement sent by this SAMURAI client; UI labels the state honestly and never fabricates network delivery | PARTIAL — server suppresses delivery receipt when recipient setting is off; no client UI |
 | P0-06 | Offline queue and sync | Reconnect, duplicate suppression, ordering and retry tests | NOT IMPLEMENTED |
 | P0-07 | Attachments | Authenticated upload/download, MIME/size validation, malware scanning strategy, access control | NOT IMPLEMENTED |
 | P0-08 | View-once media | Sender opts in; recipient can open once in SAMURAI; expiry and replay denial verified | NOT IMPLEMENTED |
@@ -27,7 +27,7 @@ A release is not "complete" until every P0 item below has implementation evidenc
 | P0-11 | Push notifications | FCM/APNs or supported Android push path, token lifecycle and privacy-safe payloads | NOT IMPLEMENTED |
 | P0-12 | Group chats | Membership, roles, fan-out, leave/kick and history policy | NOT IMPLEMENTED |
 | P0-13 | Voice/video calls | Signaling, WebRTC media, TURN relay, permission and network tests | NOT IMPLEMENTED |
-| P0-14 | Cryptography | Reviewed end-to-end encryption protocol, key verification, rotation, recovery model | NOT IMPLEMENTED |
+| P0-14 | Cryptography | Reviewed end-to-end encryption protocol, key verification, rotation, recovery model | NOT IMPLEMENTED — API accepts opaque ciphertext only; no client key protocol |
 | P0-15 | Backup / restore | Explicit encrypted export, restore and account recovery tests | NOT IMPLEMENTED |
 | P0-16 | Abuse controls | Block/report, spam throttles, account deletion and retention policy | NOT IMPLEMENTED |
 | P0-17 | Release engineering | Signed release APK, reproducible CI, SBOM, dependency and secret scan | NOT IMPLEMENTED |
@@ -70,3 +70,16 @@ Every P0 feature needs:
 The screen in `android/samurai-xposed-lab/.../MessengerHomeActivity.kt` explicitly labels itself a local demo and uses in-memory `DemoChat` rows. It is not a network messenger. The main `android/app` launcher on `main` is a camera/gallery/GPS + Telegram client, not the Messenger screen. The Xposed Lab dashboard says hooks are disabled and device verification is not complete.
 
 This is why the project must be implemented as a separate first-party messenger service and Android client rather than relabeling the existing demo.
+
+
+## Implementation progress — 2026-11-19
+
+Added executable API service under `service/`:
+- PostgreSQL-backed account registration/login, bcrypt password hashing, short-lived access JWT, rotating hashed refresh tokens, logout and logout-all.
+- Direct conversation creation/listing and authenticated message envelope send/list endpoints with idempotency key.
+- Account-level read/delivery/presence privacy settings; recipient's own receipt settings suppress receipt creation.
+- Authenticated WebSocket handshake using Authorization header and message-available notifications to conversation members.
+- Unit tests for password hashing, validation, access-token signature and refresh-token entropy.
+- GitHub Actions workflow starts PostgreSQL 16, applies the schema and runs tests.
+
+Still not a usable release: no Android API client, no E2EE/key exchange, no offline outbox, no media, no push, no group management, no calls, no two-device tests, and no production deployment. The API CI is being validated; do not infer success until its run concludes green.
