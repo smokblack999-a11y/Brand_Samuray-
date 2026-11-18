@@ -1,0 +1,42 @@
+name: SAMURAI Core Runtime Image
+
+on:
+  pull_request:
+    paths:
+      - "core/**"
+      - "Dockerfile"
+      - ".dockerignore"
+      - ".github/workflows/core-runtime-image.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "core/**"
+      - "Dockerfile"
+      - ".dockerignore"
+      - ".github/workflows/core-runtime-image.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build-runtime-image:
+    name: Build and inspect production runtime image
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Build production runtime image
+        run: docker build --pull --tag samurai-core-runtime:ci .
+
+      - name: Verify runtime dependencies and entrypoint
+        run: |
+          set -euo pipefail
+          docker run --rm --entrypoint /bin/sh samurai-core-runtime:ci -c '
+            command -v gh
+            gh --version
+            node --version
+            test -f /app/server.js
+          '
