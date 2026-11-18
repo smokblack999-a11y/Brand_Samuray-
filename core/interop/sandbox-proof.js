@@ -80,7 +80,10 @@ function validateSandboxReceipt(receipt, expected, patchBytes) {
 }
 
 async function runGh(args, options = {}) {
-  return execFileAsync("gh", args, {
+  const testScript = process.env.NODE_ENV === "test" && process.env.NEXUS_GH_TEST_EXEC;
+  const command = testScript ? process.execPath : "gh";
+  const commandArgs = testScript ? [testScript, ...args] : args;
+  return execFileAsync(command, commandArgs, {
     timeout: options.timeoutMs || 20000,
     maxBuffer: 1024 * 1024,
     encoding: "utf8",
