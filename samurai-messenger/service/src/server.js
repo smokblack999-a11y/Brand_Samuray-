@@ -183,6 +183,17 @@ function createApp({ pool, jwtSecret, allowedOrigin = "https://localhost" }) {
         "INSERT INTO messenger_messages(conversation_id,sender_id,client_message_id,payload_ciphertext,payload_nonce,protocol_version) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(sender_id,client_message_id) DO UPDATE SET client_message_id=EXCLUDED.client_message_id RETURNING id,conversation_id,sender_id,client_message_id,created_at",
         [req.params.id, req.user.sub, clientMessageId, Buffer.from(ciphertext, "base64"), Buffer.from(nonce, "base64"), protocolVersion]
       );
+      const recipients = await pool.query("SELECT user_id FROM messenger_memberships WHERE conversation_id=$1 AND left_at IS NULL AND user_id<>$2", [req.params.id, req.user.sub]);
+      for (const recipient of recipients.rows) {
+        if (typeof req.app.locals.broadcastToUser === "function") {
+          req.app.locals.broadcastToUser(recipient.user_id, {
+            type: "message_available",
+            conversationId: req.params.id,
+            messageId: inserted.rows[0].id,
+            createdAt: inserted.rows[0].created_at
+          });
+        }
+      }
       res.status(201).json({ ok: true, message: inserted.rows[0], state: "accepted" });
     } catch (error) { next(error); }
   });
