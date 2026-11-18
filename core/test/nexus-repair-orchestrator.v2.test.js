@@ -29,11 +29,20 @@ function setupGh(t, options = {}) {
     workflowName: options.workflowName || "SamuraiOS Core CI",
     event: options.event || "pull_request"
   });
+  const sandboxOutput = JSON.stringify({
+    status: "completed",
+    conclusion: "success",
+    headSha: HEAD_SHA,
+    workflowName: "SAMURAI NEXUS Isolated Patch Sandbox",
+    event: "pull_request"
+  });
   const script = [
     "#!/bin/sh",
-    "printf '%s\\n' \"$@\" > \"$GH_TEST_ARGS_FILE\"",
+    "printf '%s\\n' \"$@\" >> \"$GH_TEST_ARGS_FILE\"",
     "if [ \"$1\" = \"attestation\" ]; then",
     "  printf '%s\\n' '" + attestationOutput + "'",
+    "elif [ \"$1\" = \"run\" ] && [ \"$3\" = \"44165311952\" ]; then",
+    "  printf '%s\\n' '" + sandboxOutput + "'",
     "elif [ \"$1\" = \"run\" ]; then",
     "  printf '%s\\n' '" + ciOutput + "'",
     "else",
@@ -102,7 +111,7 @@ test("failure -> Kill Critic -> attested sandbox -> verified CI -> proof -> revi
   assert.equal(job.state, "CI_REQUIRED");
   assert.equal(job.evidence.sandbox.verified, true);
 
-  job = await o.recordCI(job, {runId: "44165311952"});
+  job = await o.recordCI(job, {runId: "44165311953"});
   assert.equal(job.state, "PROOF_READY");
   assert.equal(job.evidence.ci.verified, true);
 
