@@ -176,7 +176,7 @@ app.post("/api/agent-control/jobs/:id/diagnose", requireApiKey, (req, res) => {
   }
 });
 
-app.post("/api/agent-control/github/webhook", (req, res) => {
+app.post("/api/agent-control/github/webhook", async (req, res) => {
   const secret = String(process.env.AGENT_CONTROL_WEBHOOK_SECRET || process.env.GITHUB_WEBHOOK_SECRET || "").trim();
   const signature = req.get("X-Hub-Signature-256");
   if (!secret) return res.status(503).json(errorBody("AGENT_CONTROL_WEBHOOK_NOT_CONFIGURED", "Agent-control webhook secret is not configured", req.requestId));
@@ -188,10 +188,18 @@ app.post("/api/agent-control/github/webhook", (req, res) => {
   if (event !== "workflow_run") return res.status(202).json({ ok: true, ignored: true, event, requestId: req.requestId });
 
   try {
-    const result = agentControl.ingestWorkflowRun(req.body || {}, req.get("X-GitHub-Delivery"));
+    const payload = req.body || {};
+    if (payload.workflow_run?.name === "SAMURAI NEXUS Isolated Patch Sandbox") {
+      const result = await agentControl.ingestSandboxWorkflowRun(payload);
+      return res.status(result.ignored ? 202 : 200).json({ ok: true, ...result, requestId: req.requestId });
+    }
+
+    const result = agentControl.ingestWorkflowRun(payload, req.get("X-GitHub-Delivery"));
     return res.status(result.duplicate ? 200 : 202).json({ ok: true, ...result, requestId: req.requestId });
   } catch (error) {
-    return res.status(400).json(errorBody(error.code || "AGENT_WEBHOOK_REJECTED", error.message, req.requestId));
+    const status = error.code === "SANDBOX_WEBHOOK_JOB_MATCH_AMBIGUOUS" ? 409 :
+      error.code === "SANDBOX_WEBHOOK_CANDIDATE_CONTEXT_MISSING" ? 422 : 400;
+    return res.status(status).json(errorBody(error.code || "AGENT_WEBHOOK_REJECTED", error.message, req.requestId));
   }
 });
 
