@@ -20,12 +20,10 @@ const PATCH = "diff --git a/core/server.js b/core/server.js\n--- a/core/server.j
 
 function fixture(t, options = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "nexus-proof-"));
-  const bin = path.join(dir, "bin");
   const evidenceDir = path.join(dir, "evidence");
-  fs.mkdirSync(bin);
   fs.mkdirSync(evidenceDir);
   const argsPath = path.join(dir, "gh-args.txt");
-  const cli = path.join(bin, "gh");
+  const cli = path.join(dir, "mock-gh.js");
   const output = JSON.stringify([{"verificationResult":"verified"}]);
   const run = JSON.stringify({
     status: "completed",
@@ -41,32 +39,35 @@ function fixture(t, options = {}) {
     workflowName: options.sandboxWorkflowName || "SAMURAI NEXUS Isolated Patch Sandbox",
     event: options.sandboxEvent || "pull_request"
   });
-  const script = [
-    "#!/bin/sh",
-    "printf '%s\\n' \"$@\" >> \"$GH_TEST_ARGS_FILE\"",
-    "if [ \"$1\" = \"attestation\" ]; then",
-    "  printf '%s\\n' '" + output + "'",
-    "elif [ \"$1\" = \"run\" ] && [ \"$3\" = \"44165311952\" ]; then",
-    "  printf '%s\\n' '" + sandboxRun + "'",
-    "elif [ \"$1\" = \"run\" ]; then",
-    "  printf '%s\\n' '" + run + "'",
-    "else",
-    "  exit 64",
-    "fi"
-  ].join("\n") + "\n";
-  fs.writeFileSync(cli, script, {mode: 0o755});
-  const oldPath = process.env.PATH;
+  const script = `"use strict";
+const fs = require("node:fs");
+const args = process.argv.slice(2);
+fs.appendFileSync(process.env.GH_TEST_ARGS_FILE, args.join("\\n") + "\\n");
+let output;
+if (args[0] === "attestation") output = ${JSON.stringify(output)};
+else if (args[0] === "run" && args[2] === "44165311952") output = ${JSON.stringify(sandboxRun)};
+else if (args[0] === "run") output = ${JSON.stringify(run)};
+else process.exit(64);
+process.stdout.write(output + "\\n");
+`;
+  fs.writeFileSync(cli, script, "utf8");
   const oldArgs = process.env.GH_TEST_ARGS_FILE;
   const oldEvidenceDir = process.env.NEXUS_EVIDENCE_DIR;
-  process.env.PATH = bin + path.delimiter + (oldPath || "");
+  const oldExec = process.env.NEXUS_GH_TEST_EXEC;
+  const oldNodeEnv = process.env.NODE_ENV;
   process.env.GH_TEST_ARGS_FILE = argsPath;
   process.env.NEXUS_EVIDENCE_DIR = evidenceDir;
+  process.env.NEXUS_GH_TEST_EXEC = cli;
+  process.env.NODE_ENV = "test";
   t.after(() => {
-    process.env.PATH = oldPath;
     if (oldArgs === undefined) delete process.env.GH_TEST_ARGS_FILE;
     else process.env.GH_TEST_ARGS_FILE = oldArgs;
     if (oldEvidenceDir === undefined) delete process.env.NEXUS_EVIDENCE_DIR;
     else process.env.NEXUS_EVIDENCE_DIR = oldEvidenceDir;
+    if (oldExec === undefined) delete process.env.NEXUS_GH_TEST_EXEC;
+    else process.env.NEXUS_GH_TEST_EXEC = oldExec;
+    if (oldNodeEnv === undefined) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = oldNodeEnv;
     fs.rmSync(dir, {recursive: true, force: true});
   });
 
