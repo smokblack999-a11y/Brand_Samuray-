@@ -41,8 +41,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-          cache: npm
-          cache-dependency-path: samurai-messenger/service/package-lock.json
       - name: Install service dependencies
         working-directory: samurai-messenger/service
         run: npm install --ignore-scripts
