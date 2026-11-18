@@ -4,13 +4,18 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
+const crypto = require("node:crypto");
 const path = require("node:path");
 const ac = require("./agent-control");
 const {createSandboxReceipt} = require("./interop/patch-sandbox");
 
 const REPOSITORY = "smokblack999-a11y/Brand_Samuray-";
-const BASE_SHA = "a".repeat(40);
-const HEAD_SHA = "b".repeat(40);
+function makeContext() {
+  return {
+    baseSha: crypto.randomBytes(20).toString("hex"),
+    headSha: crypto.randomBytes(20).toString("hex")
+  };
+}
 const SANDBOX_RUN_ID = "991003";
 const PATCH =
   "--- a/core/agent-control.js\n" +
@@ -20,15 +25,15 @@ const PATCH =
   "+const repaired = true;\n";
 const TEST_LOG = Buffer.from("Sandbox: 117 tests passed\n");
 
-function installArtifactMock(t) {
+function installArtifactMock(t, context) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "nexus-webhook-ingest-"));
   const evidenceDir = path.join(root, "durable-evidence");
   const argsPath = path.join(root, "gh-args.txt");
   const cliPath = path.join(root, "mock-gh.js");
   const receipt = createSandboxReceipt({
     repository: REPOSITORY,
-    baseSha: BASE_SHA,
-    headSha: HEAD_SHA,
+    baseSha: context.baseSha,
+    headSha: context.headSha,
     patch: Buffer.from(PATCH),
     testLog: TEST_LOG,
     runId: SANDBOX_RUN_ID,
@@ -37,7 +42,7 @@ function installArtifactMock(t) {
   const runInfo = {
     status: "completed",
     conclusion: "success",
-    headSha: HEAD_SHA,
+    headSha: context.headSha,
     workflowName: "SAMURAI NEXUS Isolated Patch Sandbox",
     event: "pull_request"
   };
@@ -92,7 +97,7 @@ function installArtifactMock(t) {
   return {root, evidenceDir, argsPath};
 }
 
-function failedCoreWorkflow(deliveryId) {
+function failedCoreWorkflow(deliveryId, context) {
   return ac.ingestWorkflowRun({
     workflow_run: {
       id: Number(deliveryId.replace(/\D/g, "").slice(-8)) || 99100001,
@@ -101,18 +106,18 @@ function failedCoreWorkflow(deliveryId) {
       status: "completed",
       conclusion: "failure",
       head_branch: "nexus-evidence-ingest-test",
-      head_sha: HEAD_SHA,
+      head_sha: context.headSha,
       repository: {full_name: REPOSITORY},
       pull_requests: [{
         number: 151,
-        base: {sha: BASE_SHA, repo: {full_name: REPOSITORY}},
-        head: {sha: HEAD_SHA, ref: "nexus-evidence-ingest-test"}
+        base: {sha: context.baseSha, repo: {full_name: REPOSITORY}},
+        head: {sha: context.headSha, ref: "nexus-evidence-ingest-test"}
       }]
     }
   }, deliveryId);
 }
 
-function sandboxWebhook() {
+function sandboxWebhook(context) {
   return {
     action: "completed",
     repository: {full_name: REPOSITORY},
@@ -122,20 +127,21 @@ function sandboxWebhook() {
       event: "pull_request",
       status: "completed",
       conclusion: "success",
-      head_sha: HEAD_SHA,
+      head_sha: context.headSha,
       repository: {full_name: REPOSITORY},
       pull_requests: [{
         number: 151,
-        base: {sha: BASE_SHA, repo: {full_name: REPOSITORY}},
-        head: {sha: HEAD_SHA, ref: "nexus-evidence-ingest-test"}
+        base: {sha: context.baseSha, repo: {full_name: REPOSITORY}},
+        head: {sha: context.headSha, ref: "nexus-evidence-ingest-test"}
       }]
     }
   };
 }
 
 test("signed sandbox workflow event downloads, verifies and attaches artifact to matching pending job", async t => {
-  const mock = installArtifactMock(t);
-  const ingested = failedCoreWorkflow("nexus-evidence-ingest-core-" + Date.now());
+  const context = makeContext();
+  const mock = installArtifactMock(t, context);
+  const ingested = failedCoreWorkflow("nexus-evidence-ingest-core-" + Date.now(), context);
   const diagnosed = ac.diagnose(ingested.job, {
     logs: "AssertionError: sandbox evidence test",
     reproduction: true,
@@ -149,12 +155,13 @@ test("signed sandbox workflow event downloads, verifies and attaches artifact to
   });
   assert.equal(proposed.orchestrator.state, "SANDBOX_REQUIRED");
 
-  const result = await ac.ingestSandboxWorkflowRun(sandboxWebhook());
+  const result = await ac.ingestSandboxWorkflowRun(sandboxWebhook(context));
   assert.equal(result.ignored, false);
   assert.equal(result.runId, SANDBOX_RUN_ID);
   assert.equal(result.job.orchestrator.state, "CI_REQUIRED");
   assert.equal(result.job.orchestrator.evidence.sandbox.verified, true);
-  assert.equal(fs.existsSync(result.job.orchestrator.evidence.sandbox.receiptPath), false);
+  assert.equal(fs.existsSync(path.join(mock.evidenceDir, "run-" + SANDBOX_RUN_ID, "receipt.json")), true);
+  assert.equal(fs.existsSync(path.join(mock.evidenceDir, "run-" + SANDBOX_RUN_ID, "candidate.patch")), true);
 
   const persisted = ac.getJob(ingested.job.id);
   assert.equal(persisted.orchestrator.state, "CI_REQUIRED");
@@ -167,8 +174,9 @@ test("signed sandbox workflow event downloads, verifies and attaches artifact to
 });
 
 test("duplicate sandbox workflow delivery does not download or advance a job twice", async t => {
-  const mock = installArtifactMock(t);
-  const ingested = failedCoreWorkflow("nexus-evidence-duplicate-" + Date.now());
+  const context = makeContext();
+  const mock = installArtifactMock(t, context);
+  const ingested = failedCoreWorkflow("nexus-evidence-duplicate-" + Date.now(), context);
   const diagnosed = ac.diagnose(ingested.job, {
     logs: "AssertionError: duplicate webhook",
     reproduction: true,
@@ -181,10 +189,10 @@ test("duplicate sandbox workflow delivery does not download or advance a job twi
     actor: "nexus-evidence-test"
   });
 
-  const first = await ac.ingestSandboxWorkflowRun(sandboxWebhook());
+  const first = await ac.ingestSandboxWorkflowRun(sandboxWebhook(context));
   assert.equal(first.ignored, false);
   const argsBefore = fs.readFileSync(mock.argsPath, "utf8");
-  const second = await ac.ingestSandboxWorkflowRun(sandboxWebhook());
+  const second = await ac.ingestSandboxWorkflowRun(sandboxWebhook(context));
   const argsAfter = fs.readFileSync(mock.argsPath, "utf8");
 
   assert.equal(second.ignored, true);
@@ -193,7 +201,8 @@ test("duplicate sandbox workflow delivery does not download or advance a job twi
 });
 
 test("ignores unsuccessful sandbox completion without granting CI_REQUIRED", async () => {
-  const ingested = failedCoreWorkflow("nexus-evidence-failure-" + Date.now());
+  const context = makeContext();
+  const ingested = failedCoreWorkflow("nexus-evidence-failure-" + Date.now(), context);
   const diagnosed = ac.diagnose(ingested.job, {
     logs: "AssertionError: failure path",
     reproduction: true,
@@ -205,7 +214,7 @@ test("ignores unsuccessful sandbox completion without granting CI_REQUIRED", asy
     diff: PATCH,
     actor: "nexus-evidence-test"
   });
-  const payload = sandboxWebhook();
+  const payload = sandboxWebhook(context);
   payload.workflow_run.conclusion = "failure";
   const result = await ac.ingestSandboxWorkflowRun(payload);
 
