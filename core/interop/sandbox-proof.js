@@ -352,7 +352,7 @@ async function ingestSandboxArtifact({runId, expected, evidenceRoot} = {}) {
       receiptPath = safeEvidenceFile(downloadRoot, path.join("nexus-evidence", "receipt.json"));
       testLogPath = safeEvidenceFile(downloadRoot, "nexus-test.log");
     } catch (error) {
-      if (error.code) throw error;
+      if (String(error.code || "").startsWith("SANDBOX_ARTIFACT_")) throw error;
       throw errorWithCode("SANDBOX_ARTIFACT_LAYOUT_INVALID", String(error.message || error));
     }
 
