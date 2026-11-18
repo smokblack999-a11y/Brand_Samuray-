@@ -2,6 +2,8 @@
 
 const crypto = require("node:crypto");
 const policy = require("./nexus-resource-policy");
+const {validateUnifiedDiff} = require("./interop/patch-candidate");
+const {validateSandboxFiles} = require("./interop/patch-sandbox");
 const {verifySandboxAttestation, verifyCiRun} = require("./interop/sandbox-proof");
 
 const MAX_ATTEMPTS = 3;
@@ -48,7 +50,9 @@ function isSha(value) {
 
 function resolveEventContext(event) {
   const workflowRun = event.workflow_run || {};
-  const pullRequest = Array.isArray(event.pull_requests) ? event.pull_requests[0] : (event.pullRequest || {});
+  const pullRequest = (Array.isArray(event.pull_requests) && event.pull_requests[0]) ||
+    (Array.isArray(workflowRun.pull_requests) && workflowRun.pull_requests[0]) ||
+    event.pullRequest || {};
   const repository = event.repository?.full_name ||
     event.repository_full_name ||
     (typeof event.repository === "string" ? event.repository : null) ||
@@ -140,7 +144,30 @@ function evaluateRepair(job, proposal = {}) {
     };
   }
 
-  const patchSha256 = sha256(Buffer.from(diff, "utf8"));
+  let parsedPatch;
+  try {
+    parsedPatch = validateUnifiedDiff(diff);
+    const sandboxFiles = validateSandboxFiles(parsedPatch.files);
+    const declaredFiles = policy.normalizeFiles(proposal.changedFiles || job.changedFiles).sort();
+    const parsedFiles = [...sandboxFiles].sort();
+    if (declaredFiles.length !== parsedFiles.length ||
+        declaredFiles.some((file, index) => file !== parsedFiles[index])) {
+      throw new Error("PATCH_FILE_SET_MISMATCH");
+    }
+  } catch (error) {
+    const blocked = {
+      ...evaluation,
+      decision: "BLOCK",
+      reasons: [...evaluation.reasons, "sandbox_patch_validation_failed"],
+      patchValidationError: String(error?.message || error).slice(0, 160)
+    };
+    return {
+      job: nextState(job, "CRITIC_BLOCKED", {critic: blocked}),
+      evaluation: blocked
+    };
+  }
+
+  const patchSha256 = sha256(Buffer.from(parsedPatch.diff, "utf8"));
   const prepared = {...job, patchSha256};
   return {
     job: nextState(prepared, "SANDBOX_REQUIRED", {
