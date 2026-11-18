@@ -81,10 +81,10 @@ class LabDashboardActivity : Activity() {
         card {
             label("ВНЕШНИЙ ВИД", 12f, accentColor, true)
             label("Тема приложения", 18f, fg, true)
-            val themeGroup = RadioGroup(this).apply { orientation = RadioGroup.VERTICAL }
+            val themeGroup = RadioGroup(this@LabDashboardActivity).apply { orientation = RadioGroup.VERTICAL }
             val currentTheme = prefs.getString("theme", "system")
             listOf("system" to "Как в системе", "dark" to "Тёмная", "light" to "Светлая").forEach { (value, title) ->
-                val radio = RadioButton(this).apply {
+                val radio = RadioButton(this@LabDashboardActivity).apply {
                     text = title; textSize = 15f; setTextColor(fg); isChecked = currentTheme == value
                     setPadding(0, dp(4), 0, dp(4)); tag = value
                 }
@@ -98,9 +98,9 @@ class LabDashboardActivity : Activity() {
             root.addView(themeGroup)
 
             label("Акцентный цвет", 15f, fg, true)
-            val accents = RadioGroup(this).apply { orientation = RadioGroup.VERTICAL }
+            val accents = RadioGroup(this@LabDashboardActivity).apply { orientation = RadioGroup.VERTICAL }
             ACCENTS.forEach { item ->
-                val radio = RadioButton(this).apply {
+                val radio = RadioButton(this@LabDashboardActivity).apply {
                     text = item.name; textSize = 14f; setTextColor(Color.parseColor(item.hex))
                     isChecked = item.id == accent.id; tag = item.id
                 }
@@ -115,7 +115,7 @@ class LabDashboardActivity : Activity() {
             root.addView(accents)
 
             label("Размер текста · ${(textScale * 100).toInt()}%", 15f, fg, true)
-            val scale = SeekBar(this).apply {
+            val scale = SeekBar(this@LabDashboardActivity).apply {
                 max = 40; progress = ((textScale - 0.85f) * 100).toInt().coerceIn(0, 40)
                 contentDescription = "Размер текста"
             }
@@ -130,7 +130,7 @@ class LabDashboardActivity : Activity() {
                 override fun onStopTrackingTouch(bar: SeekBar?) { buildScreen() }
             })
             root.addView(scale)
-            val compactButton = Button(this).apply {
+            val compactButton = Button(this@LabDashboardActivity).apply {
                 text = if (compact) "Включён компактный режим" else "Включить компактный режим"
                 setOnClickListener {
                     compact = !compact
@@ -152,7 +152,7 @@ class LabDashboardActivity : Activity() {
             statusLine("Тест на A54 с LSPosed", "ОЖИДАЕТ ТЕЛЕФОН")
             statusLine("Собственные настройки квитанций", "НЕ РЕАЛИЗОВАНО")
         }
-        val reset = Button(this).apply {
+        val reset = Button(this@LabDashboardActivity).apply {
             text = "Сбросить оформление"
             setOnClickListener {
                 prefs.edit().clear().apply()
