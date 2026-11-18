@@ -7,6 +7,13 @@ const {validateSandboxFiles} = require("./interop/patch-sandbox");
 const {verifySandboxAttestation, verifyCiRun} = require("./interop/sandbox-proof");
 
 const MAX_ATTEMPTS = 3;
+const VERIFIED_TRANSITIONS = new Set([
+  "SANDBOX_REQUIRED",
+  "CI_REQUIRED",
+  "PROOF_READY",
+  "READY_FOR_REVIEW"
+]);
+const TRANSITION_CAPABILITY = Symbol("nexus-verified-transition");
 
 const JOB_STATES = Object.freeze([
   "QUEUED",
@@ -90,9 +97,12 @@ function createJob(event, options = {}) {
   };
 }
 
-function nextState(job, next, evidence = {}) {
+function nextState(job, next, evidence = {}, capability) {
   if (!job || !EDGES[job.state]?.includes(next)) {
     throw new Error("invalid_job_transition:" + job?.state + "->" + next);
+  }
+  if (VERIFIED_TRANSITIONS.has(next) && capability !== TRANSITION_CAPABILITY) {
+    throw new Error("verified_transition_requires_proof:" + next);
   }
   return Object.freeze({
     ...job,
@@ -178,7 +188,7 @@ function evaluateRepair(job, proposal = {}) {
         headSha: job.headSha.toLowerCase(),
         patchSha256
       }
-    }),
+    }, TRANSITION_CAPABILITY),
     evaluation
   };
 }
@@ -220,7 +230,7 @@ async function recordSandbox(job, result) {
       ...proof,
       verified: true
     }
-  });
+  }, TRANSITION_CAPABILITY);
 }
 
 async function recordCI(job, result) {
@@ -240,7 +250,7 @@ async function recordCI(job, result) {
   if (proof.conclusion === "success") {
     return nextState(job, "PROOF_READY", {
       ci: {...proof, verified: true}
-    });
+    }, TRANSITION_CAPABILITY);
   }
 
   const attempt = job.attempt + 1;
@@ -299,7 +309,7 @@ function finalizeProof(job, {afterSha} = {}) {
   });
 
   return {
-    job: nextState(job, "READY_FOR_REVIEW", {proof: receipt}),
+    job: nextState(job, "READY_FOR_REVIEW", {proof: receipt}, TRANSITION_CAPABILITY),
     receipt
   };
 }
