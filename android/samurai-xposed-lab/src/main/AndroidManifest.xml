@@ -15,6 +15,8 @@
             </intent-filter>
         </activity>
 
+        <activity android:name=".MessengerHomeActivity" android:exported="false" />
+
         <meta-data android:name="xposedmodule" android:value="true" />
         <meta-data
             android:name="xposeddescription"
