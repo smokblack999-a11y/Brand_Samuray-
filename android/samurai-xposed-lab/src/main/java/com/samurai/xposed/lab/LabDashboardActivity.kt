@@ -95,7 +95,7 @@ class LabDashboardActivity : Activity() {
                 prefs.edit().putString("theme", value).apply()
                 recreate()
             }
-            root.addView(themeGroup)
+            addView(themeGroup)
 
             label("Акцентный цвет", 15f, fg, true)
             val accents = RadioGroup(this@LabDashboardActivity).apply { orientation = RadioGroup.VERTICAL }
@@ -112,7 +112,7 @@ class LabDashboardActivity : Activity() {
                 accent = ACCENTS.first { it.id == id }
                 buildScreen()
             }
-            root.addView(accents)
+            addView(accents)
 
             label("Размер текста · ${(textScale * 100).toInt()}%", 15f, fg, true)
             val scale = SeekBar(this@LabDashboardActivity).apply {
@@ -129,7 +129,7 @@ class LabDashboardActivity : Activity() {
                 override fun onStartTrackingTouch(bar: SeekBar?) = Unit
                 override fun onStopTrackingTouch(bar: SeekBar?) { buildScreen() }
             })
-            root.addView(scale)
+            addView(scale)
             val compactButton = Button(this@LabDashboardActivity).apply {
                 text = if (compact) "Включён компактный режим" else "Включить компактный режим"
                 setOnClickListener {
@@ -138,7 +138,7 @@ class LabDashboardActivity : Activity() {
                     buildScreen()
                 }
             }
-            root.addView(compactButton)
+            addView(compactButton)
         }
         card {
             label("КОНФИДЕНЦИАЛЬНОСТЬ И ГРАНИЦЫ", 12f, accentColor, true)
