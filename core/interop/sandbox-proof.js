@@ -3,6 +3,7 @@
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
+const os = require("node:os");
 const { execFile } = require("node:child_process");
 const { promisify } = require("node:util");
 
@@ -219,6 +220,206 @@ async function verifySandboxAttestation({receiptPath, patchPath, expected} = {})
   });
 }
 
+
+function errorWithCode(code, message) {
+  const error = new Error(message || code);
+  error.code = code;
+  return error;
+}
+
+function safeEvidenceFile(root, relativePath) {
+  const rootReal = fs.realpathSync(root);
+  const target = path.resolve(rootReal, relativePath);
+  const relative = path.relative(rootReal, target);
+  if (!relative || relative === ".." || relative.startsWith(".." + path.sep) || path.isAbsolute(relative)) {
+    throw errorWithCode("SANDBOX_ARTIFACT_PATH_BLOCKED");
+  }
+
+  let cursor = rootReal;
+  for (const segment of relative.split(path.sep)) {
+    cursor = path.join(cursor, segment);
+    const stat = fs.lstatSync(cursor);
+    if (stat.isSymbolicLink()) throw errorWithCode("SANDBOX_ARTIFACT_SYMLINK_BLOCKED");
+  }
+
+  const real = fs.realpathSync(target);
+  const realRelative = path.relative(rootReal, real);
+  if (!realRelative || realRelative === ".." || realRelative.startsWith(".." + path.sep) || path.isAbsolute(realRelative)) {
+    throw errorWithCode("SANDBOX_ARTIFACT_PATH_BLOCKED");
+  }
+  if (!fs.statSync(real).isFile()) throw errorWithCode("SANDBOX_ARTIFACT_FILE_REQUIRED");
+  return real;
+}
+
+async function findSandboxRun({repository, headSha} = {}) {
+  if (!validRepository(repository) || !isSha(headSha)) {
+    throw errorWithCode("SANDBOX_RUN_EXPECTED_CONTEXT_INVALID");
+  }
+
+  let result;
+  try {
+    result = await runGh([
+      "run", "list",
+      "--repo", repository,
+      "--workflow", SANDBOX_WORKFLOW,
+      "--commit", headSha.toLowerCase(),
+      "--event", "pull_request",
+      "--json", "databaseId,status,conclusion,headSha,workflowName,event,createdAt",
+      "--limit", "20"
+    ]);
+  } catch (error) {
+    throw errorWithCode("SANDBOX_RUN_DISCOVERY_FAILED", String(error.message || error).slice(0, 300));
+  }
+
+  let runs;
+  try {
+    runs = JSON.parse(String(result.stdout || "").trim());
+  } catch {
+    throw errorWithCode("SANDBOX_RUN_DISCOVERY_OUTPUT_INVALID");
+  }
+  if (!Array.isArray(runs)) throw errorWithCode("SANDBOX_RUN_DISCOVERY_OUTPUT_INVALID");
+
+  const matches = runs.filter(run =>
+    String(run.headSha || "").toLowerCase() === headSha.toLowerCase() &&
+    run.workflowName === "SAMURAI NEXUS Isolated Patch Sandbox" &&
+    run.event === "pull_request" &&
+    /^[1-9][0-9]*$/.test(String(run.databaseId || ""))
+  ).sort((a, b) => Date.parse(b.createdAt || 0) - Date.parse(a.createdAt || 0));
+
+  if (!matches.length) throw errorWithCode("SANDBOX_RUN_NOT_FOUND");
+  const latest = matches[0];
+  if (latest.status !== "completed" || latest.conclusion !== "success") {
+    throw errorWithCode("SANDBOX_LATEST_RUN_NOT_SUCCESSFUL");
+  }
+  return String(latest.databaseId);
+}
+
+function sameEvidenceFiles(directory, patchBytes, receiptBytes) {
+  try {
+    const patchPath = path.join(directory, "candidate.patch");
+    const receiptPath = path.join(directory, "receipt.json");
+    const patchStat = fs.lstatSync(patchPath);
+    const receiptStat = fs.lstatSync(receiptPath);
+    if (!patchStat.isFile() || patchStat.isSymbolicLink() ||
+        !receiptStat.isFile() || receiptStat.isSymbolicLink()) return false;
+    return sha256(fs.readFileSync(patchPath)) === sha256(patchBytes) &&
+      sha256(fs.readFileSync(receiptPath)) === sha256(receiptBytes);
+  } catch {
+    return false;
+  }
+}
+
+async function ingestSandboxArtifact({runId, expected, evidenceRoot} = {}) {
+  if (!validRepository(expected?.repository) ||
+      !isSha(expected?.baseSha) ||
+      !isSha(expected?.headSha)) {
+    throw errorWithCode("SANDBOX_EXPECTED_CONTEXT_INVALID");
+  }
+
+  const resolvedRunId = runId === undefined || runId === null || runId === ""
+    ? await findSandboxRun({repository: expected.repository, headSha: expected.headSha})
+    : String(runId);
+  if (!/^[1-9][0-9]*$/.test(resolvedRunId)) {
+    throw errorWithCode("SANDBOX_RUN_ID_INVALID");
+  }
+
+  const sandboxRun = await verifySandboxRun({
+    runId: resolvedRunId,
+    repository: expected.repository,
+    headSha: expected.headSha
+  });
+
+  const downloadRoot = fs.mkdtempSync(path.join(os.tmpdir(), "nexus-sandbox-download-"));
+  let stagingDirectory = null;
+  try {
+    const artifactName = "nexus-sandbox-evidence-" + resolvedRunId;
+    try {
+      await runGh([
+        "run", "download", resolvedRunId,
+        "--repo", expected.repository,
+        "--name", artifactName,
+        "--dir", downloadRoot
+      ], {timeoutMs: 60000});
+    } catch (error) {
+      throw errorWithCode("SANDBOX_ARTIFACT_DOWNLOAD_FAILED", String(error.message || error).slice(0, 300));
+    }
+
+    let patchPath;
+    let receiptPath;
+    let testLogPath;
+    try {
+      patchPath = safeEvidenceFile(downloadRoot, "candidate.patch");
+      receiptPath = safeEvidenceFile(downloadRoot, path.join("nexus-evidence", "receipt.json"));
+      testLogPath = safeEvidenceFile(downloadRoot, "nexus-test.log");
+    } catch (error) {
+      if (error.code) throw error;
+      throw errorWithCode("SANDBOX_ARTIFACT_LAYOUT_INVALID", String(error.message || error));
+    }
+
+    const patchBytes = fs.readFileSync(patchPath);
+    const receiptBytes = fs.readFileSync(receiptPath);
+    const testLogBytes = fs.readFileSync(testLogPath);
+    let receipt;
+    try {
+      receipt = JSON.parse(receiptBytes.toString("utf8"));
+    } catch {
+      throw errorWithCode("SANDBOX_ARTIFACT_RECEIPT_INVALID");
+    }
+
+    const validated = validateSandboxReceipt(receipt, expected, patchBytes);
+    if (validated.workflowRunId !== resolvedRunId) {
+      throw errorWithCode("SANDBOX_RECEIPT_RUN_ID_MISMATCH");
+    }
+    if (sha256(testLogBytes) !== validated.testLogSha256) {
+      throw errorWithCode("SANDBOX_TEST_LOG_DIGEST_MISMATCH");
+    }
+
+    const rootSetting = evidenceRoot ||
+      process.env.NEXUS_EVIDENCE_DIR ||
+      path.resolve(__dirname, "../data/nexus-evidence");
+    fs.mkdirSync(path.resolve(rootSetting), {recursive: true, mode: 0o700});
+    const durableRoot = fs.realpathSync(path.resolve(rootSetting));
+    const destination = path.join(durableRoot, "run-" + resolvedRunId);
+
+    if (fs.existsSync(destination)) {
+      if (!fs.lstatSync(destination).isDirectory() ||
+          fs.lstatSync(destination).isSymbolicLink() ||
+          !sameEvidenceFiles(destination, patchBytes, receiptBytes)) {
+        throw errorWithCode("SANDBOX_EVIDENCE_CONFLICT");
+      }
+    } else {
+      stagingDirectory = fs.mkdtempSync(path.join(durableRoot, ".ingest-" + resolvedRunId + "-"));
+      fs.chmodSync(stagingDirectory, 0o700);
+      fs.writeFileSync(path.join(stagingDirectory, "candidate.patch"), patchBytes, {flag: "wx", mode: 0o600});
+      fs.writeFileSync(path.join(stagingDirectory, "receipt.json"), receiptBytes, {flag: "wx", mode: 0o600});
+      try {
+        fs.renameSync(stagingDirectory, destination);
+        stagingDirectory = null;
+      } catch (error) {
+        if (error.code !== "EEXIST" && error.code !== "ENOTEMPTY") throw error;
+        if (!sameEvidenceFiles(destination, patchBytes, receiptBytes)) {
+          throw errorWithCode("SANDBOX_EVIDENCE_CONFLICT");
+        }
+      }
+    }
+
+    return Object.freeze({
+      runId: resolvedRunId,
+      artifactName,
+      receiptPath: path.join(destination, "receipt.json"),
+      patchPath: path.join(destination, "candidate.patch"),
+      patchSha256: validated.patchSha256,
+      receiptFileSha256: sha256(receiptBytes),
+      sandboxRun
+    });
+  } finally {
+    if (stagingDirectory && fs.existsSync(stagingDirectory)) {
+      fs.rmSync(stagingDirectory, {recursive: true, force: true});
+    }
+    fs.rmSync(downloadRoot, {recursive: true, force: true});
+  }
+}
+
 async function verifyCiRun({runId, repository, headSha} = {}) {
   if (!/^[1-9][0-9]*$/.test(String(runId || "")) ||
       !validRepository(repository) ||
@@ -279,5 +480,7 @@ module.exports = {
   validateSandboxReceipt,
   verifySandboxAttestation,
   verifySandboxRun,
+  findSandboxRun,
+  ingestSandboxArtifact,
   verifyCiRun
 };
