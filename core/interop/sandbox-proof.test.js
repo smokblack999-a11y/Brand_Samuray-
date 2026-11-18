@@ -21,7 +21,9 @@ const PATCH = "diff --git a/core/server.js b/core/server.js\n--- a/core/server.j
 function fixture(t, options = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "nexus-proof-"));
   const bin = path.join(dir, "bin");
+  const evidenceDir = path.join(dir, "evidence");
   fs.mkdirSync(bin);
+  fs.mkdirSync(evidenceDir);
   const argsPath = path.join(dir, "gh-args.txt");
   const cli = path.join(bin, "gh");
   const output = JSON.stringify([{"verificationResult":"verified"}]);
@@ -46,17 +48,21 @@ function fixture(t, options = {}) {
   fs.writeFileSync(cli, script, {mode: 0o755});
   const oldPath = process.env.PATH;
   const oldArgs = process.env.GH_TEST_ARGS_FILE;
+  const oldEvidenceDir = process.env.NEXUS_EVIDENCE_DIR;
   process.env.PATH = bin + path.delimiter + (oldPath || "");
   process.env.GH_TEST_ARGS_FILE = argsPath;
+  process.env.NEXUS_EVIDENCE_DIR = evidenceDir;
   t.after(() => {
     process.env.PATH = oldPath;
     if (oldArgs === undefined) delete process.env.GH_TEST_ARGS_FILE;
     else process.env.GH_TEST_ARGS_FILE = oldArgs;
+    if (oldEvidenceDir === undefined) delete process.env.NEXUS_EVIDENCE_DIR;
+    else process.env.NEXUS_EVIDENCE_DIR = oldEvidenceDir;
     fs.rmSync(dir, {recursive: true, force: true});
   });
 
-  const patchPath = path.join(dir, "candidate.patch");
-  const receiptPath = path.join(dir, "receipt.json");
+  const patchPath = path.join(evidenceDir, "candidate.patch");
+  const receiptPath = path.join(evidenceDir, "receipt.json");
   fs.writeFileSync(patchPath, PATCH);
   const receipt = createSandboxReceipt({
     repository: REPOSITORY,
