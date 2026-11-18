@@ -34,11 +34,20 @@ function fixture(t, options = {}) {
     workflowName: options.workflowName || "SamuraiOS Core CI",
     event: options.event || "pull_request"
   });
+  const sandboxRun = JSON.stringify({
+    status: "completed",
+    conclusion: options.sandboxConclusion || "success",
+    headSha: options.sandboxHeadSha || HEAD_SHA,
+    workflowName: options.sandboxWorkflowName || "SAMURAI NEXUS Isolated Patch Sandbox",
+    event: options.sandboxEvent || "pull_request"
+  });
   const script = [
     "#!/bin/sh",
-    "printf '%s\\n' \"$@\" > \"$GH_TEST_ARGS_FILE\"",
+    "printf '%s\\n' \"$@\" >> \"$GH_TEST_ARGS_FILE\"",
     "if [ \"$1\" = \"attestation\" ]; then",
     "  printf '%s\\n' '" + output + "'",
+    "elif [ \"$1\" = \"run\" ] && [ \"$3\" = \"44165311952\" ]; then",
+    "  printf '%s\\n' '" + sandboxRun + "'",
     "elif [ \"$1\" = \"run\" ]; then",
     "  printf '%s\\n' '" + run + "'",
     "else",
