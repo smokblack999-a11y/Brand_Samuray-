@@ -76,6 +76,8 @@ function buildResource(workflow) {
 
 function normalizeWorkflow(payload) {
   const w = payload?.workflow_run || {};
+  const pullRequest = (Array.isArray(w.pull_requests) && w.pull_requests[0]) ||
+    (Array.isArray(payload?.pull_requests) && payload.pull_requests[0]) || {};
   return {
     id: w.id || null,
     name: w.name || null,
@@ -83,9 +85,10 @@ function normalizeWorkflow(payload) {
     status: w.status || null,
     conclusion: w.conclusion || null,
     headBranch: w.head_branch || null,
-    headSha: w.head_sha || null,
-    baseSha: w.base?.sha || null,
-    repository: w.repository?.full_name || w.head_repository?.full_name || null,
+    headSha: w.head_sha || pullRequest.head?.sha || null,
+    baseSha: w.base?.sha || pullRequest.base?.sha || null,
+    repository: w.repository?.full_name || w.head_repository?.full_name ||
+      pullRequest.base?.repo?.full_name || null,
     actor: w.actor?.login || null,
     htmlUrl: w.html_url || null
   };
@@ -111,8 +114,10 @@ function ingestWorkflowRun(payload, deliveryId) {
     ? orchestrator.createJob({
         resource,
         workflowRunId: workflow.id,
-        changedFiles: [],
+        repository: workflow.repository,
+        baseSha: workflow.baseSha,
         headSha: workflow.headSha,
+        changedFiles: [],
         conclusion: workflow.conclusion
       })
     : null;
@@ -260,19 +265,19 @@ function proposeRepair(job, proposal = {}) {
   return updated;
 }
 
-function recordSandbox(job, result) {
+async function recordSandbox(job, result) {
   if (!job) throw new Error("job_not_found");
   if (!job.orchestrator) throw new Error("ORCHESTRATOR_JOB_MISSING");
-  const state = orchestrator.recordSandbox(job.orchestrator, result);
+  const state = await orchestrator.recordSandbox(job.orchestrator, result);
   const updated = {...job, updatedAt: now(), orchestrator: state};
   append({ type: "STATE", at: now(), jobId: job.id, job: updated });
   return updated;
 }
 
-function recordCI(job, result) {
+async function recordCI(job, result) {
   if (!job) throw new Error("job_not_found");
   if (!job.orchestrator) throw new Error("ORCHESTRATOR_JOB_MISSING");
-  const state = orchestrator.recordCI(job.orchestrator, result);
+  const state = await orchestrator.recordCI(job.orchestrator, result);
   const updated = {...job, updatedAt: now(), orchestrator: state};
   append({ type: "STATE", at: now(), jobId: job.id, job: updated });
   return updated;
