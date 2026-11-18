@@ -2,6 +2,7 @@ package com.samurai.xposed.lab
 
 import android.app.Activity
 import android.content.Context
+import android.content.Intent
 import android.content.res.Configuration
 import android.graphics.Color
 import android.graphics.Typeface
@@ -152,6 +153,11 @@ class LabDashboardActivity : Activity() {
             statusLine("Тест на A54 с LSPosed", "ОЖИДАЕТ ТЕЛЕФОН")
             statusLine("Собственные настройки квитанций", "НЕ РЕАЛИЗОВАНО")
         }
+        val messenger = Button(this@LabDashboardActivity).apply {
+            text = "Открыть SAMURAI Messenger"
+            setOnClickListener { startActivity(Intent(this@LabDashboardActivity, MessengerHomeActivity::class.java)) }
+        }
+        root.addView(messenger, matchWidth())
         val reset = Button(this@LabDashboardActivity).apply {
             text = "Сбросить оформление"
             setOnClickListener {
