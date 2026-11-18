@@ -57,7 +57,7 @@ function resolveEventContext(event) {
 
   return {
     repository,
-    baseSha: event.baseSha || event.base_sha || event.base?.sha || pullRequest.base?.sha || null,
+    baseSha: event.baseSha || event.base_sha || event.base?.sha || workflowRun.base?.sha || pullRequest.base?.sha || null,
     headSha: event.headSha || event.head_sha || workflowRun.head_sha || event.head?.sha || pullRequest.head?.sha || null,
     workflowRunId: event.workflowRunId || workflowRun.id || null
   };
