@@ -100,10 +100,10 @@ async function verifySandboxAttestation({receiptPath, patchPath, expected} = {})
   let patchFile;
   let receipt;
   try {
-    if (!process.env.NEXUS_EVIDENCE_DIR) {
-      throw new Error("NEXUS_EVIDENCE_DIR is not configured");
-    }
-    evidenceRoot = fs.realpathSync(path.resolve(process.env.NEXUS_EVIDENCE_DIR));
+    const evidenceRootSetting = process.env.NEXUS_EVIDENCE_DIR ||
+      path.resolve(__dirname, "../data/nexus-evidence");
+    fs.mkdirSync(path.resolve(evidenceRootSetting), {recursive: true});
+    evidenceRoot = fs.realpathSync(path.resolve(evidenceRootSetting));
     receiptFile = fs.realpathSync(path.resolve(receiptPath));
     patchFile = fs.realpathSync(path.resolve(patchPath));
     for (const file of [receiptFile, patchFile]) {
