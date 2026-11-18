@@ -70,7 +70,7 @@ class MessengerHomeActivity : Activity() {
             setHintTextColor(secondary)
             setTextColor(primary)
             textSize = 14f
-            singleLine = true
+            isSingleLine = true
             setPadding(dp(16), 0, dp(16), 0)
             background = rounded(panel2, 16)
             setCompoundDrawablesWithIntrinsicBounds(android.R.drawable.ic_menu_search, 0, 0, 0)
