@@ -95,12 +95,23 @@ async function verifySandboxAttestation({receiptPath, patchPath, expected} = {})
     throw new Error("SANDBOX_EVIDENCE_PATHS_REQUIRED");
   }
 
+  let evidenceRoot;
   let receiptFile;
   let patchFile;
   let receipt;
   try {
+    if (!process.env.NEXUS_EVIDENCE_DIR) {
+      throw new Error("NEXUS_EVIDENCE_DIR is not configured");
+    }
+    evidenceRoot = fs.realpathSync(path.resolve(process.env.NEXUS_EVIDENCE_DIR));
     receiptFile = fs.realpathSync(path.resolve(receiptPath));
     patchFile = fs.realpathSync(path.resolve(patchPath));
+    for (const file of [receiptFile, patchFile]) {
+      const relative = path.relative(evidenceRoot, file);
+      if (!relative || relative.startsWith(".." + path.sep) || relative === ".." || path.isAbsolute(relative)) {
+        throw new Error("evidence_path_outside_root");
+      }
+    }
     receipt = JSON.parse(fs.readFileSync(receiptFile, "utf8"));
   } catch (error) {
     throw new Error("SANDBOX_EVIDENCE_UNREADABLE:" + String(error.message || error));
