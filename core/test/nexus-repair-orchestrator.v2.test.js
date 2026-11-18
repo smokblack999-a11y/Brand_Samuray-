@@ -162,7 +162,7 @@ test("CI failure cannot create proof", async t => {
     receiptPath: path.join(process.env.NEXUS_EVIDENCE_DIR, "receipt.json"),
     patchPath: path.join(process.env.NEXUS_EVIDENCE_DIR, "candidate.patch")
   });
-  job = await o.recordCI(job, {runId: "44165311952"});
+  job = await o.recordCI(job, {runId: "44165311953"});
   assert.equal(job.state, "CI_FAILED");
   assert.throws(() => o.finalizeProof(job), /proof_requires_ci_success/);
 });
@@ -174,7 +174,7 @@ test("retry budget stops repeated CI failures", async t => {
     receiptPath: path.join(process.env.NEXUS_EVIDENCE_DIR, "receipt.json"),
     patchPath: path.join(process.env.NEXUS_EVIDENCE_DIR, "candidate.patch")
   });
-  job = await o.recordCI(job, {runId: "44165311952"});
+  job = await o.recordCI(job, {runId: "44165311953"});
   assert.equal(job.state, "STOPPED");
 });
 
@@ -202,5 +202,5 @@ test("CI proof rejects a run for a different commit", async t => {
     receiptPath: path.join(process.env.NEXUS_EVIDENCE_DIR, "receipt.json"),
     patchPath: path.join(process.env.NEXUS_EVIDENCE_DIR, "candidate.patch")
   });
-  await assert.rejects(o.recordCI(job, {runId: "44165311952"}), /CI_RUN_HEAD_MISMATCH/);
+  await assert.rejects(o.recordCI(job, {runId: "44165311953"}), /CI_RUN_HEAD_MISMATCH/);
 });
