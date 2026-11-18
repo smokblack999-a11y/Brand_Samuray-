@@ -305,6 +305,61 @@ async function ingestSandbox(job, options = {}) {
   return recordSandbox(job, evidence);
 }
 
+
+async function ingestSandboxWorkflowRun(payload) {
+  const workflow = normalizeWorkflow(payload);
+  const rawWorkflow = payload?.workflow_run || {};
+
+  if (rawWorkflow.name !== "SAMURAI NEXUS Isolated Patch Sandbox") {
+    return {ignored: true, reason: "not_nexus_sandbox_workflow"};
+  }
+  if (payload?.action && payload.action !== "completed") {
+    return {ignored: true, reason: "workflow_run_not_completed"};
+  }
+  if (rawWorkflow.status !== "completed" || rawWorkflow.conclusion !== "success") {
+    return {ignored: true, reason: "sandbox_run_not_successful"};
+  }
+  if (workflow.event !== "pull_request") {
+    return {ignored: true, reason: "sandbox_run_not_pull_request"};
+  }
+  if (!workflow.id || !workflow.repository || !workflow.baseSha || !workflow.headSha) {
+    const error = new Error("SANDBOX_WEBHOOK_CANDIDATE_CONTEXT_MISSING");
+    error.code = "SANDBOX_WEBHOOK_CANDIDATE_CONTEXT_MISSING";
+    throw error;
+  }
+
+  const hookRepository = payload?.repository?.full_name;
+  if (hookRepository && hookRepository !== workflow.repository) {
+    const error = new Error("SANDBOX_WEBHOOK_REPOSITORY_MISMATCH");
+    error.code = "SANDBOX_WEBHOOK_REPOSITORY_MISMATCH";
+    throw error;
+  }
+
+  const jobIds = [...new Set(readAll()
+    .filter(record => record.type === "INGEST" && record.job?.id)
+    .map(record => record.job.id))];
+  const candidates = jobIds
+    .map(getJob)
+    .filter(job =>
+      job?.orchestrator?.state === "SANDBOX_REQUIRED" &&
+      job.orchestrator.repository === workflow.repository &&
+      String(job.orchestrator.baseSha || "").toLowerCase() === workflow.baseSha.toLowerCase() &&
+      String(job.orchestrator.headSha || "").toLowerCase() === workflow.headSha.toLowerCase()
+    );
+
+  if (candidates.length === 0) {
+    return {ignored: true, reason: "no_matching_sandbox_required_job", runId: String(workflow.id)};
+  }
+  if (candidates.length > 1) {
+    const error = new Error("SANDBOX_WEBHOOK_JOB_MATCH_AMBIGUOUS");
+    error.code = "SANDBOX_WEBHOOK_JOB_MATCH_AMBIGUOUS";
+    throw error;
+  }
+
+  const job = await ingestSandbox(candidates[0], {runId: String(workflow.id)});
+  return {ignored: false, runId: String(workflow.id), job};
+}
+
 async function recordCI(job, result) {
   if (!job) throw new Error("job_not_found");
   if (!job.orchestrator) throw new Error("ORCHESTRATOR_JOB_MISSING");
@@ -349,6 +404,7 @@ module.exports = {
   proposeRepair,
   recordSandbox,
   ingestSandbox,
+  ingestSandboxWorkflowRun,
   recordCI,
   finalizeProof,
   health,
