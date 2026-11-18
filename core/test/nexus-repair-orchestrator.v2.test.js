@@ -16,11 +16,9 @@ const PATCH = "diff --git a/core/server.js b/core/server.js\n--- a/core/server.j
 function setupGh(t, options = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "nexus-orchestrator-"));
   const evidenceDir = path.join(dir, "evidence");
-  const bin = path.join(dir, "bin");
   fs.mkdirSync(evidenceDir);
-  fs.mkdirSync(bin);
   const argsPath = path.join(dir, "gh-args.txt");
-  const cli = path.join(bin, "gh");
+  const cli = path.join(dir, "mock-gh.js");
   const attestationOutput = '[{"verificationResult":"verified"}]';
   const ciOutput = JSON.stringify({
     status: "completed",
@@ -36,29 +34,29 @@ function setupGh(t, options = {}) {
     workflowName: "SAMURAI NEXUS Isolated Patch Sandbox",
     event: "pull_request"
   });
-  const script = [
-    "#!/bin/sh",
-    "printf '%s\\n' \"$@\" >> \"$GH_TEST_ARGS_FILE\"",
-    "if [ \"$1\" = \"attestation\" ]; then",
-    "  printf '%s\\n' '" + attestationOutput + "'",
-    "elif [ \"$1\" = \"run\" ] && [ \"$3\" = \"44165311952\" ]; then",
-    "  printf '%s\\n' '" + sandboxOutput + "'",
-    "elif [ \"$1\" = \"run\" ]; then",
-    "  printf '%s\\n' '" + ciOutput + "'",
-    "else",
-    "  exit 64",
-    "fi"
-  ].join("\n") + "\n";
-  fs.writeFileSync(cli, script, {mode: 0o755});
+  const script = `"use strict";
+const fs = require("node:fs");
+const args = process.argv.slice(2);
+fs.appendFileSync(process.env.GH_TEST_ARGS_FILE, args.join("\\n") + "\\n");
+let output;
+if (args[0] === "attestation") output = ${JSON.stringify(attestationOutput)};
+else if (args[0] === "run" && args[2] === "44165311952") output = ${JSON.stringify(sandboxOutput)};
+else if (args[0] === "run") output = ${JSON.stringify(ciOutput)};
+else process.exit(64);
+process.stdout.write(output + "\\n");
+`;
+  fs.writeFileSync(cli, script, "utf8");
 
   const previous = {
-    path: process.env.PATH,
     args: process.env.GH_TEST_ARGS_FILE,
-    evidenceDir: process.env.NEXUS_EVIDENCE_DIR
+    evidenceDir: process.env.NEXUS_EVIDENCE_DIR,
+    exec: process.env.NEXUS_GH_TEST_EXEC,
+    nodeEnv: process.env.NODE_ENV
   };
-  process.env.PATH = bin + path.delimiter + (previous.path || "");
   process.env.GH_TEST_ARGS_FILE = argsPath;
   process.env.NEXUS_EVIDENCE_DIR = evidenceDir;
+  process.env.NEXUS_GH_TEST_EXEC = cli;
+  process.env.NODE_ENV = "test";
 
   const patchPath = path.join(evidenceDir, "candidate.patch");
   const receiptPath = path.join(evidenceDir, "receipt.json");
@@ -75,11 +73,14 @@ function setupGh(t, options = {}) {
   fs.writeFileSync(receiptPath, JSON.stringify(receipt, null, 2) + "\n");
 
   t.after(() => {
-    process.env.PATH = previous.path;
     if (previous.args === undefined) delete process.env.GH_TEST_ARGS_FILE;
     else process.env.GH_TEST_ARGS_FILE = previous.args;
     if (previous.evidenceDir === undefined) delete process.env.NEXUS_EVIDENCE_DIR;
     else process.env.NEXUS_EVIDENCE_DIR = previous.evidenceDir;
+    if (previous.exec === undefined) delete process.env.NEXUS_GH_TEST_EXEC;
+    else process.env.NEXUS_GH_TEST_EXEC = previous.exec;
+    if (previous.nodeEnv === undefined) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = previous.nodeEnv;
     fs.rmSync(dir, {recursive: true, force: true});
   });
   return {dir, evidenceDir, argsPath, patchPath, receiptPath};
