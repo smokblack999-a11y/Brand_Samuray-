@@ -262,9 +262,16 @@ class MessengerActivity : Activity() {
                         setTextColor(this@MessengerActivity.foreground)
                         isChecked = values.optBoolean("send_delivery_receipts", true)
                     }
+                    val oneTick = CheckBox(this).apply {
+                        text = "Всегда показывать одну галочку у моих сообщений"
+                        setTextColor(this@MessengerActivity.foreground)
+                        isChecked = getPreferences(MODE_PRIVATE).getBoolean("display_one_tick", false)
+                    }
                     root.addView(read)
                     root.addView(delivered)
-                    root.addView(text("Настройка видимости времени активности сохранена на сервере, но публикация присутствия ещё не подключена.", 12f, muted))
+                    root.addView(oneTick)
+                    root.addView(text("Одна галочка здесь — только локальный режим отображения. Реальные состояния сервера сохраняются отдельно; это не скрывает прочтение и не меняет квитанции собеседника.", 12f, muted))
+                    root.addView(text("Публикация времени активности и присутствия пока не подключена.", 12f, muted))
                     root.addView(button("СОХРАНИТЬ") {
                         val update = JSONObject()
                             .put("send_read_receipts", read.isChecked)
@@ -272,6 +279,7 @@ class MessengerActivity : Activity() {
                         io.execute {
                             try {
                                 client.updatePrivacy(update)
+                                getPreferences(MODE_PRIVATE).edit().putBoolean("display_one_tick", oneTick.isChecked).apply()
                                 main.post {
                                     Toast.makeText(this, "Настройки сохранены", Toast.LENGTH_SHORT).show()
                                     loadHome()
@@ -417,7 +425,9 @@ class MessengerActivity : Activity() {
                         ConversationCrypto.decrypt(chat.id, secret, message.ciphertext, message.nonce)
                     }.getOrElse { "[Не удалось расшифровать — проверьте общий секрет]" }
                     val mine = message.senderId == store.userId()
-                    val ticks = if (!mine) "" else when {
+                    val ticks = if (!mine) "" else if (getPreferences(MODE_PRIVATE).getBoolean("display_one_tick", false)) {
+                        "  ✓ отправлено"
+                    } else when {
                         message.readAt != null -> "  ✓✓ прочитано"
                         message.deliveredAt != null -> "  ✓✓ доставлено"
                         else -> "  ✓ принято сервером"
