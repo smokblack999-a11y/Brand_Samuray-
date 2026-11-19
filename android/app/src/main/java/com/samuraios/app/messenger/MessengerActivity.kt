@@ -19,6 +19,8 @@ import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import org.json.JSONObject
+import org.json.JSONArray
+import java.util.UUID
 import java.net.URI
 import java.util.concurrent.Executors
 
@@ -196,6 +198,7 @@ class MessengerActivity : Activity() {
         root.addView(text("Аккаунт: @" + store.username().orEmpty(), 13f, accent))
         reloadConversations()
         connectRealtime()
+        flushOutbox()
     }
 
     private fun reloadConversations() {
@@ -334,17 +337,66 @@ class MessengerActivity : Activity() {
             val value = composer.text.toString().trim()
             val secret = currentSecret
             if (value.isEmpty() || secret == null) return@button
-            composer.setText("")
+            val clientMessageId = UUID.randomUUID().toString()
             io.execute {
                 try {
                     val encrypted = ConversationCrypto.encrypt(chat.id, secret, value)
-                    clientSend(chat.id, encrypted)
-                    refreshMessages()
+                    enqueueOutbox(chat.id, clientMessageId, encrypted)
+                    main.post { composer.setText(""); showStatus("Сообщение сохранено в защищённую очередь отправки") }
+                    try {
+                        api?.send(chat.id, encrypted, clientMessageId)
+                        removeOutbox(clientMessageId)
+                        refreshMessages()
+                    } catch (sendError: Throwable) {
+                        showStatus("Нет подтверждения сервера · сообщение сохранено локально")
+                    }
                 } catch (error: Throwable) { report(error) }
             }
         })
         root.addView(button("ОБНОВИТЬ СООБЩЕНИЯ") { refreshMessages() })
         refreshMessages()
+    }
+
+    private fun enqueueOutbox(conversationId: String, id: String, encrypted: EncryptedMessage) {
+        val array = JSONArray(store.readOutbox())
+        array.put(JSONObject()
+            .put("conversationId", conversationId)
+            .put("clientMessageId", id)
+            .put("ciphertext", encrypted.ciphertext)
+            .put("nonce", encrypted.nonce))
+        store.writeOutbox(array.toString())
+    }
+
+    private fun removeOutbox(id: String) {
+        val current = JSONArray(store.readOutbox())
+        val kept = JSONArray()
+        for (index in 0 until current.length()) {
+            val item = current.getJSONObject(index)
+            if (item.optString("clientMessageId") != id) kept.put(item)
+        }
+        store.writeOutbox(kept.toString())
+    }
+
+    private fun flushOutbox() {
+        val client = api ?: return
+        io.execute {
+            val current = JSONArray(store.readOutbox())
+            for (index in 0 until current.length()) {
+                val item = current.optJSONObject(index) ?: continue
+                try {
+                    val encrypted = EncryptedMessage(item.getString("ciphertext"), item.getString("nonce"))
+                    client.send(item.getString("conversationId"), encrypted, item.getString("clientMessageId"))
+                    removeOutbox(item.getString("clientMessageId"))
+                } catch (_: Throwable) {
+                    showStatus("Ожидает отправки: " + (current.length() - index))
+                    break
+                }
+            }
+            if (current.length() > 0 && store.readOutbox() == "[]") {
+                showStatus("Очередь сообщений синхронизирована")
+                if (currentConversation != null) refreshMessages()
+            }
+        }
     }
 
     private fun clientSend(conversationId: String, encrypted: EncryptedMessage) {
