@@ -48,8 +48,10 @@ jobs:
         env:
           PGPASSWORD: samurai-test-password
         run: psql -h localhost -U samurai -d samurai_messenger -v ON_ERROR_STOP=1 -f samurai-messenger/db/migrations/001_initial_schema.sql
-      - name: Run unit tests
+      - name: Run unit and two-account integration tests
         working-directory: samurai-messenger/service
+        env:
+          DATABASE_URL: postgresql://samurai:samurai-test-password@localhost:5432/samurai_messenger
         run: npm test
       - name: Verify API startup fails closed without secrets
         working-directory: samurai-messenger/service
