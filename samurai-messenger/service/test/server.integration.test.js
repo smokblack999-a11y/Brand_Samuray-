@@ -32,7 +32,16 @@ test("two-account chat, privacy receipts, realtime and refresh rotation", {
     if (recipientSocket) recipientSocket.close();
     await new Promise((resolve) => wss.close(resolve));
     await new Promise((resolve) => server.close(resolve));
-    if (ids.length) await pool.query("DELETE FROM messenger_users WHERE id = ANY($1::uuid[])", [ids]);
+    if (ids.length) {
+      // Messages deliberately retain sender_id with ON DELETE RESTRICT for
+      // audit integrity. Remove test-owned conversations first so their
+      // messages/receipts cascade, then remove the test accounts.
+      await pool.query(
+        "DELETE FROM messenger_conversations WHERE id IN (SELECT conversation_id FROM messenger_memberships WHERE user_id = ANY($1::uuid[]))",
+        [ids]
+      );
+      await pool.query("DELETE FROM messenger_users WHERE id = ANY($1::uuid[])", [ids]);
+    }
     await pool.end();
   });
 
