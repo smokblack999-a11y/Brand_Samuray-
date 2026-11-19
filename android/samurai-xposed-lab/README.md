@@ -15,8 +15,10 @@ Separate Android application/module. The Xposed lab and the local messenger UI a
 - Bottom navigation for chats, contacts, calls and profile/settings.
 - Shared appearance preferences across the dashboard and messenger: system/light/dark theme, four accent colors, text size 85–125%, compact layout.
 - All conversation data remains on this device in this version.
+- Export and restore through Android's system file picker using a versioned JSON backup; import is size-limited and skips exact duplicates.
+- Custom SAMURAI X10 adaptive launcher icon and shared theme settings.
 
-**Important:** This is a local-first UI prototype, not a network messenger and not a WhatsApp clone. Messages are stored only on this device and are not delivered to WhatsApp, contacts or another SAMURAI installation. Calls, remote contacts, account login, synchronization, E2E transport, push notifications, media transfer and group membership are not implemented yet. The UI says local-only to prevent confusion.
+**Important:** This is a local-first UI prototype, not a network messenger and not a WhatsApp clone. Messages are stored only on this device and are not delivered to WhatsApp, contacts or another SAMURAI installation. Calls, remote contacts, account login, synchronization, E2E transport, push notifications, media transfer and group membership are not implemented yet. The UI says local-only to prevent confusion. JSON exports are not encrypted; protect the exported file yourself.
 
 ## Xposed lab scope
 
