@@ -160,9 +160,9 @@ class MessengerApi(
         }.reversed()
     }
 
-    fun send(conversationId: String, encrypted: EncryptedMessage): JSONObject {
+    fun send(conversationId: String, encrypted: EncryptedMessage, clientMessageId: String = UUID.randomUUID().toString()): JSONObject {
         val body = JSONObject()
-            .put("clientMessageId", UUID.randomUUID().toString())
+            .put("clientMessageId", clientMessageId)
             .put("ciphertext", encrypted.ciphertext)
             .put("nonce", encrypted.nonce)
             .put("protocolVersion", 1)
