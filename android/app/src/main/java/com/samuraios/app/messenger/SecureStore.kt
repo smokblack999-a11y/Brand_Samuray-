@@ -68,4 +68,6 @@ class SecureStore(context: Context) {
     fun username() = get("username")
     fun saveConversationSecret(id: String, secret: String) = put("conversation_secret_" + id, secret)
     fun conversationSecret(id: String) = get("conversation_secret_" + id)
+    fun readOutbox(): String = get("pending_outbox") ?: "[]"
+    fun writeOutbox(value: String) = put("pending_outbox", value)
 }
