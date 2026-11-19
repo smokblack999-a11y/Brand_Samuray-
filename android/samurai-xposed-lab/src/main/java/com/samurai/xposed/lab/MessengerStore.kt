@@ -4,6 +4,8 @@ import android.content.ContentValues
 import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
+import org.json.JSONArray
+import org.json.JSONObject
 
 internal data class LocalChat(
     val id: Long,
@@ -243,6 +245,128 @@ internal class MessengerStore(context: Context) :
         )
     }
 
+
+    fun exportBackupJson(): String {
+        val root = JSONObject()
+            .put("schema_version", 1)
+            .put("exported_at", System.currentTimeMillis())
+        val chatsJson = JSONArray()
+        getChats().forEach { chat ->
+            val chatJson = JSONObject()
+                .put("title", chat.title)
+                .put("category", chat.category)
+                .put("pinned", chat.pinned)
+            val messagesJson = JSONArray()
+            getMessages(chat.id).forEach { message ->
+                messagesJson.put(
+                    JSONObject()
+                        .put("body", message.body)
+                        .put("created_at", message.createdAt)
+                        .put("from_me", message.fromMe)
+                )
+            }
+            chatJson.put("messages", messagesJson)
+            chatsJson.put(chatJson)
+        }
+        root.put("chats", chatsJson)
+        return root.toString(2)
+    }
+
+    /**
+     * Merges a user-selected backup into the current local database.
+     * It validates schema/size/counts and skips exact duplicate local messages.
+     * No import data is sent over the network.
+     */
+    fun importBackupJson(raw: String): Int {
+        require(raw.toByteArray(Charsets.UTF_8).size <= MAX_BACKUP_BYTES) {
+            "Резервная копия больше 5 МБ"
+        }
+        val root = JSONObject(raw)
+        require(root.optInt("schema_version", -1) == 1) {
+            "Неподдерживаемая версия резервной копии"
+        }
+        val chats = root.optJSONArray("chats") ?: JSONArray()
+        require(chats.length() <= MAX_BACKUP_CHATS) { "Слишком много диалогов в копии" }
+
+        val db = writableDatabase
+        var importedMessages = 0
+        var totalMessages = 0
+        db.beginTransaction()
+        try {
+            for (i in 0 until chats.length()) {
+                val item = chats.optJSONObject(i) ?: continue
+                val title = item.optString("title").trim().take(80)
+                if (title.isEmpty()) continue
+                val category = item.optString("category", "personal")
+                    .takeIf { it == "personal" || it == "group" } ?: "personal"
+
+                val existingId = db.rawQuery(
+                    "SELECT id FROM chats WHERE title = ? COLLATE NOCASE LIMIT 1",
+                    arrayOf(title)
+                ).use { cursor -> if (cursor.moveToFirst()) cursor.getLong(0) else null }
+
+                val chatId = existingId ?: db.insertOrThrow(
+                    "chats",
+                    null,
+                    ContentValues().apply {
+                        put("title", title)
+                        put("initial", title.take(1).uppercase())
+                        put("category", category)
+                        put("pinned", if (item.optBoolean("pinned")) 1 else 0)
+                        put("unread_count", 0)
+                        put("updated_at", System.currentTimeMillis())
+                    }
+                )
+
+                val messages = item.optJSONArray("messages") ?: JSONArray()
+                totalMessages += messages.length()
+                require(totalMessages <= MAX_BACKUP_MESSAGES) {
+                    "В резервной копии слишком много сообщений"
+                }
+
+                for (messageIndex in 0 until messages.length()) {
+                    val message = messages.optJSONObject(messageIndex) ?: continue
+                    val body = message.optString("body").trim()
+                    if (body.isEmpty() || body.length > 8_000) continue
+                    val createdAt = message.optLong("created_at", 0L)
+                        .takeIf { it > 0L } ?: System.currentTimeMillis()
+                    val fromMe = message.optBoolean("from_me", false)
+
+                    val exists = db.rawQuery(
+                        """
+                        SELECT 1 FROM messages
+                        WHERE chat_id = ? AND body = ? AND created_at = ? AND from_me = ?
+                        LIMIT 1
+                        """.trimIndent(),
+                        arrayOf(chatId.toString(), body, createdAt.toString(), if (fromMe) "1" else "0")
+                    ).use { it.moveToFirst() }
+
+                    if (!exists) {
+                        db.insertOrThrow(
+                            "messages",
+                            null,
+                            ContentValues().apply {
+                                put("chat_id", chatId)
+                                put("body", body)
+                                put("created_at", createdAt)
+                                put("from_me", if (fromMe) 1 else 0)
+                            }
+                        )
+                        importedMessages++
+                    }
+                }
+                db.execSQL(
+                    "UPDATE chats SET updated_at = MAX(updated_at, ?) WHERE id = ?",
+                    arrayOf(System.currentTimeMillis(), chatId)
+                )
+            }
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
+        return importedMessages
+    }
+
     private data class Sample(
         val title: String,
         val category: String,
@@ -257,5 +381,8 @@ internal class MessengerStore(context: Context) :
     companion object {
         private const val DB_NAME = "samurai_messenger_local.db"
         private const val DB_VERSION = 2
+        private const val MAX_BACKUP_BYTES = 5 * 1024 * 1024
+        private const val MAX_BACKUP_CHATS = 500
+        private const val MAX_BACKUP_MESSAGES = 50_000
     }
 }
