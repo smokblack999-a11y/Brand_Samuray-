@@ -229,6 +229,7 @@ class MessengerActivity : Activity() {
             socket = client.connectRealtime(object : WebSocketListener() {
                 override fun onOpen(webSocket: WebSocket, response: Response) {
                     showStatus("Realtime подключён")
+                    flushOutbox()
                 }
                 override fun onMessage(webSocket: WebSocket, text: String) {
                     main.post {
@@ -236,7 +237,8 @@ class MessengerActivity : Activity() {
                     }
                 }
                 override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                    showStatus("Realtime отключён · используйте обновление")
+                    showStatus("Realtime отключён · повтор через 5 секунд")
+                    main.postDelayed({ if (!isFinishing && api != null) connectRealtime() }, 5000)
                 }
             })
         }.onFailure { report(it) }
@@ -260,19 +262,13 @@ class MessengerActivity : Activity() {
                         setTextColor(foreground)
                         isChecked = values.optBoolean("send_delivery_receipts", true)
                     }
-                    val presence = CheckBox(this).apply {
-                        text = "Показывать время активности"
-                        setTextColor(foreground)
-                        isChecked = values.optBoolean("share_presence", false)
-                    }
                     root.addView(read)
                     root.addView(delivered)
-                    root.addView(presence)
+                    root.addView(text("Настройка видимости времени активности сохранена на сервере, но публикация присутствия ещё не подключена.", 12f, muted))
                     root.addView(button("СОХРАНИТЬ") {
                         val update = JSONObject()
                             .put("send_read_receipts", read.isChecked)
                             .put("send_delivery_receipts", delivered.isChecked)
-                            .put("share_presence", presence.isChecked)
                         io.execute {
                             try {
                                 client.updatePrivacy(update)
@@ -353,7 +349,7 @@ class MessengerActivity : Activity() {
                 } catch (error: Throwable) { report(error) }
             }
         })
-        root.addView(button("ОБНОВИТЬ СООБЩЕНИЯ") { refreshMessages() })
+        root.addView(button("ОБНОВИТЬ / ПОВТОРИТЬ ОТПРАВКУ") { flushOutbox(); refreshMessages() })
         refreshMessages()
     }
 
