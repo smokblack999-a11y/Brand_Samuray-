@@ -72,7 +72,7 @@ class MessengerActivity : Activity() {
     private fun field(hintText: String, password: Boolean = false) = EditText(this).apply {
         hint = hintText
         setHintTextColor(muted)
-        setTextColor(foreground)
+        setTextColor(this@MessengerActivity.foreground)
         textSize = 15f
         setSingleLine(true)
         setPadding(dp(14), dp(8), dp(14), dp(8))
@@ -254,12 +254,12 @@ class MessengerActivity : Activity() {
                     addTitle("Приватность", "Управление собственными подтверждениями")
                     val read = CheckBox(this).apply {
                         text = "Отправлять отчёты о прочтении"
-                        setTextColor(foreground)
+                        setTextColor(this@MessengerActivity.foreground)
                         isChecked = values.optBoolean("send_read_receipts", true)
                     }
                     val delivered = CheckBox(this).apply {
                         text = "Отправлять подтверждения доставки"
-                        setTextColor(foreground)
+                        setTextColor(this@MessengerActivity.foreground)
                         isChecked = values.optBoolean("send_delivery_receipts", true)
                     }
                     root.addView(read)
