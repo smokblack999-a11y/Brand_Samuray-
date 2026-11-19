@@ -46,7 +46,7 @@ jobs:
 
       - name: Build Debug APK
         working-directory: android
-        run: ./gradlew clean assembleDebug --stacktrace
+        run: ./gradlew clean testDebugUnitTest assembleDebug --stacktrace
 
       - name: Verify APK
         working-directory: android
