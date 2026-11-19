@@ -2,13 +2,16 @@ name: SAMURAI Xposed Lab
 
 on:
   push:
-    branches: [ "feat/samurai-xposed-lab-v1" ]
+    branches:
+      - feat/samurai-xposed-lab-v1
     paths:
       - "android/**"
+      - "qa/**"
       - ".github/workflows/samurai-xposed-lab.yml"
   pull_request:
     paths:
       - "android/**"
+      - "qa/**"
       - ".github/workflows/samurai-xposed-lab.yml"
 
 permissions:
@@ -47,7 +50,7 @@ jobs:
           chmod +x gradlew
           ./gradlew :samurai-xposed-lab:testDebugUnitTest :samurai-xposed-lab:assembleDebug --stacktrace
 
-      - name: Verify Xposed module package
+      - name: Verify Xposed metadata and Messenger classes
         shell: bash
         run: |
           set -euo pipefail
@@ -55,31 +58,15 @@ jobs:
           test -f "$APK"
           unzip -t "$APK"
           unzip -p "$APK" assets/xposed_init | grep -Fx "com.samurai.xposed.lab.SamuraiXposedEntry"
+
           DEX_STRINGS="$(mktemp)"
           while IFS= read -r dex; do
             unzip -p "$APK" "$dex" | strings
-          done < <(unzip -Z1 "$APK" | grep -E '^classes([0-9]+)?\.dex          AAPT="$(find "$ANDROID_HOME/build-tools" -type f -name aapt | sort -V | tail -n 1)"
-          test -x "$AAPT"
-          "$AAPT" dump badging "$APK" | grep -F "package: name='com.samurai.xposed.lab'"
-          "$AAPT" dump xmltree "$APK" AndroidManifest.xml > /tmp/samurai-xposed-manifest.txt
-          grep -F "xposedmodule" /tmp/samurai-xposed-manifest.txt
-          grep -F "xposedminversion" /tmp/samurai-xposed-manifest.txt
-          grep -F "xposedscope" /tmp/samurai-xposed-manifest.txt
-          grep -Fq 'com.whatsapp' android/samurai-xposed-lab/src/main/res/values/arrays.xml
-          grep -Fq 'com.whatsapp.w4b' android/samurai-xposed-lab/src/main/res/values/arrays.xml
-          grep -Fq "compileOnly 'de.robv.android.xposed:api:82'" android/samurai-xposed-lab/build.gradle
-          echo "SAMURAI Xposed lab APK archive and metadata checks: PASS"
-
-      - name: Upload lab APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: SAMURAI-Xposed-Lab-debug-apk
-          path: android/samurai-xposed-lab/build/outputs/apk/debug/samurai-xposed-lab-debug.apk
-          if-no-files-found: error
-) > "$DEX_STRINGS"
+          done < <(unzip -Z1 "$APK" | grep -E '^classes([0-9]+)?\.dex$') > "$DEX_STRINGS"
           grep -Fq 'com/samurai/xposed/lab/MessengerHomeActivity' "$DEX_STRINGS"
           grep -Fq 'com/samurai/xposed/lab/MessengerStore' "$DEX_STRINGS"
           grep -Fq 'com/samurai/xposed/lab/MessengerFilter' "$DEX_STRINGS"
+
           AAPT="$(find "$ANDROID_HOME/build-tools" -type f -name aapt | sort -V | tail -n 1)"
           test -x "$AAPT"
           "$AAPT" dump badging "$APK" | grep -F "package: name='com.samurai.xposed.lab'"
@@ -90,7 +77,7 @@ jobs:
           grep -Fq 'com.whatsapp' android/samurai-xposed-lab/src/main/res/values/arrays.xml
           grep -Fq 'com.whatsapp.w4b' android/samurai-xposed-lab/src/main/res/values/arrays.xml
           grep -Fq "compileOnly 'de.robv.android.xposed:api:82'" android/samurai-xposed-lab/build.gradle
-          echo "SAMURAI Xposed lab APK archive and metadata checks: PASS"
+          echo "SAMURAI Xposed lab APK archive, Messenger DEX and metadata checks: PASS"
 
       - name: Upload lab APK
         uses: actions/upload-artifact@v4
