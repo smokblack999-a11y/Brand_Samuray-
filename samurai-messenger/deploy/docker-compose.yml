@@ -1,0 +1,52 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: samurai_messenger
+      POSTGRES_USER: samurai
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    volumes:
+      - messenger_db:/var/lib/postgresql/data
+      - ../db/migrations/001_initial_schema.sql:/docker-entrypoint-initdb.d/001_initial_schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U samurai -d samurai_messenger"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks: [messenger_private]
+
+  api:
+    build:
+      context: ..
+      dockerfile: service/Dockerfile
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 8790
+      DATABASE_URL: postgresql://samurai:${POSTGRES_PASSWORD}@db:5432/samurai_messenger
+      PGSSL: "false"
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env}
+      CORS_ORIGIN: ${CORS_ORIGIN:-https://localhost}
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "${MESSENGER_BIND:-127.0.0.1}:${MESSENGER_PORT:-8790}:8790"
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:8790/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    networks: [messenger_private]
+
+volumes:
+  messenger_db:
+
+networks:
+  messenger_private:
+    driver: bridge
