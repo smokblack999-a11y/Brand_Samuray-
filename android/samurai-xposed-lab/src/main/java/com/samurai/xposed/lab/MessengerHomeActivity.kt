@@ -4,6 +4,9 @@ import android.app.Activity
 import android.app.AlertDialog
 import android.content.Context
 import android.content.res.Configuration
+import android.content.Intent
+import android.net.Uri
+import java.io.ByteArrayOutputStream
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
@@ -83,6 +86,54 @@ class MessengerHomeActivity : Activity() {
             showHome()
         } else {
             super.onBackPressed()
+        }
+    }
+
+
+    @Deprecated("Deprecated platform callback retained for broad Android compatibility")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (resultCode != RESULT_OK) return
+        val uri = data?.data ?: return
+        when (requestCode) {
+            REQUEST_EXPORT_BACKUP -> exportBackup(uri)
+            REQUEST_IMPORT_BACKUP -> importBackup(uri)
+        }
+    }
+
+    private fun exportBackup(uri: Uri) {
+        runCatching {
+            val json = store.exportBackupJson()
+            contentResolver.openOutputStream(uri)?.bufferedWriter(Charsets.UTF_8)?.use { it.write(json) }
+                ?: error("Не удалось открыть файл для записи")
+        }.onSuccess {
+            Toast.makeText(this, "Резервная копия сохранена", Toast.LENGTH_LONG).show()
+        }.onFailure {
+            Toast.makeText(this, "Экспорт не выполнен: ${it.message}", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private fun importBackup(uri: Uri) {
+        runCatching {
+            val input = contentResolver.openInputStream(uri) ?: error("Не удалось открыть файл")
+            val output = ByteArrayOutputStream()
+            input.use { stream ->
+                val buffer = ByteArray(8 * 1024)
+                var total = 0
+                while (true) {
+                    val count = stream.read(buffer)
+                    if (count < 0) break
+                    total += count
+                    require(total <= 5 * 1024 * 1024) { "Резервная копия больше 5 МБ" }
+                    output.write(buffer, 0, count)
+                }
+            }
+            store.importBackupJson(output.toString(Charsets.UTF_8.name()))
+        }.onSuccess { count ->
+            Toast.makeText(this, "Импортировано новых сообщений: $count", Toast.LENGTH_LONG).show()
+            showTab("Чаты")
+        }.onFailure {
+            Toast.makeText(this, "Импорт не выполнен: ${it.message}", Toast.LENGTH_LONG).show()
         }
     }
 
@@ -489,8 +540,25 @@ class MessengerHomeActivity : Activity() {
             prefs.edit().clear().apply()
             loadAppearance(); applySystemBars(); showTab("Профиль")
         })
+        label(root, "Резервное копирование", 15, fg, true)
+        root.addView(actionButton("Экспортировать диалоги в JSON", "Создать резервную копию") {
+            val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+                addCategory(Intent.CATEGORY_OPENABLE)
+                type = "application/json"
+                putExtra(Intent.EXTRA_TITLE, "samurai-messenger-backup.json")
+            }
+            startActivityForResult(intent, REQUEST_EXPORT_BACKUP)
+        })
+        root.addView(actionButton("Восстановить из JSON", "Импортировать резервную копию") {
+            val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                addCategory(Intent.CATEGORY_OPENABLE)
+                type = "application/json"
+            }
+            startActivityForResult(intent, REQUEST_IMPORT_BACKUP)
+        })
+        label(root, "Экспортированный JSON не зашифрован. Храни его в безопасном месте и не пересылай третьим лицам.", 11, muted, false)
         label(root, "Локальное хранилище", 15, fg, true)
-        label(root, "Диалоги и отправленные сообщения сохраняются в приватной базе приложения на этом телефоне. Экспорт, резервная копия и синхронизация ещё не подключены.", 12, muted, false)
+        label(root, "Диалоги и сообщения сохраняются в приватной SQLite-базе этого телефона. Синхронизация с сервером и другими устройствами не подключена.", 12, muted, false)
     }
 
     private fun emptyState(parent: LinearLayout, title: String, detail: String) {
@@ -557,4 +625,9 @@ class MessengerHomeActivity : Activity() {
     }
 
     private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
+
+    private companion object {
+        const val REQUEST_EXPORT_BACKUP = 4101
+        const val REQUEST_IMPORT_BACKUP = 4102
+    }
 }
