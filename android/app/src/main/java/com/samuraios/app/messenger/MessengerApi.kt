@@ -92,9 +92,15 @@ class MessengerApi(
             val json = authRequest("/v1/auth/refresh", JSONObject().put("refreshToken", refresh))
             storeAuth(json)
             true
-        } catch (_: Exception) {
-            store.clearSession()
-            false
+        } catch (error: ApiException) {
+            // Revoke local credentials only when the server explicitly rejects
+            // the refresh token. Transient network outages must keep the
+            // encrypted session and durable outbox for later retry.
+            if (error.httpCode == 401) {
+                store.clearSession()
+                return false
+            }
+            throw error
         }
     }
 
