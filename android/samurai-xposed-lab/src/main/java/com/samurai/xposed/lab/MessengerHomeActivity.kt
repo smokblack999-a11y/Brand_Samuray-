@@ -66,9 +66,22 @@ class MessengerHomeActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         store = MessengerStore(this)
+        activeTab = savedInstanceState?.getString(STATE_TAB) ?: "Чаты"
+        currentFilter = savedInstanceState?.getString(STATE_FILTER) ?: "Все"
+        currentQuery = savedInstanceState?.getString(STATE_QUERY).orEmpty()
+        currentChatId = savedInstanceState?.takeIf { it.containsKey(STATE_CHAT) }?.getLong(STATE_CHAT)
         loadAppearance()
         applySystemBars()
-        showHome()
+        val chatId = currentChatId
+        if (chatId != null) showConversation(chatId) else showTab(activeTab)
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        outState.putString(STATE_TAB, activeTab)
+        outState.putString(STATE_FILTER, currentFilter)
+        outState.putString(STATE_QUERY, currentQuery)
+        currentChatId?.let { outState.putLong(STATE_CHAT, it) }
+        super.onSaveInstanceState(outState)
     }
 
     override fun onDestroy() {
@@ -638,5 +651,9 @@ class MessengerHomeActivity : Activity() {
     private companion object {
         const val REQUEST_EXPORT_BACKUP = 4101
         const val REQUEST_IMPORT_BACKUP = 4102
+        const val STATE_TAB = "state_tab"
+        const val STATE_FILTER = "state_filter"
+        const val STATE_QUERY = "state_query"
+        const val STATE_CHAT = "state_chat"
     }
 }
