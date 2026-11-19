@@ -40,6 +40,7 @@ class MessengerHomeActivity : Activity() {
     private var currentFilter = "Все"
     private var currentChatId: Long? = null
     private var activeTab = "Чаты"
+    private var currentQuery = ""
 
     private var dark = true
     private var compact = false
@@ -111,6 +112,7 @@ class MessengerHomeActivity : Activity() {
     }
 
     private fun showHome() {
+        activeTab = "Чаты"
         currentChatId = null
         root = newRoot()
         setContentView(root)
@@ -148,7 +150,8 @@ class MessengerHomeActivity : Activity() {
                 background = rounded(if (selected) accent else surface, 24)
                 setOnClickListener {
                     currentFilter = filter
-                    renderChatList(listContainer, search.text.toString())
+                    currentQuery = search.text.toString()
+                    renderChatList(listContainer, currentQuery)
                     renderFilterRow(filters)
                 }
             }
@@ -161,11 +164,12 @@ class MessengerHomeActivity : Activity() {
         val scroll = ScrollView(this).apply { isFillViewport = true }
         scroll.addView(listContainer)
         root.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
-        renderChatList(listContainer, "")
+        renderChatList(listContainer, currentQuery)
         search.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
-                renderChatList(listContainer, s?.toString().orEmpty())
+                currentQuery = s?.toString().orEmpty()
+                renderChatList(listContainer, currentQuery)
             }
             override fun afterTextChanged(s: Editable?) = Unit
         })
@@ -185,7 +189,7 @@ class MessengerHomeActivity : Activity() {
                 background = rounded(if (selected) accent else surface, 24)
                 setOnClickListener {
                     currentFilter = filter
-                    renderChatList(listContainer, "")
+                    renderChatList(listContainer, currentQuery)
                     renderFilterRow(filters)
                 }
             }, LinearLayout.LayoutParams(-2, dp(36)).apply { marginEnd = dp(7) })
@@ -194,17 +198,9 @@ class MessengerHomeActivity : Activity() {
 
     private fun renderChatList(target: LinearLayout, query: String) {
         target.removeAllViews()
-        val chats = store.getChats().filter { chat ->
-            val textMatch = chat.title.contains(query, true) || chat.preview.contains(query, true) ||
-                store.getMessages(chat.id).any { it.body.contains(query, true) }
-            val filterMatch = when (currentFilter) {
-                "Непрочитанные" -> chat.unreadCount > 0
-                "Личные" -> chat.category == "personal"
-                "Группы" -> chat.category == "group"
-                else -> true
-            }
-            textMatch && filterMatch
-        }
+        val allChats = store.getChats()
+        val messagesByChat = allChats.associate { chat -> chat.id to store.getMessages(chat.id) }
+        val chats = MessengerFilter.apply(allChats, messagesByChat, currentFilter, query)
         if (chats.isEmpty()) {
             emptyState(target, if (query.isBlank()) "Здесь пока нет диалогов" else "Ничего не найдено",
                 if (query.isBlank()) "Создай первый локальный диалог кнопкой ＋" else "Измени поисковый запрос")
@@ -350,8 +346,13 @@ class MessengerHomeActivity : Activity() {
             }
             label(bubble, msg.body, 14, if (msg.fromMe && !dark) Color.rgb(17, 69, 48) else fg, false)
             val meta = row().apply { gravity = Gravity.END or Gravity.CENTER_VERTICAL }
-            label(meta, formatTime(msg.createdAt), 9, muted, false)
-            if (msg.fromMe) label(meta, "  ✓ локально", 9, if (dark) Color.rgb(161, 226, 207) else Color.rgb(21, 122, 83), false)
+            meta.addView(textView(formatTime(msg.createdAt), 9, muted, false),
+                LinearLayout.LayoutParams(-2, -2))
+            if (msg.fromMe) {
+                meta.addView(textView("  ✓ локально", 9,
+                    if (dark) Color.rgb(161, 226, 207) else Color.rgb(21, 122, 83), false),
+                    LinearLayout.LayoutParams(-2, -2))
+            }
             bubble.addView(meta)
             line.addView(bubble, LinearLayout.LayoutParams(0, -2, 1f).apply {
                 weight = 0f
