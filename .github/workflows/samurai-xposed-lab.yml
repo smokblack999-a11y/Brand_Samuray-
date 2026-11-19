@@ -77,9 +77,9 @@ jobs:
           path: android/samurai-xposed-lab/build/outputs/apk/debug/samurai-xposed-lab-debug.apk
           if-no-files-found: error
 ) > "$DEX_STRINGS"
-          grep -Fq 'com.samurai.xposed.lab.MessengerHomeActivity' "$DEX_STRINGS"
-          grep -Fq 'com.samurai.xposed.lab.MessengerStore' "$DEX_STRINGS"
-          grep -Fq 'com.samurai.xposed.lab.MessengerFilter' "$DEX_STRINGS"
+          grep -Fq 'com/samurai/xposed/lab/MessengerHomeActivity' "$DEX_STRINGS"
+          grep -Fq 'com/samurai/xposed/lab/MessengerStore' "$DEX_STRINGS"
+          grep -Fq 'com/samurai/xposed/lab/MessengerFilter' "$DEX_STRINGS"
           AAPT="$(find "$ANDROID_HOME/build-tools" -type f -name aapt | sort -V | tail -n 1)"
           test -x "$AAPT"
           "$AAPT" dump badging "$APK" | grep -F "package: name='com.samurai.xposed.lab'"
