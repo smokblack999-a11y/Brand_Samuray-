@@ -1,3 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Debug-only support for a private-LAN test server. Release keeps cleartext disabled. -->
+    <application android:usesCleartextTraffic="true" />
 </manifest>
