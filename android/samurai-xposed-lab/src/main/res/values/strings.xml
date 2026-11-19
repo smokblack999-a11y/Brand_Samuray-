@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">SAMURAI X10</string>
+    <string name="xposed_description">SAMURAI X10 local messenger UI and isolated WhatsApp compatibility diagnostics. Feature hooks are disabled.</string>
+</resources>

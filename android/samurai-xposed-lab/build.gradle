@@ -1,0 +1,47 @@
+plugins {
+    id 'com.android.application'
+    id 'org.jetbrains.kotlin.android'
+}
+
+android {
+    namespace 'com.samurai.xposed.lab'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId 'com.samurai.xposed.lab'
+        minSdk 26
+        targetSdk 35
+        versionCode 2
+        versionName '0.2.0-lab'
+        testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
+    }
+
+    buildTypes {
+        debug {
+            minifyEnabled false
+        }
+        release {
+            minifyEnabled false
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    kotlinOptions {
+        jvmTarget = '17'
+    }
+
+    testOptions {
+        unitTests.returnDefaultValues = true
+    }
+}
+
+dependencies {
+    // Xposed API is compile-only: the framework supplies it inside the target process.
+    compileOnly 'de.robv.android.xposed:api:82'
+
+    testImplementation 'junit:junit:4.13.2'
+}

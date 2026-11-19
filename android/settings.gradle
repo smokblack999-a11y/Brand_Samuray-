@@ -11,8 +11,9 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
+        maven { url 'https://api.xposed.info/' }
     }
 }
 
 rootProject.name = "SamuraiOS"
-include(":app")
+include(":app", ":samurai-xposed-lab")
