@@ -1,38 +1,52 @@
-# SAMURAI Xposed Compatibility Lab
+# SAMURAI Xposed Lab + Messenger
 
-This is a separate Android application/module from the regular SAMURAI WhatsApp companion.
+Separate Android application/module. The Xposed lab and the local messenger UI are independent of the official WhatsApp application.
 
-## Current build scope
+## Messenger features in build 0.2.0
 
-- Xposed legacy API 82, compile-only.
+- Persistent local chats and messages using the private app SQLite database.
+- Demo conversations are seeded only on a fresh database install.
+- Create personal or group local conversations.
+- Search across conversation titles, previews and local message text.
+- Filters: all, unread, personal, groups.
+- Mark a conversation read when it is opened.
+- Pin/unpin conversations.
+- Send and delete your own local demo messages.
+- Bottom navigation for chats, contacts, calls and profile/settings.
+- Shared appearance preferences across the dashboard and messenger: system/light/dark theme, four accent colors, text size 85–125%, compact layout.
+- All conversation data remains on this device in this version.
+
+**Important:** This is a local-first UI prototype, not a network messenger and not a WhatsApp clone. Messages are stored only on this device and are not delivered to WhatsApp, contacts or another SAMURAI installation. Calls, remote contacts, account login, synchronization, E2E transport, push notifications, media transfer and group membership are not implemented yet. The UI says local-only to prevent confusion.
+
+## Xposed lab scope
+
+- Legacy Xposed API 82, compile-only.
 - Exact package scope: `com.whatsapp` and `com.whatsapp.w4b`.
 - Main-process and exact-version compatibility gate.
-- Non-mutating startup diagnostics: package name, process name, version name and version code.
+- Non-mutating host diagnostics after `Application.attach`: package/process/version only.
 - No chat, contact, notification, media, credential or message-body capture.
-- No receipt, presence, view-once or anti-revoke hooks are installed in this initial lab build.
-- Feature activation is hard-disabled in code until each feature has a separate review, exact version mapping and device acceptance.
+- No receipt, presence, View Once or Anti-Revoke hooks are enabled.
 
 ## Requirements
 
-- Android device with an Xposed-compatible runtime such as LSPosed.
-- Root is required by typical LSPosed deployments. Availability and compatibility depend on the device/ROM.
-- Use a spare test device and dedicated test account only. Never activate experimental hooks against a primary WhatsApp account.
+- The standalone dashboard/messenger starts on Android without root.
+- Loading the Xposed entry point inside WhatsApp requires a compatible rooted device and Xposed/LSPosed runtime.
+- Device-level module activation has not been accepted on Samsung Galaxy A54.
+- Use a spare test device/account for any future host-app compatibility work.
 
 ## Build
 
-From the repository root:
+From repository root:
 
 ```bash
 cd android
 ./gradlew :samurai-xposed-lab:testDebugUnitTest :samurai-xposed-lab:assembleDebug
 ```
 
-The debug APK is written to:
+Output:
 
 `android/samurai-xposed-lab/build/outputs/apk/debug/samurai-xposed-lab-debug.apk`
 
-## Promotion gate for any future feature
+## Quality gates
 
-A host version must be identified from an authorized local APK, the exact package/version tuple must be added to a reviewed compatibility record, and the feature must pass unit tests plus two-device tests on dedicated test accounts. A successful Xposed load event is not proof that a hook works.
-
-This lab intentionally starts with diagnostics only. It is not an unofficial WhatsApp client and does not promise anti-ban behavior.
+CI runs JVM tests for compatibility checks and messenger filtering, builds the APK, validates Xposed metadata, and confirms the messenger classes are packaged. Passing CI does not prove real-device UI behavior or network delivery.
