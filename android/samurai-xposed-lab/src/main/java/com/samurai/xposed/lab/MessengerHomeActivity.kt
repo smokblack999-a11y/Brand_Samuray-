@@ -441,17 +441,26 @@ class MessengerHomeActivity : Activity() {
     }
 
     private fun createChatDialog() {
-        val input = EditText(this).apply { hint = "Имя диалога"; setSingleLine(true) }
-        val choices = arrayOf("Личный диалог", "Группа")
-        var category = "personal"
+        val form = column().apply { setPadding(dp(8), dp(6), dp(8), 0) }
+        val input = EditText(this).apply {
+            hint = "Название диалога"
+            isSingleLine = true
+        }
+        form.addView(input, LinearLayout.LayoutParams(-1, -2))
+        val group = android.widget.RadioGroup(this).apply { orientation = android.widget.RadioGroup.VERTICAL }
+        val personal = android.widget.RadioButton(this).apply { text = "Личный диалог"; id = View.generateViewId(); isChecked = true }
+        val groupChat = android.widget.RadioButton(this).apply { text = "Групповой диалог"; id = View.generateViewId() }
+        group.addView(personal)
+        group.addView(groupChat)
+        form.addView(group)
         AlertDialog.Builder(this)
             .setTitle("Новый диалог")
-            .setView(input)
-            .setSingleChoiceItems(choices, 0) { _, which -> category = if (which == 0) "personal" else "group" }
+            .setView(form)
             .setNegativeButton("Отмена", null)
             .setPositiveButton("Создать") { _, _ ->
+                val category = if (group.checkedRadioButtonId == groupChat.id) "group" else "personal"
                 runCatching { store.createChat(input.text.toString(), category) }
-                    .onSuccess { id -> currentFilter = "Все"; openChat(id) }
+                    .onSuccess { id -> currentFilter = "Все"; currentQuery = ""; openChat(id) }
                     .onFailure { Toast.makeText(this, it.message ?: "Не удалось создать диалог", Toast.LENGTH_LONG).show() }
             }
             .show()
