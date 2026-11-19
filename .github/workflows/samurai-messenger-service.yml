@@ -1,0 +1,62 @@
+name: SAMURAI Messenger Service
+
+on:
+  push:
+    branches: [ "feat/samurai-messenger-production-v1" ]
+    paths:
+      - "samurai-messenger/**"
+      - ".github/workflows/samurai-messenger-service.yml"
+  pull_request:
+    paths:
+      - "samurai-messenger/**"
+      - ".github/workflows/samurai-messenger-service.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: samurai-messenger-service-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  api-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: samurai
+          POSTGRES_PASSWORD: samurai-test-password
+          POSTGRES_DB: samurai_messenger
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U samurai -d samurai_messenger"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install service dependencies
+        working-directory: samurai-messenger/service
+        run: npm install --ignore-scripts
+      - name: Apply database migration
+        env:
+          PGPASSWORD: samurai-test-password
+        run: psql -h localhost -U samurai -d samurai_messenger -v ON_ERROR_STOP=1 -f samurai-messenger/db/migrations/001_initial_schema.sql
+      - name: Run unit and two-account integration tests
+        working-directory: samurai-messenger/service
+        env:
+          DATABASE_URL: postgresql://samurai:samurai-test-password@localhost:5432/samurai_messenger
+        run: npm test
+      - name: Verify API startup fails closed without secrets
+        working-directory: samurai-messenger/service
+        run: |
+          if JWT_SECRET=short DATABASE_URL=postgres://invalid npm start; then
+            echo "Expected startup to reject short JWT_SECRET"
+            exit 1
+          fi

@@ -13,6 +13,8 @@
         android:theme="@style/AppTheme"
         android:usesCleartextTraffic="false">
 
+        <activity android:name="com.samuraios.app.messenger.MessengerActivity" android:exported="false" />
+
         <activity
             android:name=".MainActivity"
             android:exported="true"
