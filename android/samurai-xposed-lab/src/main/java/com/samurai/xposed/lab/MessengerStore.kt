@@ -66,30 +66,35 @@ internal class MessengerStore(context: Context) :
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
-        // Version 1 is the first persistent local store. Future migrations must
-        // be additive; never drop user-created local conversations automatically.
+        if (oldVersion < 2) {
+            // Seed demo unread badges for existing prototype installations.
+            db.execSQL("UPDATE chats SET unread_count = 2 WHERE title = 'Александр' AND unread_count = 0")
+            db.execSQL("UPDATE chats SET unread_count = 5 WHERE title = 'Команда SAMURAI' AND unread_count = 0")
+        }
+        // Future migrations must be additive; never drop user-created local
+        // conversations or message history automatically.
     }
 
     private fun seedDemoData(db: SQLiteDatabase) {
         val now = System.currentTimeMillis()
         val samples = listOf(
-            Sample("Александр", "personal", "А", true, listOf(
+            Sample("Александр", "personal", "А", true, 2, listOf(
                 SampleMessage("Скинул документы, посмотри", false, now - 12 * 60_000L),
                 SampleMessage("Хорошо, проверю", true, now - 8 * 60_000L)
             )),
-            Sample("Команда SAMURAI", "group", "S", false, listOf(
+            Sample("Команда SAMURAI", "group", "S", false, 5, listOf(
                 SampleMessage("Ирина: сборка готова к проверке", false, now - 32 * 60_000L)
             )),
-            Sample("Мама", "personal", "М", false, listOf(
+            Sample("Мама", "personal", "М", false, 0, listOf(
                 SampleMessage("Не забудь позвонить", false, now - 54 * 60_000L)
             )),
-            Sample("Доставка · Курьеры", "group", "Д", false, listOf(
+            Sample("Доставка · Курьеры", "group", "Д", false, 0, listOf(
                 SampleMessage("Заказ #1042 доставлен", false, now - 95 * 60_000L)
             )),
-            Sample("Денис", "personal", "Д", true, listOf(
+            Sample("Денис", "personal", "Д", true, 0, listOf(
                 SampleMessage("Голосовое сообщение · 0:18", false, now - 24 * 60 * 60_000L)
             )),
-            Sample("Избранное", "personal", "★", true, listOf(
+            Sample("Избранное", "personal", "★", true, 0, listOf(
                 SampleMessage("Заметки и сохранённые сообщения", true, now - 3 * 24 * 60 * 60_000L)
             ))
         )
@@ -99,7 +104,7 @@ internal class MessengerStore(context: Context) :
                 put("initial", sample.initial)
                 put("category", sample.category)
                 put("pinned", if (sample.pinned) 1 else 0)
-                put("unread_count", 0)
+                put("unread_count", sample.unreadCount)
                 put("updated_at", sample.messages.last().time)
             }
             val chatId = db.insertOrThrow("chats", null, values)
@@ -243,6 +248,7 @@ internal class MessengerStore(context: Context) :
         val category: String,
         val initial: String,
         val pinned: Boolean,
+        val unreadCount: Int,
         val messages: List<SampleMessage>
     )
 
@@ -250,6 +256,6 @@ internal class MessengerStore(context: Context) :
 
     companion object {
         private const val DB_NAME = "samurai_messenger_local.db"
-        private const val DB_VERSION = 1
+        private const val DB_VERSION = 2
     }
 }
