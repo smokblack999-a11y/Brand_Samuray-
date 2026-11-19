@@ -2,6 +2,7 @@ package com.samuraios.app
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.content.Intent
 import android.graphics.Color
 import android.location.Location
 import android.os.Bundle
@@ -90,6 +91,7 @@ class MainActivity : ComponentActivity() {
         val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(24, 24, 24, 24); setBackgroundColor(Color.rgb(5, 8, 17)) }
         statusText = TextView(this).apply { text = "SamuraiOS: запуск..."; textSize = 20f; setTextColor(Color.rgb(0, 255, 136)); setPadding(0, 0, 0, 12) }
         root.addView(statusText)
+        root.addView(Button(this).apply { text = "ОТКРЫТЬ SAMURAI MESSENGER"; setOnClickListener { startActivity(Intent(this@MainActivity, com.samuraios.app.messenger.MessengerActivity::class.java)) } })
         previewView = PreviewView(this).apply { scaleType = PreviewView.ScaleType.FILL_CENTER }
         root.addView(previewView, LinearLayout.LayoutParams(-1, 520))
         root.addView(Button(this).apply { text = "СНЯТЬ ФОТО + GPS"; setOnClickListener { capturePhoto() } })
