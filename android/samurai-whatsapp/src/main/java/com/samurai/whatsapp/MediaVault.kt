@@ -12,7 +12,6 @@ import java.io.OutputStream
 import java.security.KeyStore
 import java.util.UUID
 import javax.crypto.Cipher
-import javax.crypto.CipherInputStream
 import javax.crypto.CipherOutputStream
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
@@ -155,41 +154,97 @@ internal object MediaVault {
     fun exportToUri(context: Context, id: String, destination: Uri) {
         val item = list(context).firstOrNull { it.id == id }
             ?: throw IllegalArgumentException("Media Vault item not found")
-        val output = context.contentResolver.openOutputStream(destination, "w")
-            ?: throw IllegalArgumentException("Destination file cannot be opened")
-        output.use { exportToStream(context, item.id, it) }
+
+        // Authenticate the complete GCM payload before opening the destination in
+        // truncate mode. A corrupt vault item must never erase an existing export.
+        val verifiedTemp = decryptToVerifiedTemp(context, item.id)
+        try {
+            val output = context.contentResolver.openOutputStream(destination, "w")
+                ?: throw IllegalArgumentException("Destination file cannot be opened")
+            output.use { copyVerifiedFile(verifiedTemp, it) }
+        } finally {
+            verifiedTemp.delete()
+        }
     }
 
     internal fun exportToStream(context: Context, id: String, output: OutputStream) {
-        val file = dataFile(context, id)
-        require(file.isFile) { "Media Vault item not found" }
+        val verifiedTemp = decryptToVerifiedTemp(context, id)
+        try {
+            copyVerifiedFile(verifiedTemp, output)
+        } finally {
+            verifiedTemp.delete()
+        }
+    }
 
-        FileInputStream(file).use { encryptedInput ->
-            val iv = ByteArray(IV_LENGTH_BYTES)
-            var offset = 0
-            while (offset < iv.size) {
-                val count = encryptedInput.read(iv, offset, iv.size - offset)
-                require(count > 0) { "Invalid encrypted Media Vault file" }
-                offset += count
-            }
+    /**
+     * Decrypts into an app-private temporary file and returns it only after
+     * Cipher.doFinal() has authenticated the AES-GCM tag. Plaintext produced by
+     * Cipher.update() is never sent to a caller-controlled destination.
+     */
+    private fun decryptToVerifiedTemp(context: Context, id: String): File {
+        val encryptedFile = dataFile(context, id)
+        require(encryptedFile.isFile) { "Media Vault item not found" }
 
-            val cipher = Cipher.getInstance(TRANSFORMATION).apply {
-                init(
-                    Cipher.DECRYPT_MODE,
-                    getOrCreateKey(),
-                    GCMParameterSpec(TAG_LENGTH_BITS, iv)
-                )
-            }
-            CipherInputStream(encryptedInput, cipher).use { decryptedInput ->
-                val buffer = ByteArray(BUFFER_SIZE)
-                while (true) {
-                    val count = decryptedInput.read(buffer)
-                    if (count < 0) break
-                    if (count == 0) continue
-                    output.write(buffer, 0, count)
+        val tempDirectory = File(context.cacheDir, "media-vault-export").apply {
+            check(isDirectory || mkdirs()) { "Could not create private export directory" }
+        }
+        val verifiedTemp = File.createTempFile("verified-", ".tmp", tempDirectory)
+
+        try {
+            FileInputStream(encryptedFile).use { encryptedInput ->
+                val iv = ByteArray(IV_LENGTH_BYTES)
+                var offset = 0
+                while (offset < iv.size) {
+                    val count = encryptedInput.read(iv, offset, iv.size - offset)
+                    require(count > 0) { "Invalid encrypted Media Vault file" }
+                    offset += count
                 }
-                output.flush()
+
+                val cipher = Cipher.getInstance(TRANSFORMATION).apply {
+                    init(
+                        Cipher.DECRYPT_MODE,
+                        getOrCreateKey(),
+                        GCMParameterSpec(TAG_LENGTH_BITS, iv)
+                    )
+                }
+
+                FileOutputStream(verifiedTemp).use { tempOutput ->
+                    val buffer = ByteArray(BUFFER_SIZE)
+                    while (true) {
+                        val count = encryptedInput.read(buffer)
+                        if (count < 0) break
+                        if (count == 0) continue
+                        val plaintext = cipher.update(buffer, 0, count)
+                        if (plaintext != null && plaintext.isNotEmpty()) {
+                            tempOutput.write(plaintext)
+                        }
+                    }
+
+                    // For GCM, doFinal validates the authentication tag. Only
+                    // after this succeeds may the temporary plaintext be exported.
+                    val finalBytes = cipher.doFinal()
+                    if (finalBytes.isNotEmpty()) tempOutput.write(finalBytes)
+                    tempOutput.flush()
+                    tempOutput.fd.sync()
+                }
             }
+            return verifiedTemp
+        } catch (error: Exception) {
+            verifiedTemp.delete()
+            throw error
+        }
+    }
+
+    private fun copyVerifiedFile(file: File, output: OutputStream) {
+        FileInputStream(file).use { input ->
+            val buffer = ByteArray(BUFFER_SIZE)
+            while (true) {
+                val count = input.read(buffer)
+                if (count < 0) break
+                if (count == 0) continue
+                output.write(buffer, 0, count)
+            }
+            output.flush()
         }
     }
 

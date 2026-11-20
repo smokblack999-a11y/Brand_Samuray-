@@ -16,17 +16,23 @@ import java.io.ByteArrayOutputStream
 
 @RunWith(AndroidJUnit4::class)
 class MediaVaultTest {
+    companion object {
+        private const val IV_BYTES_FOR_TEST = 12
+    }
+
     private val context: Context
         get() = ApplicationProvider.getApplicationContext()
 
     @Before
     fun setUp() {
         MediaVault.clear(context)
+        java.io.File(context.cacheDir, "media-vault-export").deleteRecursively()
     }
 
     @After
     fun tearDown() {
         MediaVault.clear(context)
+        java.io.File(context.cacheDir, "media-vault-export").deleteRecursively()
     }
 
     @Test
@@ -56,6 +62,85 @@ class MediaVaultTest {
         val exported = ByteArrayOutputStream()
         MediaVault.exportToStream(context, item.id, exported)
         assertArrayEquals(payload, exported.toByteArray())
+    }
+
+    @Test
+    fun rejectsTamperedAuthenticationTagWithoutWritingPartialPlaintext() {
+        val payload = ByteArray(48 * 1024) { (it % 251).toByte() }
+        val item = MediaVault.importStream(
+            context = context,
+            input = ByteArrayInputStream(payload),
+            displayName = "tamper-test.mp4",
+            mimeType = "video/mp4"
+        )
+        val encryptedFile = MediaVault.ciphertextFileForTest(context, item.id)
+        val ciphertext = encryptedFile.readBytes()
+        ciphertext[ciphertext.lastIndex] = (ciphertext.last().toInt() xor 0x01).toByte()
+        encryptedFile.writeBytes(ciphertext)
+
+        val destination = ByteArrayOutputStream().apply {
+            write("existing-destination".toByteArray())
+        }
+        val originalDestination = destination.toByteArray()
+        val result = runCatching {
+            MediaVault.exportToStream(context, item.id, destination)
+        }
+
+        assertTrue("A modified GCM tag must fail authentication", result.isFailure)
+        assertArrayEquals(
+            "No partial plaintext may be appended to the destination",
+            originalDestination,
+            destination.toByteArray()
+        )
+        val tempDirectory = java.io.File(context.cacheDir, "media-vault-export")
+        assertTrue(
+            "Failed authentication must clean temporary plaintext",
+            tempDirectory.listFiles().isNullOrEmpty()
+        )
+    }
+
+    @Test
+    fun rejectsModifiedIvWithoutWritingToDestination() {
+        val item = MediaVault.importStream(
+            context = context,
+            input = ByteArrayInputStream("authenticated payload".toByteArray()),
+            displayName = "iv-test.jpg",
+            mimeType = "image/jpeg"
+        )
+        val encryptedFile = MediaVault.ciphertextFileForTest(context, item.id)
+        val ciphertext = encryptedFile.readBytes()
+        ciphertext[0] = (ciphertext[0].toInt() xor 0x01).toByte()
+        encryptedFile.writeBytes(ciphertext)
+
+        val destination = ByteArrayOutputStream().apply { write(byteArrayOf(4, 5, 6)) }
+        val originalDestination = destination.toByteArray()
+        val result = runCatching {
+            MediaVault.exportToStream(context, item.id, destination)
+        }
+
+        assertTrue("A modified GCM IV must fail authentication", result.isFailure)
+        assertArrayEquals(originalDestination, destination.toByteArray())
+    }
+
+    @Test
+    fun rejectsTruncatedCiphertextWithoutWritingToDestination() {
+        val item = MediaVault.importStream(
+            context = context,
+            input = ByteArrayInputStream(ByteArray(1024) { 7 }),
+            displayName = "truncated.png",
+            mimeType = "image/png"
+        )
+        val encryptedFile = MediaVault.ciphertextFileForTest(context, item.id)
+        encryptedFile.writeBytes(encryptedFile.readBytes().copyOf(IV_BYTES_FOR_TEST + 5))
+
+        val destination = ByteArrayOutputStream().apply { write(byteArrayOf(9, 8, 7)) }
+        val originalDestination = destination.toByteArray()
+        val result = runCatching {
+            MediaVault.exportToStream(context, item.id, destination)
+        }
+
+        assertTrue("Truncated GCM payload must be rejected", result.isFailure)
+        assertArrayEquals(originalDestination, destination.toByteArray())
     }
 
     @Test
