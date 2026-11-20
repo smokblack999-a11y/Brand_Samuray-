@@ -26,11 +26,13 @@ class MediaVaultTest {
     @Before
     fun setUp() {
         MediaVault.clear(context)
+        java.io.File(context.cacheDir, "media-vault-export").deleteRecursively()
     }
 
     @After
     fun tearDown() {
         MediaVault.clear(context)
+        java.io.File(context.cacheDir, "media-vault-export").deleteRecursively()
     }
 
     @Test
