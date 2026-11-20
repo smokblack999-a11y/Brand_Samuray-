@@ -41,6 +41,20 @@ class WhatsAppKillSwitchManifestTest {
     }
 
     @Test
+    fun explicitDisableClearsPersistedVpnState() {
+        val prefs = context.getSharedPreferences(
+            "samurai_whatsapp_kill_switch",
+            Context.MODE_PRIVATE
+        )
+        prefs.edit().putBoolean("enabled", true).commit()
+
+        WhatsAppKillSwitchService.markDisabled(context)
+
+        assertFalse(prefs.getBoolean("enabled", true))
+        assertFalse(WhatsAppKillSwitchService.isEnabled(context))
+    }
+
+    @Test
     fun stalePersistedStateIsNotPresentedAsAnActiveVpn() {
         val prefs = context.getSharedPreferences(
             "samurai_whatsapp_kill_switch",
