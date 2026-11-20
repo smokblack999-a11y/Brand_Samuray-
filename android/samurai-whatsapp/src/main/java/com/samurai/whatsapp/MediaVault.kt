@@ -12,7 +12,6 @@ import java.io.OutputStream
 import java.security.KeyStore
 import java.util.UUID
 import javax.crypto.Cipher
-import javax.crypto.CipherInputStream
 import javax.crypto.CipherOutputStream
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
