@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "samurai-resource-engine"
+version = "0.1.0"
+description = "Local-first ingestion and provenance foundation for SAMURAI"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.scripts]
+samurai-resource = "samurai_resource_engine.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
