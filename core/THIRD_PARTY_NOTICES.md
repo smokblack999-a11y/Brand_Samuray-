@@ -35,3 +35,10 @@ publication metadata, not a complete legal license for the repository or the
 SAMURAI product. A repository-wide proprietary license must be issued only
 after the rights holder, copyright notice, third-party exclusions, and customer
 grant terms are confirmed.
+
+## Reviewed metadata exception
+
+- `rx-lite@3.1.2`: its npm lock entry omits a license field. The upstream
+  package metadata identifies Apache-2.0; the audit script applies a
+  version-specific reviewed override. Re-check the upstream license before
+  changing this version.
