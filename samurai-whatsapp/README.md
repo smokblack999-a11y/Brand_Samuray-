@@ -11,7 +11,7 @@ An isolated Android companion app alongside the existing SamuraiOS app. It does 
 - AES-256-GCM encryption for every archived notification record; key stored in Android Keystore
 - Local notification archive capped at 200 records, with pause/resume and clear/key retirement
 - **Encrypted Media Vault:** import user-selected images, videos and audio via Android's system document picker; AES-GCM/Android Keystore; encrypted metadata; app-private files; export, delete, clear
-- Media Vault guardrails: 100 items, 250 MiB per file and 1 GiB total; import/export on background threads; no broad storage permission
+- Media Vault guardrails: 100 items, 250 MiB per file and 1 GiB total; import/export on background threads; no broad storage permission. Export decrypts into an app-private temporary file and verifies the AES-GCM tag before opening or writing the selected destination; temporary plaintext is deleted after export or failure.
 - **Official chat-export importer:** import the user's own WhatsApp `.txt` or `.zip` chat export; inspect a preview and message count before saving; duplicate-safe re-import based on source hash; encrypted conversation archive; list, read and delete imported chats
 - Export-import guardrails: compressed/input source up to 20 MiB, normalized transcript up to 24 MiB, 20,000 messages per export, 100 imported conversations
 - ZIP import currently reads the chat TXT entry only. Media attachments bundled in the ZIP are not extracted automatically; they can be added separately through the user-selected Media Vault.
@@ -81,7 +81,7 @@ GitHub Actions builds both SAMURAI Android apps, checks required Kotlin classes 
 10. Test individual deletion and Clear Media Vault / Clear Imported Chats.
 11. Revoke Notification Access in Android settings whenever desired.
 
-Do not grant accessibility, root, VPN, device-admin, contacts, SMS, camera, or microphone access for this prototype.
+Do not grant accessibility, root, device-admin, contacts, SMS, camera, or microphone access for this prototype. The optional per-app network block is a separate feature: grant Android VPN consent only if you intentionally enable that control and understand that it is session-bound and fail-open when the service stops.
 
 ## Release status
 
@@ -93,7 +93,7 @@ Code and automated tests have been added to the feature branch. They are **not C
 - **Status Saver:** uses Android Storage Access Framework to inspect only a user-selected WhatsApp/Media or .Statuses tree. It lists up to 300 already-cached image/video files and manually copies a selected file into Media Vault. It does not access unviewed/hidden statuses, View Once media or another app's private database.
 - **Message Timeline:** encrypted local ledger capped at 500 entries. Current event producers are incoming notification capture and user-imported chat export only. Source event time and local observation time remain separate; read/delivery/presence signals are not invented.
 - **App Lock:** Android biometric/device-credential prompt at launch and after 30 seconds in background. SAMURAI stores only the enabled flag, never a PIN, password or biometric template. FLAG_SECURE blocks screenshots and app-preview capture while enabled.
-- **Per-app network block:** explicit Android VPN consent; only WhatsApp/WhatsApp Business package UIDs are routed to a local TUN and packets are discarded, not inspected or forwarded. It is session-bound and fail-open if the service stops; it is not Android Always-on/Lockdown.
+- **Per-app network block:** explicit Android VPN consent; only WhatsApp/WhatsApp Business package UIDs are routed to a local TUN and packets are discarded, not inspected or forwarded. It is session-bound and fail-open if the service stops or the OS revokes/kills it; it is not Android Always-on/Lockdown. Physical-device lifecycle behavior still requires validation.
 - **Package visibility:** manifest queries only com.whatsapp and com.whatsapp.w4b; no broad QUERY_ALL_PACKAGES permission.
 
 The latest emulator attempt built both apps and passed DEX verification, but instrumentation crashed before any test completed (0/0). APK upload was skipped. No Galaxy A54 physical-device validation is claimed.
