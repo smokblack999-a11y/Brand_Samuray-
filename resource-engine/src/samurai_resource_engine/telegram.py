@@ -165,6 +165,7 @@ async def collect_telegram(
                             "outgoing": bool(getattr(message, "out", False)),
                             "views": getattr(message, "views", None),
                             "forwards": getattr(message, "forwards", None),
+                            "relevance": relevance,
                         }
                         item = {
                             "external_id": f"{chat_id}:{msg_id}",
