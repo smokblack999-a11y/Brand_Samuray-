@@ -98,6 +98,29 @@ class MediaVaultTest {
     }
 
     @Test
+    fun rejectsModifiedIvWithoutWritingToDestination() {
+        val item = MediaVault.importStream(
+            context = context,
+            input = ByteArrayInputStream("authenticated payload".toByteArray()),
+            displayName = "iv-test.jpg",
+            mimeType = "image/jpeg"
+        )
+        val encryptedFile = MediaVault.ciphertextFileForTest(context, item.id)
+        val ciphertext = encryptedFile.readBytes()
+        ciphertext[0] = (ciphertext[0].toInt() xor 0x01).toByte()
+        encryptedFile.writeBytes(ciphertext)
+
+        val destination = ByteArrayOutputStream().apply { write(byteArrayOf(4, 5, 6)) }
+        val originalDestination = destination.toByteArray()
+        val result = runCatching {
+            MediaVault.exportToStream(context, item.id, destination)
+        }
+
+        assertTrue("A modified GCM IV must fail authentication", result.isFailure)
+        assertArrayEquals(originalDestination, destination.toByteArray())
+    }
+
+    @Test
     fun rejectsTruncatedCiphertextWithoutWritingToDestination() {
         val item = MediaVault.importStream(
             context = context,
