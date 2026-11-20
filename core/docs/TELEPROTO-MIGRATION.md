@@ -38,3 +38,12 @@ license audit, secret scan, syntax checks and all 77 tests successfully.
 
 This evidence does not cover a live Telegram login, an existing production
 session, message delivery, media upload, or a production deployment.
+
+## Android / Termux compatibility note
+
+`teleproto@1.233.0` depends on `cifrante@0.8.1`. The package describes a
+portable JavaScript fallback when a native implementation is unavailable.
+The published native platform packages do not list Android ARMv7/Termux as a
+target, so CI on x64 Linux does not establish compatibility on the project's
+32-bit ARM Termux environment. Verify package loading and MTProto crypto on
+that device before replacing the installed Core runtime.
