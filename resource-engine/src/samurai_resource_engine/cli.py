@@ -25,7 +25,7 @@ def main() -> None:
     telegram = sub.add_parser("telegram-collect", help="Collect history from a Telegram chat accessible to your account")
     telegram.add_argument("--chat", required=True, help="Chat username, link, or numeric ID")
     telegram.add_argument("--account", default="primary", help="Local account/session label")
-    telegram.add_argument("--limit", type=int, default=0, help="Maximum messages this run; 0 means all available history")
+    telegram.add_argument("--limit", type=int, default=500, help="Maximum messages this run; default 500; 0 means all available history")
     telegram.add_argument("--media", action="store_true", help="Download media files into the local vault")
     telegram.add_argument("--session-dir", default="data/telegram_sessions")
     telegram.add_argument("--checkpoint-dir", default="data/telegram_checkpoints")
