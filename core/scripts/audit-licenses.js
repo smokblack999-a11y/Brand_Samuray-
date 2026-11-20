@@ -12,12 +12,17 @@ if (!fs.existsSync(lockPath)) {
 const lock = JSON.parse(fs.readFileSync(lockPath, "utf8"));
 const packages = lock.packages || {};
 const findings = [];
+
+// Reviewed upstream license metadata omissions. Keep this list narrow and version-pinned.
+const reviewedOverrides = {
+  "rx-lite@3.1.2": "Apache-2.0",
+};
 const blocked = [];
 
 for (const [location, metadata] of Object.entries(packages)) {
   if (!location.startsWith("node_modules/")) continue;
-  const license = metadata.license || metadata.licenses || null;
   const name = location.slice("node_modules/".length);
+  const license = metadata.license || metadata.licenses || reviewedOverrides[`${name}@${metadata.version}`] || null;
   const record = { name, version: metadata.version || null, license: license || "UNKNOWN" };
   findings.push(record);
 
