@@ -19,8 +19,8 @@ import java.util.concurrent.atomic.AtomicBoolean
  * while other applications continue to use their normal network.
  */
 class WhatsAppKillSwitchService : VpnService() {
-    private var tunnel: ParcelFileDescriptor? = null
-    private var readerThread: Thread? = null
+    @Volatile private var tunnel: ParcelFileDescriptor? = null
+    @Volatile private var readerThread: Thread? = null
     private val stopping = AtomicBoolean(false)
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
