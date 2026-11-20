@@ -2,8 +2,8 @@
 
 require("dotenv").config();
 
-const { TelegramClient } = require("telegram");
-const { StringSession } = require("telegram/sessions");
+const { TelegramClient } = require("teleproto");
+const { StringSession } = require("teleproto/sessions");
 
 const apiId = Number(process.env.TELEGRAM_API_ID);
 const apiHash = process.env.TELEGRAM_API_HASH;

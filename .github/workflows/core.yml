@@ -38,6 +38,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Audit dependency licenses
+        run: npm run license:audit
+
       - name: Secret pattern scan
         working-directory: .
         shell: bash
