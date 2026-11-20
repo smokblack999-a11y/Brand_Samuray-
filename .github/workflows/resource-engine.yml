@@ -1,0 +1,36 @@
+name: SAMURAI Resource Engine
+
+on:
+  push:
+    branches:
+      - feat/samurai-resource-engine-foundation-v1
+    paths:
+      - "resource-engine/**"
+      - ".github/workflows/resource-engine.yml"
+  pull_request:
+    paths:
+      - "resource-engine/**"
+      - ".github/workflows/resource-engine.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  resource-engine-tests:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: resource-engine
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install package
+        run: python -m pip install -e .
+      - name: Run unit tests
+        env:
+          PYTHONPATH: src
+        run: python -m unittest discover -s tests -v
