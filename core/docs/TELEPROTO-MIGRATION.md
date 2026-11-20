@@ -1,0 +1,30 @@
+# Telegram MTProto client migration
+
+## Decision
+
+Replace the archived `telegram` (GramJS) npm package with the maintained
+`teleproto` fork. The previous lockfile resolved
+`telegram@2.26.22 -> @cryptography/aes@0.1.1`, whose declared license is
+`GPL-3.0-or-later`. The new direct dependency is pinned to `teleproto@1.233.0`
+and declares MIT.
+
+## Compatibility boundary
+
+The current integration uses `TelegramClient`, `StringSession`, connect,
+getMe, getDialogs, getMessages, sendMessage, and sendFile. teleproto documents
+these GramJS-compatible entry points and compatibility with existing GramJS
+StringSession values. This is an API compatibility claim, not a completed live
+Telegram account test.
+
+## Validation required before release
+
+1. `npm ci`
+2. `npm run license:audit`
+3. `npm test`
+4. Run the interactive login against a test Telegram account with 2FA enabled.
+5. Verify an existing session can reconnect, list dialogs/messages, send a
+   controlled test message, and send a test photo.
+6. Confirm no session string or 2FA credential appears in logs or Git history.
+
+Do not rotate or replace production Telegram sessions as part of CI. Do not
+perform live Telegram operations from an automated pull-request workflow.
