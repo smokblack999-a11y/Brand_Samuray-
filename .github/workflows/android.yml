@@ -1,4 +1,4 @@
-name: Build SamuraiOS APK
+name: Build SamuraiOS and SAMURAI WhatsApp APKs
 
 on:
   push:
@@ -9,10 +9,14 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 45
 
     steps:
       - name: Checkout
@@ -44,20 +48,111 @@ jobs:
         working-directory: android
         run: chmod +x gradlew
 
-      - name: Build Debug APK
+      - name: Build both Android applications
         working-directory: android
-        run: ./gradlew clean assembleDebug --stacktrace
+        run: ./gradlew clean assembleDebug :samurai-whatsapp:compileDebugKotlin :samurai-whatsapp:assembleDebug --stacktrace
 
-      - name: Verify APK
+      - name: Verify APKs and packaged Kotlin classes
+        id: verify-apks
         working-directory: android
+        shell: bash
         run: |
           set -euo pipefail
           test -f app/build/outputs/apk/debug/app-debug.apk
+          APK="samurai-whatsapp/build/outputs/apk/debug/samurai-whatsapp-debug.apk"
+          test -f "$APK"
           ls -lh app/build/outputs/apk/debug/app-debug.apk
+          ls -lh "$APK"
+          DEX_LIST="$(unzip -Z1 "$APK" | grep -E '^classes([0-9]+)?[.]dex$')"
+          test -n "$DEX_LIST"
+          DEX_CONTENT="$(while IFS= read -r dex; do unzip -p "$APK" "$dex"; done <<< "$DEX_LIST" | strings)"
+          grep -Fq 'com/samurai/whatsapp/MainActivity' <<< "$DEX_CONTENT"
+          grep -Fq 'com/samurai/whatsapp/WhatsAppNotificationListener' <<< "$DEX_CONTENT"
+          grep -Fq 'com/samurai/whatsapp/NotificationArchive' <<< "$DEX_CONTENT"
+          grep -Fq 'com/samurai/whatsapp/MediaVault' <<< "$DEX_CONTENT"
+          grep -Fq 'com/samurai/whatsapp/WhatsAppExportImporter' <<< "$DEX_CONTENT"
+          grep -Fq 'com/samurai/whatsapp/WhatsAppExportArchive' <<< "$DEX_CONTENT"
+          grep -Fq 'com/samurai/whatsapp/StatusSaver' <<< "$DEX_CONTENT"
+          grep -Fq 'com/samurai/whatsapp/MessageTimeline' <<< "$DEX_CONTENT"
+          grep -Fq 'com/samurai/whatsapp/MessageStatusReducer' <<< "$DEX_CONTENT"
+          grep -Fq 'com/samurai/whatsapp/ReceiptDisplayPolicy' <<< "$DEX_CONTENT"
+          grep -Fq 'com/samurai/whatsapp/AppLock' <<< "$DEX_CONTENT"
+          grep -Fq 'com/samurai/whatsapp/WhatsAppKillSwitchService' <<< "$DEX_CONTENT"
+          MANIFEST="samurai-whatsapp/src/main/AndroidManifest.xml"
+          grep -Fq 'android:name="com.whatsapp"' "$MANIFEST"
+          grep -Fq 'android:name="com.whatsapp.w4b"' "$MANIFEST"
+          if grep -Fq 'android.permission.QUERY_ALL_PACKAGES' "$MANIFEST"; then
+            echo "Broad QUERY_ALL_PACKAGES permission is not allowed"
+            exit 1
+          fi
+          echo "WhatsApp classes and narrow package visibility: PASS"
 
-      - name: Upload APK
+      - name: Package full SAMURAI bundle
+        if: steps.verify-apks.outcome == 'success'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          cp android/app/build/outputs/apk/debug/app-debug.apk dist/SamuraiOS-debug.apk
+          cp android/samurai-whatsapp/build/outputs/apk/debug/samurai-whatsapp-debug.apk dist/SAMURAI-WhatsApp-debug.apk
+          git archive --format=zip --output=dist/SAMURAI-source.zip HEAD
+          {
+            echo "SAMURAI WHATSAPP HYBRID V1 — DEBUG BUNDLE"
+            echo "Commit: $(git rev-parse HEAD)"
+            echo "Ref: $GITHUB_REF"
+            echo "Build type: debug (not production-signed)"
+            echo "SamuraiOS APK: SamuraiOS-debug.apk"
+            echo "SAMURAI WhatsApp APK: SAMURAI-WhatsApp-debug.apk"
+            echo "Source archive: SAMURAI-source.zip"
+            echo
+            sha256sum dist/SamuraiOS-debug.apk dist/SAMURAI-WhatsApp-debug.apk dist/SAMURAI-source.zip
+          } > dist/BUILD-MANIFEST.txt
+          (cd dist && zip -9 SAMURAI-FULL-BUNDLE.zip SamuraiOS-debug.apk SAMURAI-WhatsApp-debug.apk SAMURAI-source.zip BUILD-MANIFEST.txt)
+
+      - name: Upload full SAMURAI bundle
+        if: steps.verify-apks.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
-          name: SamuraiOS-debug-apk
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          name: SAMURAI-WHATSAPP-HYBRID-V1-full-bundle
+          path: dist/SAMURAI-FULL-BUNDLE.zip
           if-no-files-found: error
+
+      - name: Upload APKs
+        if: steps.verify-apks.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: SamuraiOS-and-SAMURAI-WhatsApp-debug-apks
+          path: |
+            dist/SamuraiOS-debug.apk
+            dist/SAMURAI-WhatsApp-debug.apk
+            dist/BUILD-MANIFEST.txt
+          if-no-files-found: error
+
+      - name: Run SAMURAI WhatsApp archive tests on Android emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          # This module tests Android framework APIs and Android Keystore; it does not
+          # need Play services or screenshot rendering. AOSP ATD reduces background
+          # services and resource pressure in hosted CI runners.
+          api-level: 34
+          target: aosp_atd
+          arch: x86_64
+          profile: pixel_2
+          cores: 2
+          ram-size: 2048M
+          heap-size: 512M
+          emulator-boot-timeout: 900
+          disable-linux-hw-accel: auto
+          disable-spellchecker: true
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
+          script: >-
+            bash -lc 'cd android && ./gradlew :samurai-whatsapp:connectedDebugAndroidTest --stacktrace; TEST_EXIT=$?; mkdir -p "$GITHUB_WORKSPACE/artifacts/diagnostics"; adb devices -l > "$GITHUB_WORKSPACE/artifacts/diagnostics/adb-devices.txt" 2>&1 || true; adb logcat -d -v threadtime > "$GITHUB_WORKSPACE/artifacts/diagnostics/emulator-logcat.txt" 2>&1 || true; adb shell dumpsys activity processes > "$GITHUB_WORKSPACE/artifacts/diagnostics/activity-processes.txt" 2>&1 || true; adb shell dumpsys package com.samurai.whatsapp > "$GITHUB_WORKSPACE/artifacts/diagnostics/package-samurai-whatsapp.txt" 2>&1 || true; exit "$TEST_EXIT"'
+
+      - name: Upload emulator diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: samurai-whatsapp-emulator-diagnostics
+          path: artifacts/diagnostics/
+          if-no-files-found: warn
