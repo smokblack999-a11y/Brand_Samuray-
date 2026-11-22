@@ -38,11 +38,11 @@ It establishes:
 - Expiration calculation and checks.
 - Validation against negative timestamps and inconsistent READ state.
 
-This is a **domain foundation only**. It is not yet wired to persistence, cryptography, UI, network transport, or message delivery.
+This is wired to a prototype single-file encrypted local store (`MessageStore.kt`) using AES-GCM with an Android Keystore key. It is still not wired to UI, network transport, E2E encryption, registration, push, or message delivery. The store is an early prototype; transactional database, migrations, concurrency, atomic replacement robustness, key rotation, backup policy review, and tests remain required.
 
 ## Next implementation sequence
 
-1. Add encrypted local persistence using Android Keystore; store records encrypted, never plaintext backups.
+1. Replace the prototype encrypted file store with transactional Room/SQLite storage and migrations; keep payload encryption with Keystore-managed keys.
 2. Implement conversation/contact schema and migrations.
 3. Implement message composer + conversation list UI.
 4. Build transport contract and testable local loopback/demo transport.
