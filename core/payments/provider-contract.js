@@ -3,6 +3,7 @@
 const REQUIRED_METHODS = Object.freeze([
   "createOneTimeCheckout",
   "createSubscriptionCheckout",
+  "retrieveSubscription",
   "verifyWebhook",
   "parseWebhook",
   "refund",
