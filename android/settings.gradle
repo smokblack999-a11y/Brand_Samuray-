@@ -15,4 +15,4 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "SamuraiOS"
-include(":app", ":samurai-whatsapp")
+include(":app", ":samurai-whatsapp", ":samurai-launcher")
