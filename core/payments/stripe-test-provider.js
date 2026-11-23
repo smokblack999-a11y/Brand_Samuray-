@@ -107,6 +107,14 @@ function createStripeTestProvider({ StripeClient, apiKey, webhookSecret, apiVers
       catch { throw paymentError("STRIPE_WEBHOOK_SIGNATURE_INVALID", "Stripe webhook signature verification failed"); }
     },
 
+    async retrieveSubscription(subscriptionId) {
+      const id = requiredString(subscriptionId, "PAYMENT_SUBSCRIPTION_ID_REQUIRED", "subscriptionId");
+      if (!/^sub_[A-Za-z0-9]+$/.test(id)) throw paymentError("PAYMENT_SUBSCRIPTION_ID_INVALID", "Stripe subscription ID is invalid");
+      const subscription = await stripe.subscriptions.retrieve(id);
+      if (!subscription || subscription.id !== id) throw paymentError("PAYMENT_SUBSCRIPTION_LOOKUP_FAILED", "Stripe subscription lookup returned an unexpected object");
+      return subscription;
+    },
+
     async parseWebhook(event) {
       if (!event || typeof event.id !== "string" || typeof event.type !== "string" || !event.data || !event.data.object) {
         throw paymentError("STRIPE_WEBHOOK_EVENT_INVALID", "Verified Stripe event has an invalid structure");
