@@ -102,3 +102,19 @@ test("webhook event timestamps are not trusted; canonical provider state wins", 
     delete process.env.PAYMENTS_DATA_DIR;
   }
 });
+
+test("invoice handler supports current nested subscription reference shape", async () => {
+  const ctx = setup();
+  try {
+    await ctx.handlers["checkout.session.completed"](ctx.session, { type: "checkout.session.completed" });
+    ctx.providerState.status = "active";
+    await ctx.handlers["invoice.paid"]({
+      parent: { subscription_details: { subscription: "sub_123" } },
+      customer: "cus_123"
+    }, { type: "invoice.paid" });
+    assert.equal(ctx.ledger.getSubscriptionByProviderId("sub_123").status, "active");
+  } finally {
+    fs.rmSync(ctx.dir, { recursive: true, force: true });
+    delete process.env.PAYMENTS_DATA_DIR;
+  }
+});
