@@ -106,6 +106,10 @@ function createPaymentLedger() {
       const paymentId = cleanId(input.paymentId, "paymentId");
       const state = readState();
       if (state.payments[paymentId]) throw paymentError("PAYMENT_LEDGER_DUPLICATE", "Payment record already exists");
+      const providerSessionId = cleanId(input.providerSessionId, "providerSessionId", "cs_");
+      if (Object.values(state.payments).some(record => record.providerSessionId === providerSessionId)) {
+        throw paymentError("PAYMENT_LEDGER_SESSION_DUPLICATE", "Provider Checkout Session is already linked to a payment");
+      }
       const amountMinor = input.amountMinor;
       const currency = cleanId(input.currency, "currency").toLowerCase();
       if (!Number.isSafeInteger(amountMinor) || amountMinor < 1 || !/^[a-z]{3}$/.test(currency)) {
@@ -116,7 +120,7 @@ function createPaymentLedger() {
         orderId: cleanId(input.orderId, "orderId"),
         customerId: cleanId(input.customerId, "customerId"),
         provider: cleanId(input.provider, "provider"),
-        providerSessionId: cleanId(input.providerSessionId, "providerSessionId", "cs_"),
+        providerSessionId,
         amountMinor,
         currency,
         status: "pending",
