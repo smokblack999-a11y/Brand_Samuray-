@@ -7,7 +7,7 @@ const { paymentError } = require("./provider-contract");
 
 const DATA_DIR = process.env.PAYMENTS_DATA_DIR || process.env.DATA_DIR || path.join(__dirname, "..", "data");
 const FILE = path.join(DATA_DIR, "payments-ledger.json");
-const TERMINAL = new Set(["paid", "failed", "cancelled", "refunded"]);
+const ALLOWED_TRANSITIONS = Object.freeze({\n  pending: new Set(["processing", "paid", "failed", "cancelled"]),\n  processing: new Set(["paid", "failed", "cancelled"]),\n  paid: new Set(["refunded"]),\n  failed: new Set(),\n  cancelled: new Set(),\n  refunded: new Set()\n});
 
 function ensure() {
   fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -117,7 +117,7 @@ function createPaymentLedger() {
       const record = state.payments[id];
       if (!record) throw paymentError("PAYMENT_LEDGER_PAYMENT_NOT_FOUND", "Payment record not found");
       if (record.status === nextStatus) return record;
-      if (TERMINAL.has(record.status)) throw paymentError("PAYMENT_LEDGER_TRANSITION_INVALID", "Terminal payment state cannot be changed");
+      if (!ALLOWED_TRANSITIONS[record.status]?.has(nextStatus)) throw paymentError("PAYMENT_LEDGER_TRANSITION_INVALID", "Payment state transition is not allowed");
       record.status = nextStatus;
       if (typeof providerReference === "string" && providerReference.startsWith("pi_")) record.paymentIntentId = providerReference;
       record.updatedAt = new Date().toISOString();
