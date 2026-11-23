@@ -21,7 +21,7 @@
     "telegram": "^2.26.22"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22.13.0"
   },
   "type": "commonjs"
 }
