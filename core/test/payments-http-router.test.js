@@ -49,7 +49,7 @@ function setup() {
       next();
     },
     resolveDeliveryOrder: async orderId => ({
-      orderId, customerId: "customer_123", productName: "Delivery",
+      orderId, payable: true, customerId: "customer_123", productName: "Delivery",
       amountMinor: 250000, currency: "KZT", version: 3
     }),
     successUrl: "https://samurai.example/payment/success",
