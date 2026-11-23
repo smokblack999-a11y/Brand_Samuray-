@@ -7,22 +7,38 @@ const { paymentError } = require("./provider-contract");
 
 const DATA_DIR = process.env.PAYMENTS_DATA_DIR || process.env.DATA_DIR || path.join(__dirname, "..", "data");
 const FILE = path.join(DATA_DIR, "payments-ledger.json");
-const ALLOWED_TRANSITIONS = Object.freeze({\n  pending: new Set(["processing", "paid", "failed", "cancelled"]),\n  processing: new Set(["paid", "failed", "cancelled"]),\n  paid: new Set(["refunded"]),\n  failed: new Set(),\n  cancelled: new Set(),\n  refunded: new Set()\n});
+const ALLOWED_TRANSITIONS = Object.freeze({
+  pending: new Set(["processing", "paid", "failed", "cancelled"]),
+  processing: new Set(["paid", "failed", "cancelled"]),
+  paid: new Set(["refunded"]),
+  failed: new Set(),
+  cancelled: new Set(),
+  refunded: new Set()
+});
 
 function ensure() {
   fs.mkdirSync(DATA_DIR, { recursive: true });
   if (!fs.existsSync(FILE)) {
-    try { fs.writeFileSync(FILE, JSON.stringify({ version: 1, events: {}, payments: {} }, null, 2) + "\n", { flag: "wx", mode: 0o600 }); }
-    catch (error) { if (error.code !== "EEXIST") throw error; }
+    try {
+      fs.writeFileSync(FILE, JSON.stringify({ version: 1, events: {}, payments: {} }, null, 2) + "\n", {
+        flag: "wx", mode: 0o600
+      });
+    } catch (error) {
+      if (error.code !== "EEXIST") throw error;
+    }
   }
 }
 
 function readState() {
   ensure();
   let state;
-  try { state = JSON.parse(fs.readFileSync(FILE, "utf8")); }
-  catch { throw paymentError("PAYMENT_LEDGER_CORRUPT", "Payment ledger cannot be parsed; refusing to overwrite it"); }
-  if (!state || state.version !== 1 || !state.events || !state.payments || typeof state.events !== "object" || typeof state.payments !== "object") {
+  try {
+    state = JSON.parse(fs.readFileSync(FILE, "utf8"));
+  } catch {
+    throw paymentError("PAYMENT_LEDGER_CORRUPT", "Payment ledger cannot be parsed; refusing to overwrite it");
+  }
+  if (!state || state.version !== 1 || !state.events || !state.payments ||
+      typeof state.events !== "object" || typeof state.payments !== "object") {
     throw paymentError("PAYMENT_LEDGER_INVALID", "Payment ledger schema is invalid; refusing to overwrite it");
   }
   return state;
@@ -44,7 +60,9 @@ function cleanId(value, field, prefix) {
     throw paymentError("PAYMENT_LEDGER_INPUT_INVALID", field + " is required");
   }
   const result = value.trim();
-  if (prefix && !result.startsWith(prefix)) throw paymentError("PAYMENT_LEDGER_INPUT_INVALID", field + " has an invalid prefix");
+  if (prefix && !result.startsWith(prefix)) {
+    throw paymentError("PAYMENT_LEDGER_INPUT_INVALID", field + " has an invalid prefix");
+  }
   return result;
 }
 
@@ -70,7 +88,9 @@ function createPaymentLedger() {
 
     markEvent(eventId, status, errorCode) {
       const id = cleanId(eventId, "eventId", "evt_");
-      if (!["completed", "failed"].includes(status)) throw paymentError("PAYMENT_LEDGER_INPUT_INVALID", "Event status must be completed or failed");
+      if (!["completed", "failed"].includes(status)) {
+        throw paymentError("PAYMENT_LEDGER_INPUT_INVALID", "Event status must be completed or failed");
+      }
       const state = readState();
       const event = state.events[id];
       if (!event) throw paymentError("PAYMENT_LEDGER_EVENT_NOT_FOUND", "Webhook event was not claimed");
@@ -110,16 +130,20 @@ function createPaymentLedger() {
 
     setPaymentStatus(paymentId, nextStatus, providerReference) {
       const id = cleanId(paymentId, "paymentId");
-      if (!["processing", "paid", "failed", "cancelled", "refunded"].includes(nextStatus)) {
+      if (!Object.hasOwn(ALLOWED_TRANSITIONS, nextStatus)) {
         throw paymentError("PAYMENT_LEDGER_STATUS_INVALID", "Payment status is invalid");
       }
       const state = readState();
       const record = state.payments[id];
       if (!record) throw paymentError("PAYMENT_LEDGER_PAYMENT_NOT_FOUND", "Payment record not found");
       if (record.status === nextStatus) return record;
-      if (!ALLOWED_TRANSITIONS[record.status]?.has(nextStatus)) throw paymentError("PAYMENT_LEDGER_TRANSITION_INVALID", "Payment state transition is not allowed");
+      if (!ALLOWED_TRANSITIONS[record.status]?.has(nextStatus)) {
+        throw paymentError("PAYMENT_LEDGER_TRANSITION_INVALID", "Payment state transition is not allowed");
+      }
       record.status = nextStatus;
-      if (typeof providerReference === "string" && providerReference.startsWith("pi_")) record.paymentIntentId = providerReference;
+      if (typeof providerReference === "string" && providerReference.startsWith("pi_")) {
+        record.paymentIntentId = providerReference;
+      }
       record.updatedAt = new Date().toISOString();
       state.payments[id] = record;
       writeState(state);
