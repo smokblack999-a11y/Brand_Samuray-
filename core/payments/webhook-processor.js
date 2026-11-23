@@ -16,7 +16,11 @@ function createStripeWebhookProcessor({ provider, ledger, handlers = {} } = {}) 
       const event = await provider.parseWebhook(verified);
       const objectId = typeof event.object.id === "string" ? event.object.id : null;
       const claim = ledger.claimEvent(event.eventId, event.type, objectId);
-      if (!claim.claimed) return { received: true, duplicate: true, eventId: event.eventId };
+      if (!claim.claimed && claim.inProgress) {
+        throw paymentError("PAYMENT_WEBHOOK_IN_PROGRESS", "An earlier delivery of this event is still processing; retry later");
+      }
+      if (!claim.claimed && claim.duplicate) return { received: true, duplicate: true, eventId: event.eventId };
+      if (!claim.claimed) throw paymentError("PAYMENT_WEBHOOK_CLAIM_FAILED", "Webhook event could not be claimed safely");
 
       const handler = handlers[event.type];
       if (typeof handler !== "function") {
