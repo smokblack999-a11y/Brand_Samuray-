@@ -10,6 +10,7 @@ const { createDeliveryWebhookHandlers } = require("./delivery-webhook-handlers")
 const { createPaymentRouter } = require("./http-router");
 const { createSaasWebhookHandlers } = require("./saas-webhook-handlers");
 const { createPaymentWebhookHandlers } = require("./combined-webhook-handlers");
+const { mountPaymentRoutes } = require("./bootstrap");
 
 module.exports = {
   REQUIRED_METHODS,
@@ -26,5 +27,6 @@ module.exports = {
   createDeliveryWebhookHandlers,
   createPaymentRouter,
   createSaasWebhookHandlers,
-  createPaymentWebhookHandlers
+  createPaymentWebhookHandlers,
+  mountPaymentRoutes
 };
