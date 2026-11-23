@@ -10,11 +10,13 @@ const { mountPaymentRoutes } = require("../payments/bootstrap");
 
 function adapter() {
   return {
+    requireCustomerIdentity(_req, _res, next) { next(); },
     async resolveDeliveryOrder() { return null; },
-    async resolveSaasPlan() { return null; },
+    async onDeliveryCheckoutPreparing() {},
+    async onDeliveryCheckoutCreated() {},
+    async onDeliveryCheckoutFailed() {},
     async onDeliveryPaid() {},
-    async onDeliveryFailed() {},
-    async onSubscriptionStatusChange() {}
+    async onDeliveryFailed() {}
   };
 }
 
