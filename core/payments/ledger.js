@@ -191,6 +191,7 @@ function createPaymentLedger() {
         providerSubscriptionId,
         providerCustomerId: typeof input.providerCustomerId === "string" ? input.providerCustomerId : null,
         status: initialStatus,
+        lastEventCreated: Number.isSafeInteger(input.eventCreated) ? input.eventCreated : 0,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString()
       };
@@ -205,7 +206,7 @@ function createPaymentLedger() {
       return Object.values(state.subscriptions).find(record => record.providerSubscriptionId === id) || null;
     },
 
-    setSubscriptionStatus(providerSubscriptionId, nextStatus, providerCustomerId) {
+    setSubscriptionStatus(providerSubscriptionId, nextStatus, providerCustomerId, eventCreated) {
       const id = cleanId(providerSubscriptionId, "providerSubscriptionId", "sub_");
       const allowed = new Set(["pending", "incomplete", "trialing", "active", "past_due", "unpaid", "canceled", "paused"]);
       if (!allowed.has(nextStatus)) throw paymentError("PAYMENT_LEDGER_SUBSCRIPTION_STATUS_INVALID", "Subscription status is invalid");
@@ -222,10 +223,12 @@ function createPaymentLedger() {
         paused: new Set(["active", "past_due", "canceled"]),
         canceled: new Set()
       };
+      if (Number.isSafeInteger(eventCreated) && eventCreated < (record.lastEventCreated || 0)) return record;
       if (record.status !== nextStatus && !transitions[record.status]?.has(nextStatus)) {
         throw paymentError("PAYMENT_LEDGER_SUBSCRIPTION_TRANSITION_INVALID", "Subscription state transition is not allowed");
       }
       record.status = nextStatus;
+      if (Number.isSafeInteger(eventCreated)) record.lastEventCreated = Math.max(record.lastEventCreated || 0, eventCreated);
       if (typeof providerCustomerId === "string" && providerCustomerId.startsWith("cus_")) {
         record.providerCustomerId = providerCustomerId;
       }
