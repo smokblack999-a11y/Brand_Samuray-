@@ -77,17 +77,17 @@ test("payments HTTP integration mounts only in explicitly enabled test mode", as
       })
     });
     assert.deepEqual(result, { mounted: true, prefix: "/api/payments", mode: "test", provider: "stripe_test" });
-    await new Promise(resolve => app.listen(0, "127.0.0.1", function () {
-      const server = this;
-      fetch("http://127.0.0.1:" + server.address().port + "/api/payments/status")
-        .then(response => response.json())
-        .then(body => {
-          assert.equal(body.ok, true);
-          assert.equal(body.payments.provider, "stripe_test");
-          server.close(resolve);
-        })
-        .catch(error => { server.close(() => resolve()); throw error; });
-    }));
+    const server = app.listen(0, "127.0.0.1");
+    await new Promise(resolve => server.once("listening", resolve));
+    try {
+      const response = await fetch("http://127.0.0.1:" + server.address().port + "/api/payments/status");
+      const body = await response.json();
+      assert.equal(response.status, 200);
+      assert.equal(body.ok, true);
+      assert.equal(body.payments.provider, "stripe_test");
+    } finally {
+      await new Promise(resolve => server.close(resolve));
+    }
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
     delete process.env.PAYMENTS_DATA_DIR;
