@@ -2,8 +2,15 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
 
+const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "samurai-agent-control-"));
+process.env.DATA_DIR = dataDir;
 const ac = require("./agent-control");
+
+test.after(() => fs.rmSync(dataDir, { recursive: true, force: true }));
 
 test("classifies failed test workflow as evidence-gated CI failure", () => {
   const result = ac.classifyFailure({ name: "SamuraiOS Core CI", conclusion: "failure" });
@@ -265,4 +272,15 @@ test("X19 runtime job persists orchestrator state through proof receipt", async 
   assert.equal(ac.getJob(ingested.job.id).orchestrator.state, "READY_FOR_REVIEW");
   assert.equal(ac.getJob(ingested.job.id).execution.autonomousWrite, false);
   assert.equal(ac.getJob(ingested.job.id).execution.autonomousMerge, false);
+});
+
+
+
+test("agent control queue uses private directory and file permissions", () => {
+  ac.health();
+  const directoryMode = fs.statSync(dataDir).mode & 0o777;
+  const queueFile = path.join(dataDir, "agent-control-queue.jsonl");
+  const fileMode = fs.statSync(queueFile).mode & 0o777;
+  assert.equal(directoryMode, 0o700);
+  assert.equal(fileMode, 0o600);
 });
