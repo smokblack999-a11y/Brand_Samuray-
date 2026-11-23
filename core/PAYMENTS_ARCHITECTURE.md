@@ -7,7 +7,7 @@
 - Payments remain disabled by default. The router factory is implemented but is not mounted into `core/server.js`.
 - File-backed payment and subscription ledger, webhook event deduplication, retry tracking, and signature-first webhook processing are implemented.
 - Delivery and SaaS checkout routes are available through the router factory, but application resolvers and entitlement/fulfillment callbacks are not wired.
-- The ledger is single-process JSON storage. It is not safe for multiple Core replicas and is not production-grade transactional storage. The current Core repository does not yet contain authoritative Delivery order or SaaS customer/plan/entitlement stores, so no concrete domain adapter is shipped.
+- Payment/webhook ledger is single-process JSON storage. The Delivery CRM order/payment transition itself uses SQLite transactions against the existing CRM database. The JSON payment ledger is not safe for multiple Core replicas and is not production-grade transactional storage. The current Core repository does not yet contain authoritative Delivery order or SaaS customer/plan/entitlement stores, so no concrete domain adapter is shipped.
 - No real charges, refunds, payouts, or connected-account operations have been performed.\n- Webhook processing is synchronous and is a sandbox integration foundation, not a production-grade durable event queue.
 
 ## Jurisdiction decision
@@ -53,7 +53,7 @@ Every provider adapter implements `createOneTimeCheckout(input)`, `createSubscri
 ## Runtime and HTTP route foundation
 
 - `createPaymentRuntime()` loads the Stripe SDK only when `PAYMENTS_ENABLED=true`, `PAYMENTS_MODE=test`, and `PAYMENTS_PROVIDER=stripe_test`. Production test mode is blocked by the registry.
-- `createPaymentRouter()` exposes authenticated `POST /delivery/checkout`, optional `POST /saas/checkout`, `GET /status`, and signed `POST /stripe/webhook` routes when explicitly mounted.\n- `mountPaymentRoutes()` is wired into `core/server.js` behind `PAYMENTS_HTTP_ENABLED=true`; it also requires explicit Stripe test mode and a complete domain adapter module. The default remains unmounted.
+- `createPaymentRouter()` exposes authenticated `POST /delivery/checkout`, optional `POST /saas/checkout`, `GET /status`, and signed `POST /stripe/webhook` routes when explicitly mounted.\n- `mountPaymentRoutes()` is wired into `core/server.js` behind `PAYMENTS_HTTP_ENABLED=true`; it also requires explicit Stripe test mode and a complete domain adapter module. The default remains unmounted.\n- Delivery checkout requires both the Core API key and a trusted server-supplied `X-SAMURAI-Telegram-User-ID` header. The resolver loads the order by both order ID and Telegram user ID; a guessed order ID cannot cross customer ownership.
 - Delivery Checkout accepts only an order ID. Its server-side resolver must enforce caller ownership, reload the authoritative order, and explicitly return `payable: true`. Amount, currency, product name, and customer ID come only from that resolver.
 - The resolver must return a monotonically changing order version or updated timestamp when a new payment attempt is allowed.
 - SaaS Checkout accepts only a plan ID. Its server-side resolver must enforce customer ownership and map the plan to a server-owned Stripe Price ID.
@@ -102,7 +102,7 @@ Every provider adapter implements `createOneTimeCheckout(input)`, `createSubscri
 - No card data is stored by SAMURAI.
 - Marketplace/Connect transfers and payouts remain out of scope until jurisdiction and legal model are verified.
 
-## Environment
+## Runtime requirement\n\n- Core requires Node.js `>=22.13.0` for built-in `node:sqlite` support. The module is still marked release-candidate/experimental in Node's documentation; this adapter is therefore gated behind explicit test-only activation.\n\n## Environment
 
 The committed `core/.env.payments.example` is disabled by default. Real sandbox values must remain in local environment or a secret manager and must never be committed.
 
