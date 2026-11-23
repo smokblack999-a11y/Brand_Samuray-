@@ -24,10 +24,14 @@ function mountPaymentRoutes({
   if (!domainAdapter || typeof domainAdapter !== "object") {
     throw paymentError("PAYMENT_DOMAIN_ADAPTER_REQUIRED", "A real SAMURAI order/customer domain adapter is required");
   }
-  const required = ["resolveDeliveryOrder", "resolveSaasPlan", "onDeliveryPaid", "onDeliveryFailed", "onSubscriptionStatusChange"];
+  const required = ["requireCustomerIdentity", "resolveDeliveryOrder", "onDeliveryCheckoutCreated", "onDeliveryPaid", "onDeliveryFailed"];
   const missing = required.filter(name => typeof domainAdapter[name] !== "function");
   if (missing.length) {
     throw paymentError("PAYMENT_DOMAIN_ADAPTER_INCOMPLETE", "Payment domain adapter is missing: " + missing.join(", "));
+  }
+
+  if (typeof domainAdapter.resolveSaasPlan !== "function" !== (typeof domainAdapter.onSubscriptionStatusChange !== "function")) {
+    throw paymentError("PAYMENT_SAAS_ADAPTER_INCOMPLETE", "SaaS plan resolver and entitlement callback must be configured together");
   }
 
   const runtime = runtimeFactory({ env });
@@ -51,6 +55,8 @@ function mountPaymentRoutes({
     ledger,
     webhookProcessor,
     requireApiKey,
+    requireCustomerIdentity: domainAdapter.requireCustomerIdentity,
+    onDeliveryCheckoutCreated: domainAdapter.onDeliveryCheckoutCreated,
     resolveDeliveryOrder: domainAdapter.resolveDeliveryOrder,
     resolveSaasPlan: domainAdapter.resolveSaasPlan,
     successUrl: env.PAYMENTS_SUCCESS_URL,
