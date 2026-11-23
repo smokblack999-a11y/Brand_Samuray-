@@ -1,6 +1,7 @@
 "use strict";
 
 const fs = require("node:fs");
+const path = require("node:path");
 const { DatabaseSync } = require("node:sqlite");
 const { paymentError } = require("./provider-contract");
 
@@ -309,8 +310,8 @@ function createDeliveryCrmSqliteAdapter({ dbPath, db, Database = DatabaseSync } 
 
 function createDomainAdapter({ env = process.env } = {}) {
   const dbPath = String(env.DELIVERY_CRM_DB_PATH || "").trim();
-  if (!dbPath || !fs.existsSync(dbPath)) {
-    throw paymentError("DELIVERY_CRM_DB_NOT_FOUND", "Set DELIVERY_CRM_DB_PATH to the existing Samurai Delivery CRM SQLite database");
+  if (!dbPath || !path.isAbsolute(dbPath) || !fs.existsSync(dbPath)) {
+    throw paymentError("DELIVERY_CRM_DB_NOT_FOUND", "Set DELIVERY_CRM_DB_PATH to the absolute path of the existing Samurai Delivery CRM SQLite database");
   }
   return createDeliveryCrmSqliteAdapter({ dbPath });
 }
