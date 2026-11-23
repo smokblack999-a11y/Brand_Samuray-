@@ -11,6 +11,7 @@ const { createPaymentRouter } = require("./http-router");
 const { createSaasWebhookHandlers } = require("./saas-webhook-handlers");
 const { createPaymentWebhookHandlers } = require("./combined-webhook-handlers");
 const { mountPaymentRoutes } = require("./bootstrap");
+const { createDeliveryCrmSqliteAdapter } = require("./delivery-crm-sqlite-adapter");
 
 module.exports = {
   REQUIRED_METHODS,
@@ -28,5 +29,6 @@ module.exports = {
   createPaymentRouter,
   createSaasWebhookHandlers,
   createPaymentWebhookHandlers,
-  mountPaymentRoutes
+  mountPaymentRoutes,
+  createDeliveryCrmSqliteAdapter
 };
