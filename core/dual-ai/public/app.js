@@ -19,7 +19,7 @@
     el.start.disabled = value;
     el.next.disabled = value || !state.session || state.session.status !== "RUNNING";
     el.auto.disabled = value || !state.session || state.session.status !== "RUNNING";
-    el.stop.disabled = value || !state.session || state.session.status !== "RUNNING";
+    el.stop.disabled = !state.session || state.session.status !== "RUNNING";
   }
   async function api(path, options = {}) {
     const headers = Object.assign({ "Content-Type": "application/json" }, options.headers || {});
