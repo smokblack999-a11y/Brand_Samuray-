@@ -10,7 +10,9 @@ function createPaymentRouter({
   webhookProcessor,
   requireApiKey,
   requireCustomerIdentity,
+  onDeliveryCheckoutPreparing,
   onDeliveryCheckoutCreated,
+  onDeliveryCheckoutFailed,
   resolveDeliveryOrder,
   resolveSaasPlan,
   successUrl,
@@ -59,37 +61,55 @@ function createPaymentRouter({
       const provider = runtime.registry.getProvider();
       const revision = String(order.version || order.updatedAt || "1");
       const digest = crypto.createHash("sha256").update(orderId + ":" + revision).digest("hex");
-      const session = await provider.createOneTimeCheckout({
+      const paymentDraft = {
+        paymentId: "pay_" + digest.slice(0, 32),
         orderId,
         customerId: order.customerId,
-        productName: order.productName,
+        provider: "stripe_test",
         amountMinor: order.amountMinor,
-        currency: order.currency,
-        successUrl,
-        cancelUrl,
-        idempotencyKey: "delivery:" + digest
-      });
+        currency: order.currency.toLowerCase()
+      };
+
+      if (typeof onDeliveryCheckoutPreparing === "function") {
+        await onDeliveryCheckoutPreparing(paymentDraft, order);
+      }
+
+      let session;
+      try {
+        session = await provider.createOneTimeCheckout({
+          orderId,
+          customerId: order.customerId,
+          productName: order.productName,
+          amountMinor: order.amountMinor,
+          currency: order.currency,
+          successUrl,
+          cancelUrl,
+          idempotencyKey: "delivery:" + digest
+        });
+      } catch (providerError) {
+        const statusCode = Number(providerError?.statusCode || providerError?.status);
+        if (typeof onDeliveryCheckoutFailed === "function" && statusCode >= 400 && statusCode < 500 && statusCode !== 409 && statusCode !== 429) {
+          await onDeliveryCheckoutFailed(paymentDraft, providerError);
+        }
+        throw providerError;
+      }
+
+      if (typeof onDeliveryCheckoutCreated === "function") {
+        await onDeliveryCheckoutCreated(paymentDraft, session, order);
+      }
 
       let payment = ledger.findPaymentBySession(session.sessionId);
       if (payment) {
-        if (payment.orderId !== orderId || payment.customerId !== order.customerId ||
-            payment.amountMinor !== order.amountMinor || payment.currency !== order.currency.toLowerCase()) {
+        if (payment.paymentId !== paymentDraft.paymentId || payment.orderId !== orderId ||
+            payment.customerId !== order.customerId || payment.amountMinor !== order.amountMinor ||
+            payment.currency !== order.currency.toLowerCase()) {
           throw paymentError("PAYMENT_LEDGER_SESSION_MISMATCH", "Existing provider session does not match the current order");
         }
       } else {
         payment = ledger.createPayment({
-          paymentId: "pay_" + digest.slice(0, 32),
-          orderId,
-          customerId: order.customerId,
-          provider: "stripe_test",
-          providerSessionId: session.sessionId,
-          amountMinor: order.amountMinor,
-          currency: order.currency
+          ...paymentDraft,
+          providerSessionId: session.sessionId
         });
-      }
-
-      if (typeof onDeliveryCheckoutCreated === "function") {
-        await onDeliveryCheckoutCreated(payment, session, order);
       }
 
       return res.status(201).json({
