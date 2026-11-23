@@ -68,9 +68,13 @@ function createStripeTestProvider({ StripeClient, apiKey, webhookSecret, apiVers
         line_items: [{ quantity: 1, price_data: { currency, unit_amount: amountMinor, product_data: { name: productName } } }],
         success_url: safeUrl(input.successUrl, "successUrl"),
         cancel_url: safeUrl(input.cancelUrl, "cancelUrl"),
-        metadata: { samurai_order_id: orderId, samurai_customer_id: customerId, samurai_flow: "delivery" },
-        payment_intent_data: { metadata: { samurai_order_id: orderId, samurai_customer_id: customerId, samurai_flow: "delivery" } },
-        integration_identifier: integrationLabel("samurai_delivery_")
+        metadata: {
+          samurai_order_id: orderId,
+          samurai_customer_id: customerId,
+          samurai_flow: "delivery",
+          samurai_checkout_ref: integrationLabel("delivery_")
+        },
+        payment_intent_data: { metadata: { samurai_order_id: orderId, samurai_customer_id: customerId, samurai_flow: "delivery" } }
       }, input.idempotencyKey);
     },
 
@@ -85,9 +89,13 @@ function createStripeTestProvider({ StripeClient, apiKey, webhookSecret, apiVers
         success_url: safeUrl(input.successUrl, "successUrl"),
         cancel_url: safeUrl(input.cancelUrl, "cancelUrl"),
         client_reference_id: customerId,
-        metadata: { samurai_customer_id: customerId, samurai_plan_id: planId, samurai_flow: "saas" },
-        subscription_data: { metadata: { samurai_customer_id: customerId, samurai_plan_id: planId, samurai_flow: "saas" } },
-        integration_identifier: integrationLabel("samurai_saas_")
+        metadata: {
+          samurai_customer_id: customerId,
+          samurai_plan_id: planId,
+          samurai_flow: "saas",
+          samurai_checkout_ref: integrationLabel("saas_")
+        },
+        subscription_data: { metadata: { samurai_customer_id: customerId, samurai_plan_id: planId, samurai_flow: "saas" } }
       }, input.idempotencyKey);
     },
 
