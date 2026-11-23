@@ -9,6 +9,8 @@ function createPaymentRouter({
   ledger,
   webhookProcessor,
   requireApiKey,
+  requireCustomerIdentity,
+  onDeliveryCheckoutCreated,
   resolveDeliveryOrder,
   resolveSaasPlan,
   successUrl,
@@ -31,6 +33,7 @@ function createPaymentRouter({
   });
 
   const checkoutMiddleware = [requireApiKey];
+  if (typeof requireCustomerIdentity === "function") checkoutMiddleware.push(requireCustomerIdentity);
   if (typeof checkoutRateLimit === "function") checkoutMiddleware.push(checkoutRateLimit);
 
   router.post("/delivery/checkout", ...checkoutMiddleware, async (req, res) => {
@@ -83,6 +86,10 @@ function createPaymentRouter({
           amountMinor: order.amountMinor,
           currency: order.currency
         });
+      }
+
+      if (typeof onDeliveryCheckoutCreated === "function") {
+        await onDeliveryCheckoutCreated(payment, session, order);
       }
 
       return res.status(201).json({
