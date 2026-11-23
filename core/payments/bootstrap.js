@@ -30,7 +30,9 @@ function mountPaymentRoutes({
     throw paymentError("PAYMENT_DOMAIN_ADAPTER_INCOMPLETE", "Payment domain adapter is missing: " + missing.join(", "));
   }
 
-  if (typeof domainAdapter.resolveSaasPlan !== "function" !== (typeof domainAdapter.onSubscriptionStatusChange !== "function")) {
+  const hasSaasResolver = typeof domainAdapter.resolveSaasPlan === "function";
+  const hasSaasEntitlementHandler = typeof domainAdapter.onSubscriptionStatusChange === "function";
+  if (hasSaasResolver !== hasSaasEntitlementHandler) {
     throw paymentError("PAYMENT_SAAS_ADAPTER_INCOMPLETE", "SaaS plan resolver and entitlement callback must be configured together");
   }
 
