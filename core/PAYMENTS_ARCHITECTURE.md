@@ -7,7 +7,7 @@
 - Payments remain disabled by default. The router factory is implemented but is not mounted into `core/server.js`.
 - File-backed payment and subscription ledger, webhook event deduplication, retry tracking, and signature-first webhook processing are implemented.
 - Delivery and SaaS checkout routes are available through the router factory, but application resolvers and entitlement/fulfillment callbacks are not wired.
-- The ledger is single-process JSON storage. It is not safe for multiple Core replicas and is not production-grade transactional storage.
+- The ledger is single-process JSON storage. It is not safe for multiple Core replicas and is not production-grade transactional storage. The current Core repository does not yet contain authoritative Delivery order or SaaS customer/plan/entitlement stores, so no concrete domain adapter is shipped.
 - No real charges, refunds, payouts, or connected-account operations have been performed.
 
 ## Jurisdiction decision
@@ -53,7 +53,7 @@ Every provider adapter implements `createOneTimeCheckout(input)`, `createSubscri
 ## Runtime and HTTP route foundation
 
 - `createPaymentRuntime()` loads the Stripe SDK only when `PAYMENTS_ENABLED=true`, `PAYMENTS_MODE=test`, and `PAYMENTS_PROVIDER=stripe_test`. Production test mode is blocked by the registry.
-- `createPaymentRouter()` exposes authenticated `POST /delivery/checkout`, optional `POST /saas/checkout`, `GET /status`, and signed `POST /stripe/webhook` routes when explicitly mounted.
+- `createPaymentRouter()` exposes authenticated `POST /delivery/checkout`, optional `POST /saas/checkout`, `GET /status`, and signed `POST /stripe/webhook` routes when explicitly mounted.\n- `mountPaymentRoutes()` is wired into `core/server.js` behind `PAYMENTS_HTTP_ENABLED=true`; it also requires explicit Stripe test mode and a complete domain adapter module. The default remains unmounted.
 - Delivery Checkout accepts only an order ID. Its server-side resolver must enforce caller ownership, reload the authoritative order, and explicitly return `payable: true`. Amount, currency, product name, and customer ID come only from that resolver.
 - The resolver must return a monotonically changing order version or updated timestamp when a new payment attempt is allowed.
 - SaaS Checkout accepts only a plan ID. Its server-side resolver must enforce customer ownership and map the plan to a server-owned Stripe Price ID.
@@ -66,7 +66,7 @@ Every provider adapter implements `createOneTimeCheckout(input)`, `createSubscri
 - Uses atomic temp-file replacement and restrictive file permissions. Corrupt data fails closed rather than resetting payment history.
 - Claims event IDs once, tracks retries, and prevents completed events from being claimed again.
 - Payment state transitions are constrained; a paid payment can move only to refunded.
-- Subscription state transitions are constrained and ordered by Stripe event creation time to ignore older out-of-order events.
+- Subscription state transitions are constrained and reconciled against the current Stripe Subscription retrieved from Stripe's API. Webhook event timestamps are not treated as a reliable ordering mechanism.
 - This is a single-process persistence foundation. Do not run multiple Core replicas against the same JSON file. Before production, migrate to a transactional database with unique constraints on provider event IDs and Checkout Session IDs, plus tested backup/restore.
 
 ## Delivery webhook handling
@@ -80,7 +80,7 @@ Every provider adapter implements `createOneTimeCheckout(input)`, `createSubscri
 
 - Checkout completion creates a local pending subscription using server-side customer/plan metadata and Stripe subscription/customer IDs.
 - `invoice.paid` activates access; `invoice.payment_failed` moves the subscription to past-due; subscription update/deletion events synchronize provider state.
-- Older out-of-order Stripe events are ignored using the event creation timestamp.
+- Webhook events are treated as signals: the handler retrieves the current Stripe Subscription and applies its canonical status. This avoids relying on second-resolution event timestamps or delivery order.
 - The injected entitlement callback must be idempotent. No access is granted by the Checkout success redirect.
 - The SaaS route and lifecycle handlers are implemented as factories but are not connected to the actual SAMURAI customer, plan, or entitlement stores.
 
