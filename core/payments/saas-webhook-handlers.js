@@ -24,7 +24,7 @@ function createSaasWebhookHandlers({ ledger, onStatusChange } = {}) {
     if (providerCustomerId && current.providerCustomerId && providerCustomerId !== current.providerCustomerId) {
       throw paymentError("PAYMENT_SUBSCRIPTION_CUSTOMER_MISMATCH", "Stripe customer does not match the recorded subscription");
     }
-    const updated = ledger.setSubscriptionStatus(providerSubscriptionId, status, providerCustomerId);
+    const updated = ledger.setSubscriptionStatus(providerSubscriptionId, status, providerCustomerId, event?.created);
     await onStatusChange(updated, event);
   }
 
@@ -70,7 +70,8 @@ function createSaasWebhookHandlers({ ledger, onStatusChange } = {}) {
         provider: "stripe_test",
         providerSubscriptionId,
         providerCustomerId,
-        status: "pending"
+        status: "pending",
+        eventCreated: Number.isSafeInteger(event?.created) ? event.created : 0
       });
       await onStatusChange(record, event);
     },
