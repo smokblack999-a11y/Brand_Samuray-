@@ -14,6 +14,7 @@ function provider(name = "stripe_test") {
     name,
     async createOneTimeCheckout() {},
     async createSubscriptionCheckout() {},
+    async retrieveSubscription() {},
     async verifyWebhook() {},
     async parseWebhook() {},
     async refund() {},
@@ -22,7 +23,7 @@ function provider(name = "stripe_test") {
 }
 
 test("payment provider contract requires all operations", () => {
-  assert.equal(REQUIRED_METHODS.length, 6);
+  assert.equal(REQUIRED_METHODS.length, 7);
   assert.equal(assertPaymentProvider(provider()).name, "stripe_test");
   assert.throws(
     () => assertPaymentProvider({ name: "stripe_test" }),
