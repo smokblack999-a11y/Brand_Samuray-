@@ -2,11 +2,12 @@
 
 ## Status
 
-- Architecture foundation only; not wired into HTTP routes or order fulfillment.
-- Feature disabled by default.
-- Test mode only. Live mode is explicitly rejected.
-- No real charges, payouts, refunds, or connected-account operations.
-- Existing Core routes and payment-proxy behavior are not changed by this foundation.
+- Provider contract and isolated Stripe test-mode adapter exist on this feature branch.
+- Payments remain disabled by default; no HTTP checkout or webhook routes are mounted.
+- Adapter requires the official Stripe Node SDK constructor to be injected by the application.
+- The SDK dependency and lockfile have deliberately not been changed because dependency installation and lockfile regeneration have not yet been run in a repository checkout.
+- No order fulfillment, subscription entitlements, durable event ledger, refunds workflow, or local Kazakhstan provider is wired.
+- No real charges, payouts, refunds, or connected-account operations have been performed.
 
 ## Jurisdiction decision
 
@@ -31,20 +32,22 @@ Delivery / SaaS / Admin / Telegram Mini App
         Payment Ledger / Webhooks
 ```
 
-The provider adapter is deliberately independent of business order state. Delivery orders and SaaS entitlements must be fulfilled only from verified, idempotently processed provider events and server-side state checks.
-
 ## Provider contract
 
-Every provider adapter implements:
+Every provider adapter implements `createOneTimeCheckout(input)`, `createSubscriptionCheckout(input)`, `verifyWebhook(rawBody, headers)`, `parseWebhook(event)`, `refund(input)`, and `health()`.
 
-- `createOneTimeCheckout(input)`
-- `createSubscriptionCheckout(input)`
-- `verifyWebhook(rawBody, headers)`
-- `parseWebhook(event)`
-- `refund(input)`
-- `health()`
+## Stripe sandbox adapter
 
-A provider must not be considered ready merely because credentials exist. Health checks must report environment/mode and capability state without exposing secrets.
+- Uses an injected official Stripe Node SDK constructor; no deprecated global API-key state.
+- API version pinned to `2026-11-18.endive`.
+- Rejects live keys; requires a test restricted or secret key and a `whsec_` signing secret.
+- Delivery Checkout accepts amount, currency, order and customer identifiers from the trusted server layer.
+- SaaS Checkout accepts a server-owned Stripe Price ID; client-provided amounts are not accepted.
+- Both flows use idempotency keys and hosted Checkout URLs.
+- Omits `payment_method_types` to preserve dynamic payment methods.
+- Webhook verification requires the exact raw request body and Stripe-Signature header.
+- Refunds require an internal PaymentIntent reference and idempotency key.
+- Adapter is not wired into `server.js`; its presence does not mean payments are operational.
 
 ## Initial business flows
 
@@ -70,13 +73,12 @@ A provider must not be considered ready merely because credentials exist. Health
 
 ## Security invariants
 
-- Test credentials only in test environments.
+- Test credentials only in test environments; production test mode is blocked by the provider registry.
 - No live mode implementation in V1.
 - Never log API keys, webhook secrets, payment method details, or full raw webhook payloads.
 - Webhook signature verification uses the exact raw request body.
-- Event IDs are unique; handlers are idempotent.
+- Event IDs must be stored uniquely; handlers must be idempotent.
 - Never trust amount, currency, customer ID, plan price, or order status from the browser.
-- Checkout URLs are returned only to the authenticated owner of the order/session.
 - Do not mark an order paid from a browser redirect.
 - No card data is stored by SAMURAI.
 - Marketplace/Connect transfers and payouts remain out of scope until jurisdiction and legal model are verified.
@@ -89,18 +91,18 @@ PAYMENTS_MODE=disabled
 PAYMENTS_PROVIDER=disabled
 ```
 
-For isolated development only, the future Stripe adapter may be selected as `stripe_test` with `PAYMENTS_MODE=test`. The provider registry currently does not ship a Stripe adapter, local provider, HTTP routes, or webhook endpoint.
+For isolated development only, select `stripe_test` with `PAYMENTS_MODE=test` only after installing the official SDK, a durable event ledger, and the raw-body webhook route.
 
 ## Rollout
 
-1. Keep this provider contract isolated and disabled.
-2. Implement and test the Stripe sandbox adapter independently.
-3. Implement webhook persistence and payment ledger before enabling fulfillment.
-4. Add the Kazakhstan-eligible local provider only after verifying official merchant onboarding, supported settlement, refund, recurring-payment, and webhook capabilities.
-5. Integrate HTTP routes behind feature flags and preserve existing routes.
+1. Keep the feature isolated and disabled.
+2. Add the official Stripe Node SDK and regenerate `package-lock.json` in a real repository checkout.
+3. Add durable webhook event persistence and payment ledger before enabling fulfillment.
+4. Integrate HTTP routes behind feature flags and preserve existing routes.
+5. Add a Kazakhstan-eligible local provider only after verifying official merchant onboarding, supported settlement, refund, recurring-payment, and webhook capabilities.
 6. Run unit, integration, webhook replay, duplicate-event, amount-mismatch, currency-mismatch, failure, and refund tests.
-7. Open a reviewed PR. Do not merge or enable production without explicit approval and live legal/payment readiness.
+7. Review the PR; do not merge or enable production without explicit approval and live legal/payment readiness.
 
 ## Known repository boundary
 
-The older branch `feat/samurai-commerce-stripe-test` contains a prior Commerce + Stripe test implementation but diverges materially from current `main` (94 commits ahead and 72 behind at audit time). It must not be merged wholesale. Reuse concepts only after independent review and tests.
+The older branch `feat/samurai-commerce-stripe-test` contains a prior Commerce + Stripe test implementation but diverges materially from current `main` (94 commits ahead and 72 behind at audit time). It must not be merged wholesale.
