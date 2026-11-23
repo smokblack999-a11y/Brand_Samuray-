@@ -74,6 +74,36 @@ app.use((req, res, next) => {
 
 const leadRateLimit = createRateLimiter({ windowMs: LEAD_RATE_LIMIT_WINDOW_MS, max: LEAD_RATE_LIMIT_MAX });
 const dualRateLimit = createRateLimiter({ windowMs: Math.max(1000, Number(process.env.DUAL_AI_RATE_LIMIT_WINDOW_MS || 60000)), max: Math.max(1, Number(process.env.DUAL_AI_RATE_LIMIT_MAX || 10)) });
+
+// Payments are not mounted unless an operator explicitly enables the test-only integration
+// and supplies a real SAMURAI domain adapter. No order or entitlement store is fabricated here.
+if (String(process.env.PAYMENTS_HTTP_ENABLED || "").trim().toLowerCase() === "true") {
+  if (String(process.env.PAYMENTS_ENABLED || "").trim().toLowerCase() !== "true" ||
+      String(process.env.PAYMENTS_MODE || "").trim().toLowerCase() !== "test" ||
+      String(process.env.PAYMENTS_PROVIDER || "").trim().toLowerCase() !== "stripe_test" ||
+      String(process.env.NODE_ENV || "").trim().toLowerCase() === "production") {
+    throw new Error("Payment HTTP startup blocked: only explicitly enabled Stripe test mode is permitted");
+  }
+  const adapterModule = String(process.env.PAYMENTS_DOMAIN_ADAPTER_MODULE || "").trim();
+  if (!adapterModule) throw new Error("Payment HTTP startup blocked: PAYMENTS_DOMAIN_ADAPTER_MODULE is required");
+  const { mountPaymentRoutes } = require("./payments/bootstrap");
+  const domainAdapterModule = require(path.resolve(adapterModule));
+  const domainAdapter = typeof domainAdapterModule.createDomainAdapter === "function"
+    ? domainAdapterModule.createDomainAdapter({ env: process.env })
+    : domainAdapterModule;
+  const paymentMount = mountPaymentRoutes({
+    app,
+    express,
+    env: process.env,
+    requireApiKey,
+    domainAdapter,
+    checkoutRateLimit: createRateLimiter({
+      windowMs: Math.max(1000, Number(process.env.PAYMENTS_RATE_LIMIT_WINDOW_MS || 60000)),
+      max: Math.max(1, Number(process.env.PAYMENTS_RATE_LIMIT_MAX || 5))
+    })
+  });
+  console.log(JSON.stringify({ event: "payments_http_mount", ...paymentMount }));
+}
 app.use("/dual-ai", express.static(path.join(__dirname, "dual-ai", "public"), { index: "index.html" }));
 
 app.get("/health", (_req, res) => res.json({ ok: true, service: "SamuraiOS Core", version: "2.7.0" }));
