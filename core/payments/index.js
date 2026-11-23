@@ -8,6 +8,8 @@ const { createStripeWebhookProcessor } = require("./webhook-processor");
 const { createPaymentRuntime } = require("./runtime");
 const { createDeliveryWebhookHandlers } = require("./delivery-webhook-handlers");
 const { createPaymentRouter } = require("./http-router");
+const { createSaasWebhookHandlers } = require("./saas-webhook-handlers");
+const { createPaymentWebhookHandlers } = require("./combined-webhook-handlers");
 
 module.exports = {
   REQUIRED_METHODS,
@@ -22,5 +24,7 @@ module.exports = {
   createStripeWebhookProcessor,
   createPaymentRuntime,
   createDeliveryWebhookHandlers,
-  createPaymentRouter
+  createPaymentRouter,
+  createSaasWebhookHandlers,
+  createPaymentWebhookHandlers
 };
