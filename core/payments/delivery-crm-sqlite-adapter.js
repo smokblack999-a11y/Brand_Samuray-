@@ -97,7 +97,9 @@ function createDeliveryCrmSqliteAdapter({ dbPath, db, Database = DatabaseSync } 
     `).get(orderId, uid);
 
     let version = String(order.updated);
-    if (order.status === "checkout_pending" && latest?.provider_status === "provider_pending") {
+    if (latest?.provider_status === "paid") return { orderId, payable: false };
+    if (latest?.provider_status === "provider_pending") {
+      if (order.status !== "checkout_pending") return { orderId, payable: false };
       version = latest.checkout_revision;
     } else if (order.status === "awaiting_payment" && latest?.provider_status === "failed") {
       version = String(order.updated) + ":retry:" + latest.payment_id;
