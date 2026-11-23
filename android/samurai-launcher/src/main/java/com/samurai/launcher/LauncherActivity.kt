@@ -68,6 +68,8 @@ class LauncherActivity : Activity() {
             setSingleLine(true)
             setTextColor(white)
             setHintTextColor(muted)
+            typeface = Typeface.create("sans-serif", Typeface.NORMAL)
+            textSize = 16f
             setBackgroundColor(panel)
             setPadding(16, 12, 16, 12)
         }
@@ -154,14 +156,15 @@ class LauncherActivity : Activity() {
             setBackgroundColor(panel)
         }
         row.addView(ImageView(this).apply {
-            setImageDrawable(icon)
+            setImageDrawable(icon ?: getDrawable(android.R.drawable.sym_def_app_icon))
             scaleType = ImageView.ScaleType.FIT_CENTER
+            contentDescription = "$title icon"
         }, LinearLayout.LayoutParams(38, 38).apply { rightMargin = 14 })
         row.addView(TextView(this).apply {
             text = title
             textSize = 15f
             setTextColor(white)
-            typeface = Typeface.DEFAULT
+            typeface = Typeface.create("sans-serif", Typeface.NORMAL)
         }, LinearLayout.LayoutParams(0, -2, 1f))
         row.addView(TextView(this).apply {
             text = if (favorite) "★" else "☆"
@@ -201,7 +204,7 @@ class LauncherActivity : Activity() {
             this.text = text
             textSize = size
             setTextColor(color)
-            if (bold) typeface = Typeface.create("sans-serif-condensed", Typeface.BOLD)
+            typeface = if (bold) Typeface.create("sans-serif-condensed", Typeface.BOLD) else Typeface.create("sans-serif", Typeface.NORMAL)
             setPadding(0, 4, 0, 4)
         }
 
