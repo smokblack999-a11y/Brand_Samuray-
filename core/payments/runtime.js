@@ -1,6 +1,7 @@
 "use strict";
 
-const { createPaymentProviderRegistry, readPaymentConfig, paymentError } = require("./index");
+const { createPaymentProviderRegistry, readPaymentConfig } = require("./provider-registry");
+const { paymentError } = require("./provider-contract");
 
 function createPaymentRuntime({ env = process.env, StripeClient } = {}) {
   const config = readPaymentConfig(env);
