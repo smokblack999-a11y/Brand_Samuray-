@@ -66,7 +66,8 @@ test("one-time checkout uses server-supplied amount and idempotency", async () =
   assert.equal(calls.checkout[0].params.payment_method_types, undefined);
   assert.equal(calls.checkout[0].opts.idempotencyKey, "delivery:order_123");
   assert.equal(calls.checkout[0].params.metadata.samurai_order_id, "order_123");
-  assert.match(calls.checkout[0].params.integration_identifier, /^samurai_delivery_[A-Z]{8}$/);
+  assert.match(calls.checkout[0].params.metadata.samurai_checkout_ref, /^delivery_[A-Z]{8}$/);
+  assert.equal(calls.checkout[0].params.integration_identifier, undefined);
 });
 
 test("subscription checkout accepts a Stripe Price ID, not a client amount", async () => {
