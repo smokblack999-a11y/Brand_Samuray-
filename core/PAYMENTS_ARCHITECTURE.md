@@ -6,7 +6,7 @@
 - Payments remain disabled by default; no HTTP checkout or webhook routes are mounted.
 - Adapter requires the official Stripe Node SDK constructor to be injected by the application.
 - The SDK dependency and lockfile have deliberately not been changed because dependency installation and lockfile regeneration have not yet been run in a repository checkout.
-- No order fulfillment, subscription entitlements, durable event ledger, refunds workflow, or local Kazakhstan provider is wired.
+- A file-backed payment ledger and webhook event deduplication primitive are present; they are not yet wired to routes or fulfillment.\n- The ledger is single-process storage, not suitable for multiple Core replicas; production deployment needs a persistent mounted data volume and a transactional shared database before horizontal scaling.\n- No order fulfillment, subscription entitlements, refunds workflow, or local Kazakhstan provider is wired.
 - No real charges, payouts, refunds, or connected-account operations have been performed.
 
 ## Jurisdiction decision
@@ -49,7 +49,7 @@ Every provider adapter implements `createOneTimeCheckout(input)`, `createSubscri
 - Refunds require an internal PaymentIntent reference and idempotency key.
 - Adapter is not wired into `server.js`; its presence does not mean payments are operational.
 
-## Initial business flows
+## Payment ledger foundation\n\n- Stores payment references, amounts, currency, status, and webhook event identifiers in a separate JSON file under the configured data directory.\n- Uses atomic temp-file replacement and restrictive file permissions. Corrupt data fails closed rather than resetting payment history.\n- Claims event IDs once, tracks retries, and prevents completed events from being claimed again.\n- Payment status transitions are constrained; a paid payment can move only to refunded.\n- This is a single-process persistence foundation. Do not run multiple Core replicas against the same JSON file. Before production, migrate to a transactional database with a unique constraint on provider event ID and tested backup/restore.\n\n## Initial business flows
 
 ### Delivery — one-time payment
 
