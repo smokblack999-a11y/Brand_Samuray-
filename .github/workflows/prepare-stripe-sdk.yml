@@ -40,4 +40,6 @@ jobs:
             exit 0
           fi
           git commit -m "Add official Stripe Node SDK 23.2.0"
+          git fetch origin feat/samurai-payments-provider-engine-v1
+          git rebase origin/feat/samurai-payments-provider-engine-v1
           git push origin HEAD:feat/samurai-payments-provider-engine-v1
