@@ -111,9 +111,9 @@ test("invalid webhook signing secret is rejected", () => {
 
 test("canonical subscription lookup retrieves current state from Stripe", async () => {
   const { calls, provider } = setup();
-  const subscription = await provider.retrieveSubscription("sub_test_123");
+  const subscription = await provider.retrieveSubscription("sub_test123");
   assert.equal(subscription.status, "active");
-  assert.deepEqual(calls.subscriptions, ["sub_test_123"]);
+  assert.deepEqual(calls.subscriptions, ["sub_test123"]);
   await assert.rejects(() => provider.retrieveSubscription("not-a-subscription"),
     error => error.code === "PAYMENT_SUBSCRIPTION_ID_INVALID");
 });
