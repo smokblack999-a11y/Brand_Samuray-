@@ -20,7 +20,7 @@ function ensure() {
   fs.mkdirSync(DATA_DIR, { recursive: true });
   if (!fs.existsSync(FILE)) {
     try {
-      fs.writeFileSync(FILE, JSON.stringify({ version: 1, events: {}, payments: {} }, null, 2) + "\n", {
+      fs.writeFileSync(FILE, JSON.stringify({ version: 1, events: {}, payments: {}, subscriptions: {} }, null, 2) + "\n", {
         flag: "wx", mode: 0o600
       });
     } catch (error) {
@@ -40,6 +40,10 @@ function readState() {
   if (!state || state.version !== 1 || !state.events || !state.payments ||
       typeof state.events !== "object" || typeof state.payments !== "object") {
     throw paymentError("PAYMENT_LEDGER_INVALID", "Payment ledger schema is invalid; refusing to overwrite it");
+  }
+  if (!state.subscriptions) state.subscriptions = {};
+  if (typeof state.subscriptions !== "object") {
+    throw paymentError("PAYMENT_LEDGER_INVALID", "Payment ledger subscription schema is invalid");
   }
   return state;
 }
@@ -165,6 +169,70 @@ function createPaymentLedger() {
       const matches = Object.values(state.payments).filter(record => record.providerSessionId === sessionId);
       if (matches.length > 1) throw paymentError("PAYMENT_LEDGER_SESSION_AMBIGUOUS", "Provider session maps to multiple payment records");
       return matches[0] || null;
+    },
+
+    createSubscription(input = {}) {
+      const state = readState();
+      const subscriptionId = cleanId(input.subscriptionId, "subscriptionId");
+      const providerSubscriptionId = cleanId(input.providerSubscriptionId, "providerSubscriptionId", "sub_");
+      if (state.subscriptions[subscriptionId] ||
+          Object.values(state.subscriptions).some(record => record.providerSubscriptionId === providerSubscriptionId)) {
+        throw paymentError("PAYMENT_LEDGER_SUBSCRIPTION_DUPLICATE", "Subscription is already recorded");
+      }
+      const initialStatus = input.status || "pending";
+      if (!["pending", "incomplete", "trialing", "active", "past_due", "unpaid", "canceled", "paused"].includes(initialStatus)) {
+        throw paymentError("PAYMENT_LEDGER_SUBSCRIPTION_STATUS_INVALID", "Subscription status is invalid");
+      }
+      const record = {
+        subscriptionId,
+        customerId: cleanId(input.customerId, "customerId"),
+        planId: cleanId(input.planId, "planId"),
+        provider: cleanId(input.provider, "provider"),
+        providerSubscriptionId,
+        providerCustomerId: typeof input.providerCustomerId === "string" ? input.providerCustomerId : null,
+        status: initialStatus,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
+      state.subscriptions[subscriptionId] = record;
+      writeState(state);
+      return record;
+    },
+
+    getSubscriptionByProviderId(providerSubscriptionId) {
+      const id = cleanId(providerSubscriptionId, "providerSubscriptionId", "sub_");
+      const state = readState();
+      return Object.values(state.subscriptions).find(record => record.providerSubscriptionId === id) || null;
+    },
+
+    setSubscriptionStatus(providerSubscriptionId, nextStatus, providerCustomerId) {
+      const id = cleanId(providerSubscriptionId, "providerSubscriptionId", "sub_");
+      const allowed = new Set(["pending", "incomplete", "trialing", "active", "past_due", "unpaid", "canceled", "paused"]);
+      if (!allowed.has(nextStatus)) throw paymentError("PAYMENT_LEDGER_SUBSCRIPTION_STATUS_INVALID", "Subscription status is invalid");
+      const state = readState();
+      const record = Object.values(state.subscriptions).find(item => item.providerSubscriptionId === id);
+      if (!record) throw paymentError("PAYMENT_LEDGER_SUBSCRIPTION_NOT_FOUND", "Subscription record not found");
+      const transitions = {
+        pending: new Set(["incomplete", "trialing", "active", "past_due", "unpaid", "canceled"]),
+        incomplete: new Set(["trialing", "active", "past_due", "unpaid", "canceled"]),
+        trialing: new Set(["active", "past_due", "unpaid", "paused", "canceled"]),
+        active: new Set(["past_due", "unpaid", "paused", "canceled"]),
+        past_due: new Set(["active", "unpaid", "paused", "canceled"]),
+        unpaid: new Set(["active", "canceled"]),
+        paused: new Set(["active", "past_due", "canceled"]),
+        canceled: new Set()
+      };
+      if (record.status !== nextStatus && !transitions[record.status]?.has(nextStatus)) {
+        throw paymentError("PAYMENT_LEDGER_SUBSCRIPTION_TRANSITION_INVALID", "Subscription state transition is not allowed");
+      }
+      record.status = nextStatus;
+      if (typeof providerCustomerId === "string" && providerCustomerId.startsWith("cus_")) {
+        record.providerCustomerId = providerCustomerId;
+      }
+      record.updatedAt = new Date().toISOString();
+      state.subscriptions[record.subscriptionId] = record;
+      writeState(state);
+      return record;
     },
 
     listEvents(limit = 100) {
