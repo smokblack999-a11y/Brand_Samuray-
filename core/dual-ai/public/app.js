@@ -178,12 +178,6 @@
       setBusy(false);
     }
   }
-    } finally {
-      state.auto = false;
-      el.auto.textContent = "Автодиалог";
-      setBusy(false);
-    }
-  }
   async function stopSession() {
     state.stopAuto = true;
     if (!state.id || !state.session || state.session.status !== "RUNNING") return;
