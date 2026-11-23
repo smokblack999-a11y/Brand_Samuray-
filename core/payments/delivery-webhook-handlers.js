@@ -59,7 +59,8 @@ function createDeliveryWebhookHandlers({ ledger, onPaid, onFailed = async () => 
     },
     "checkout.session.expired": async session => {
       const payment = resolvePayment(session);
-      ledger.setPaymentStatus(payment.paymentId, "cancelled");
+      const updated = ledger.setPaymentStatus(payment.paymentId, "cancelled");
+      await onFailed(updated, session);
     }
   });
 }
