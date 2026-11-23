@@ -36,7 +36,15 @@ function update(id, patch) {
   write(all);
   return all[id];
 }
+function commitRunning(id, session) {
+  const all = read();
+  if (!all[id]) return null;
+  if (all[id].status !== "RUNNING") return all[id];
+  all[id] = { ...session, updatedAt: new Date().toISOString() };
+  write(all);
+  return all[id];
+}
 function list() {
   return Object.values(read()).sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
 }
-module.exports = { create, get, update, list };
+module.exports = { create, get, update, commitRunning, list };
