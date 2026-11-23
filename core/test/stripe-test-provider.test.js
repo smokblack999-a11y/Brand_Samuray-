@@ -5,7 +5,7 @@ const assert = require("node:assert/strict");
 const { createStripeTestProvider, API_VERSION } = require("../payments/stripe-test-provider");
 
 function makeSdk() {
-  const calls = { checkout: [], refunds: [], webhook: [] };
+  const calls = { checkout: [], refunds: [], webhook: [], subscriptions: [] };
   class StripeClient {
     constructor(key, options) {
       calls.key = key;
@@ -14,6 +14,7 @@ function makeSdk() {
         calls.checkout.push({ params, opts });
         return { id: "cs_test_123", url: "https://checkout.stripe.com/test" };
       } } };
+      this.subscriptions = { retrieve: async id => { calls.subscriptions.push(id); return { id, customer: "cus_test_123", status: "active", metadata: { samurai_flow: "saas", samurai_customer_id: "customer_123", samurai_plan_id: "pro" } }; } };
       this.webhooks = { constructEvent: (body, signature, secret) => {
         calls.webhook.push({ body, signature, secret });
         return { id: "evt_test_123", type: "checkout.session.completed", data: { object: { payment_status: "paid" } } };
@@ -106,4 +107,13 @@ test("invalid webhook signing secret is rejected", () => {
   assert.throws(() => createStripeTestProvider({
     StripeClient: sdk.StripeClient, apiKey: "sk_test_ok", webhookSecret: "not-a-secret"
   }), error => error.code === "STRIPE_WEBHOOK_SECRET_INVALID");
+});
+
+test("canonical subscription lookup retrieves current state from Stripe", async () => {
+  const { calls, provider } = setup();
+  const subscription = await provider.retrieveSubscription("sub_test_123");
+  assert.equal(subscription.status, "active");
+  assert.deepEqual(calls.subscriptions, ["sub_test_123"]);
+  await assert.rejects(() => provider.retrieveSubscription("not-a-subscription"),
+    error => error.code === "PAYMENT_SUBSCRIPTION_ID_INVALID");
 });
