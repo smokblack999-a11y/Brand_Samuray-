@@ -16,8 +16,8 @@ function setup() {
     CREATE TABLE payments (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       order_id TEXT NOT NULL REFERENCES orders(id),
-      uid INTEGER NOT NULL, amount INTEGER NOT NULL, method TEXT NOT NULL,
-      status TEXT NOT NULL, ts REAL NOT NULL
+      uid INTEGER NOT NULL, amount INTEGER NOT NULL, proof TEXT, proof_type TEXT,
+      method TEXT NOT NULL, status TEXT NOT NULL, reviewed_by INTEGER, reviewed_at REAL, ts REAL NOT NULL
     );
     INSERT INTO orders(id,uid,total,status,updated) VALUES
       ('A-0001',42,1250,'awaiting_payment',1000),
