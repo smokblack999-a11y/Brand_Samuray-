@@ -10,6 +10,7 @@ function createPaymentRouter({
   webhookProcessor,
   requireApiKey,
   resolveDeliveryOrder,
+  resolveSaasPlan,
   successUrl,
   cancelUrl,
   checkoutRateLimit
@@ -97,6 +98,48 @@ function createPaymentRouter({
       return res.status(status).json({ ok: false, error: { code, message: status === 500 ? "Checkout could not be created" : error.message, requestId: req.requestId } });
     }
   });
+
+  if (typeof resolveSaasPlan === "function") {
+    router.post("/saas/checkout", ...checkoutMiddleware, async (req, res) => {
+      try {
+        const planId = typeof req.body?.planId === "string" ? req.body.planId.trim() : "";
+        if (!planId || planId.length > 120) {
+          return res.status(400).json({ ok: false, error: { code: "PAYMENT_PLAN_ID_REQUIRED", message: "A valid planId is required", requestId: req.requestId } });
+        }
+        const status = runtime.health();
+        if (!status.enabled || status.mode !== "test" || status.provider !== "stripe_test") {
+          return res.status(503).json({ ok: false, error: { code: "PAYMENTS_DISABLED", message: "Test payments are not enabled", requestId: req.requestId } });
+        }
+        // The resolver must map the requested plan to a server-owned Stripe Price ID and enforce customer ownership.
+        const plan = await resolveSaasPlan(planId, req);
+        if (!plan || plan.planId !== planId || typeof plan.customerId !== "string" ||
+            typeof plan.priceId !== "string" || !/^price_[A-Za-z0-9]+$/.test(plan.priceId)) {
+          throw paymentError("PAYMENT_PLAN_NOT_AVAILABLE", "The server did not resolve an available subscription plan");
+        }
+        const provider = runtime.registry.getProvider();
+        const revision = String(plan.version || plan.updatedAt || "1");
+        const digest = crypto.createHash("sha256").update(plan.customerId + ":" + planId + ":" + revision).digest("hex");
+        const session = await provider.createSubscriptionCheckout({
+          customerId: plan.customerId,
+          planId,
+          priceId: plan.priceId,
+          successUrl,
+          cancelUrl,
+          idempotencyKey: "saas:" + digest
+        });
+        return res.status(201).json({
+          ok: true,
+          subscriptionCheckout: { sessionId: session.sessionId, checkoutUrl: session.checkoutUrl, mode: session.mode },
+          requestId: req.requestId
+        });
+      } catch (error) {
+        const code = error.code || "PAYMENT_SUBSCRIPTION_CHECKOUT_FAILED";
+        const status = code === "PAYMENT_PLAN_NOT_AVAILABLE" ? 409 : 500;
+        console.error(JSON.stringify({ event: "payment_subscription_checkout_failed", requestId: req.requestId, code }));
+        return res.status(status).json({ ok: false, error: { code, message: status === 500 ? "Subscription checkout could not be created" : error.message, requestId: req.requestId } });
+      }
+    });
+  }
 
   router.post("/stripe/webhook", async (req, res) => {
     try {
