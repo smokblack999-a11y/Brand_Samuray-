@@ -14,11 +14,11 @@ function setup() {
   const { createSaasWebhookHandlers } = require("../payments/saas-webhook-handlers");
   const ledger = createPaymentLedger();
   const calls = [];
-  const providerState = { status: "incomplete" };
+  const providerState = { status: "incomplete", metadata: { samurai_flow: "saas", samurai_customer_id: "customer_123", samurai_plan_id: "pro" } };
   const handlers = createSaasWebhookHandlers({
     ledger,
     getCurrentSubscription: async id => ({ id, customer: "cus_123", status: providerState.status,
-      metadata: { samurai_flow: "saas", samurai_customer_id: "customer_123", samurai_plan_id: "pro" } }),
+      metadata: providerState.metadata }),
     onStatusChange: async (record, event) => calls.push({ status: record.status, type: event?.type })
   });
   const session = {
@@ -32,11 +32,11 @@ test("SaaS Checkout creates a pending local subscription, invoice.paid activates
   const ctx = setup();
   try {
     await ctx.handlers["checkout.session.completed"](ctx.session, { type: "checkout.session.completed" });
-    assert.equal(ctx.ledger.getSubscriptionByProviderId("sub_123").status, "pending");
+    assert.equal(ctx.ledger.getSubscriptionByProviderId("sub_123").status, "incomplete");
     ctx.providerState.status = "active";
     await ctx.handlers["invoice.paid"]({ subscription: "sub_123", customer: "cus_123" }, { type: "invoice.paid" });
     assert.equal(ctx.ledger.getSubscriptionByProviderId("sub_123").status, "active");
-    assert.deepEqual(ctx.calls.map(x => x.status), ["pending", "active"]);
+    assert.deepEqual(ctx.calls.map(x => x.status), ["incomplete", "active"]);
   } finally {
     fs.rmSync(ctx.dir, { recursive: true, force: true });
     delete process.env.PAYMENTS_DATA_DIR;
@@ -62,9 +62,10 @@ test("invoice failure and subscription deletion update entitlement state", async
 test("SaaS webhook rejects customer and metadata mismatches", async () => {
   const ctx = setup();
   try {
-    await assert.rejects(() => ctx.handlers["checkout.session.completed"]({
-      ...ctx.session, metadata: { ...ctx.session.metadata, samurai_customer_id: "" }
-    }, { type: "checkout.session.completed" }), error => error.code === "PAYMENT_SUBSCRIPTION_METADATA_INVALID");
+    ctx.providerState.metadata.samurai_customer_id = "";
+    await assert.rejects(() => ctx.handlers["checkout.session.completed"](ctx.session, { type: "checkout.session.completed" }),
+      error => error.code === "PAYMENT_SUBSCRIPTION_METADATA_INVALID");
+    ctx.providerState.metadata.samurai_customer_id = "customer_123";
     await ctx.handlers["checkout.session.completed"](ctx.session, { type: "checkout.session.completed" });
     await assert.rejects(() => ctx.handlers["invoice.paid"]({ subscription: "sub_123", customer: "cus_wrong" }, { type: "invoice.paid" }),
       error => error.code === "PAYMENT_SUBSCRIPTION_CUSTOMER_MISMATCH");
