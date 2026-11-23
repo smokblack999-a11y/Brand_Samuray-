@@ -4,6 +4,7 @@ const { REQUIRED_METHODS, assertPaymentProvider, paymentError } = require("./pro
 const { TEST_PROVIDERS, readPaymentConfig, createPaymentProviderRegistry } = require("./provider-registry");
 const { API_VERSION: STRIPE_TEST_API_VERSION, createStripeTestProvider } = require("./stripe-test-provider");
 const { createPaymentLedger } = require("./ledger");
+const { createStripeWebhookProcessor } = require("./webhook-processor");
 
 module.exports = {
   REQUIRED_METHODS,
@@ -14,5 +15,6 @@ module.exports = {
   createPaymentProviderRegistry,
   STRIPE_TEST_API_VERSION,
   createStripeTestProvider,
-  createPaymentLedger
+  createPaymentLedger,
+  createStripeWebhookProcessor
 };
