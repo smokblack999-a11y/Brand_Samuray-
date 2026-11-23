@@ -58,6 +58,22 @@ class LauncherActivity : Activity() {
         content.addView(label("TACTICAL COMMAND", 12f, muted, true))
         content.addView(divider())
         content.addView(label("COMMAND CENTER", 18f, white, true))
+        val actions = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        actions.addView(actionTile("SET AS HOME") {
+            runCatching {
+                startActivity(Intent("android.settings.HOME_SETTINGS"))
+            }.onFailure {
+                startActivity(Intent(android.provider.Settings.ACTION_SETTINGS))
+            }
+        }, LinearLayout.LayoutParams(0, -2, 1f).apply { rightMargin = 6 })
+        actions.addView(actionTile("SYSTEM SETTINGS") {
+            startActivity(Intent(android.provider.Settings.ACTION_SETTINGS))
+        }, LinearLayout.LayoutParams(0, -2, 1f).apply { leftMargin = 6 })
+        content.addView(actions)
+
         content.addView(card("SYSTEM STATUS", "Launcher interface active • Local-first\nNo telemetry • No background automation"))
         content.addView(card("GHOST SHIELD", "Informational dashboard only. Review and change permissions in Android settings."))
         content.addView(card("NEXUS", "Core API: NOT CONNECTED\nNo fabricated health or job status."))
@@ -190,6 +206,18 @@ class LauncherActivity : Activity() {
             layoutParams = LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = 6 }
         }
     }
+
+    private fun actionTile(title: String, action: () -> Unit): View =
+        TextView(this).apply {
+            text = title
+            textSize = 12f
+            gravity = Gravity.CENTER
+            setTextColor(white)
+            typeface = Typeface.create("sans-serif-condensed", Typeface.BOLD)
+            background = roundedPanel(10, accent)
+            setPadding(10, 14, 10, 14)
+            setOnClickListener { action() }
+        }
 
     private fun card(title: String, body: String): View {
         val box = LinearLayout(this).apply {
