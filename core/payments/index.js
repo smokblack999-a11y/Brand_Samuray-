@@ -2,6 +2,7 @@
 
 const { REQUIRED_METHODS, assertPaymentProvider, paymentError } = require("./provider-contract");
 const { TEST_PROVIDERS, readPaymentConfig, createPaymentProviderRegistry } = require("./provider-registry");
+const { API_VERSION: STRIPE_TEST_API_VERSION, createStripeTestProvider } = require("./stripe-test-provider");
 
 module.exports = {
   REQUIRED_METHODS,
@@ -9,5 +10,7 @@ module.exports = {
   assertPaymentProvider,
   paymentError,
   readPaymentConfig,
-  createPaymentProviderRegistry
+  createPaymentProviderRegistry,
+  STRIPE_TEST_API_VERSION,
+  createStripeTestProvider
 };
