@@ -65,3 +65,19 @@ test("corrupt ledger fails closed instead of resetting payment history", () => {
     delete process.env.PAYMENTS_DATA_DIR;
   }
 });
+
+test("payment ledger prevents linking one Checkout Session to multiple payments", () => {
+  const { ledger, dir } = freshLedger();
+  try {
+    const base = {
+      orderId: "order_123", customerId: "customer_123", provider: "stripe_test",
+      providerSessionId: "cs_same_session", amountMinor: 5000, currency: "KZT"
+    };
+    ledger.createPayment({ ...base, paymentId: "pay_first" });
+    assert.throws(() => ledger.createPayment({ ...base, paymentId: "pay_second" }),
+      error => error.code === "PAYMENT_LEDGER_SESSION_DUPLICATE");
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+    delete process.env.PAYMENTS_DATA_DIR;
+  }
+});
