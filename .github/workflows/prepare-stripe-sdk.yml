@@ -4,8 +4,6 @@ on:
   push:
     branches:
       - feat/samurai-payments-provider-engine-v1
-    paths:
-      - .github/workflows/prepare-stripe-sdk.yml
 
 permissions:
   contents: write
