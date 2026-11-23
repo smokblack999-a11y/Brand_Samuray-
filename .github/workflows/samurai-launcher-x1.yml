@@ -1,0 +1,52 @@
+name: SAMURAI Launcher X1 CI
+
+on:
+  push:
+    branches: [ "samurai-launcher-x1" ]
+    paths:
+      - "android/**"
+      - ".github/workflows/samurai-launcher-x1.yml"
+  pull_request:
+    paths:
+      - "android/samurai-launcher/**"
+      - "android/settings.gradle"
+      - "android/build.gradle"
+      - ".github/workflows/samurai-launcher-x1.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: samurai-launcher-x1-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  launcher-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+      - uses: android-actions/setup-android@v4
+        with:
+          packages: "platform-tools platforms;android-35 build-tools;35.0.0"
+      - name: Build Launcher APK
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          ./gradlew :samurai-launcher:assembleDebug :samurai-launcher:compileDebugKotlin --stacktrace
+      - name: Verify APK
+        run: |
+          test -s android/samurai-launcher/build/outputs/apk/debug/samurai-launcher-debug.apk
+          ls -lh android/samurai-launcher/build/outputs/apk/debug/samurai-launcher-debug.apk
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: samurai-launcher-x1-debug
+          path: android/samurai-launcher/build/outputs/apk/debug/samurai-launcher-debug.apk
+          if-no-files-found: error
