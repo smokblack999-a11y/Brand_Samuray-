@@ -8,6 +8,8 @@
     </queries>
     <application
         android:label="SAMURAI Launcher"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher"
         android:theme="@android:style/Theme.Material.NoActionBar"
         android:allowBackup="false">
         <activity
