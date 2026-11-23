@@ -5,10 +5,12 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
 import android.graphics.Typeface
+import android.graphics.drawable.Drawable
 import android.os.Bundle
 import android.view.Gravity
 import android.view.View
 import android.widget.EditText
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
@@ -19,7 +21,9 @@ class LauncherActivity : Activity() {
     private val red = Color.rgb(230, 38, 48)
     private val white = Color.rgb(240, 242, 245)
     private val muted = Color.rgb(145, 150, 158)
+    private val prefs by lazy { getSharedPreferences("samurai_launcher", MODE_PRIVATE) }
     private lateinit var appList: LinearLayout
+    private lateinit var favoritesList: LinearLayout
     private lateinit var search: EditText
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -29,7 +33,10 @@ class LauncherActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
-        if (::appList.isInitialized) loadApps(search.text.toString())
+        if (::appList.isInitialized) {
+            renderFavorites()
+            loadApps(search.text.toString())
+        }
     }
 
     private fun render() {
@@ -50,6 +57,10 @@ class LauncherActivity : Activity() {
         content.addView(card("GHOST SHIELD", "Informational dashboard only. Review and change permissions in Android settings."))
         content.addView(card("NEXUS", "Core API: NOT CONNECTED\nNo fabricated health or job status."))
         content.addView(card("COMMS", "WhatsApp Hybrid / Telegram\nInstalled apps can be opened from the drawer."))
+        content.addView(label("FAVORITES", 18f, red, true).apply { setPadding(0, 20, 0, 8) })
+        content.addView(label("Long-press an app below to add or remove it.", 12f, muted, false))
+        favoritesList = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        content.addView(favoritesList)
         content.addView(label("APP DRAWER", 18f, red, true).apply { setPadding(0, 20, 0, 8) })
 
         search = EditText(this).apply {
@@ -61,6 +72,9 @@ class LauncherActivity : Activity() {
             setPadding(16, 12, 16, 12)
         }
         content.addView(search)
+        content.addView(label("Tap to launch • Long-press to manage favorites", 12f, muted, false))
+        appList = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        content.addView(appList)
         search.addTextChangedListener(object : android.text.TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
@@ -68,12 +82,45 @@ class LauncherActivity : Activity() {
             }
             override fun afterTextChanged(s: android.text.Editable?) {}
         })
-
-        appList = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        content.addView(appList)
         root.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
         setContentView(root)
+        renderFavorites()
         loadApps("")
+    }
+
+    private fun favoritePackages(): MutableSet<String> =
+        prefs.getStringSet("favorite_packages", emptySet())?.toMutableSet() ?: mutableSetOf()
+
+    private fun toggleFavorite(packageName: String) {
+        val favorites = favoritePackages()
+        if (!favorites.add(packageName)) favorites.remove(packageName)
+        prefs.edit().putStringSet("favorite_packages", favorites).apply()
+        renderFavorites()
+        loadApps(search.text.toString())
+    }
+
+    private fun renderFavorites() {
+        if (!::favoritesList.isInitialized) return
+        favoritesList.removeAllViews()
+        val favorites = favoritePackages()
+        if (favorites.isEmpty()) {
+            favoritesList.addView(label("No favorites yet", 13f, muted, false))
+            return
+        }
+        favorites.sorted().forEach { packageName ->
+            val launchIntent = packageManager.getLaunchIntentForPackage(packageName)
+            if (launchIntent == null) {
+                favorites.remove(packageName)
+            } else {
+                val title = runCatching {
+                    packageManager.getApplicationLabel(packageManager.getApplicationInfo(packageName, 0)).toString()
+                }.getOrDefault(packageName)
+                favoritesList.addView(appRow(title, packageName, runCatching {
+                    packageManager.getApplicationIcon(packageName)
+                }.getOrNull(), true))
+            }
+        }
+        prefs.edit().putStringSet("favorite_packages", favorites).apply()
     }
 
     private fun loadApps(query: String) {
@@ -81,47 +128,58 @@ class LauncherActivity : Activity() {
         appList.removeAllViews()
         val launcherIntent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
         val apps = packageManager.queryIntentActivities(
-            launcherIntent,
-            PackageManager.MATCH_DEFAULT_ONLY
+            launcherIntent, PackageManager.MATCH_DEFAULT_ONLY
         ).mapNotNull { info ->
             val title = info.loadLabel(packageManager)?.toString() ?: return@mapNotNull null
             if (info.activityInfo.packageName == packageName || !title.contains(query, true)) {
                 return@mapNotNull null
             }
-            title to info
-        }.sortedBy { it.first.lowercase() }
+            Triple(title, info.activityInfo.packageName, runCatching { info.loadIcon(packageManager) }.getOrNull())
+        }.distinctBy { it.second }.sortedBy { it.first.lowercase() }
 
         if (apps.isEmpty()) {
             appList.addView(label("No launchable apps / no matches", 14f, muted, false))
             return
         }
+        apps.forEach { (title, packageName, icon) ->
+            appList.addView(appRow(title, packageName, icon, favoritePackages().contains(packageName)))
+        }
+    }
 
-        apps.forEach { (title, info) ->
-            val row = LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER_VERTICAL
-                setPadding(14, 12, 14, 12)
-                setBackgroundColor(panel)
+    private fun appRow(title: String, packageName: String, icon: Drawable?, favorite: Boolean): View {
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(14, 10, 14, 10)
+            setBackgroundColor(panel)
+        }
+        row.addView(ImageView(this).apply {
+            setImageDrawable(icon)
+            scaleType = ImageView.ScaleType.FIT_CENTER
+        }, LinearLayout.LayoutParams(38, 38).apply { rightMargin = 14 })
+        row.addView(TextView(this).apply {
+            text = title
+            textSize = 15f
+            setTextColor(white)
+            typeface = Typeface.DEFAULT
+        }, LinearLayout.LayoutParams(0, -2, 1f))
+        row.addView(TextView(this).apply {
+            text = if (favorite) "★" else "☆"
+            textSize = 22f
+            setTextColor(red)
+            contentDescription = if (favorite) "Favorite" else "Not favorite"
+        })
+        row.setOnClickListener {
+            packageManager.getLaunchIntentForPackage(packageName)?.let { launch ->
+                runCatching { startActivity(launch) }
             }
-            row.addView(TextView(this).apply {
-                text = "◆"
-                textSize = 20f
-                setTextColor(red)
-                setPadding(0, 0, 14, 0)
-            })
-            row.addView(TextView(this).apply {
-                text = title
-                textSize = 16f
-                setTextColor(white)
-                typeface = Typeface.DEFAULT
-            }, LinearLayout.LayoutParams(0, -2, 1f))
-            row.setOnClickListener {
-                packageManager.getLaunchIntentForPackage(info.activityInfo.packageName)?.let { launch ->
-                    launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    runCatching { startActivity(launch) }
-                }
-            }
-            appList.addView(row, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = 6 })
+        }
+        row.setOnLongClickListener {
+            toggleFavorite(packageName)
+            true
+        }
+        return row.apply {
+            layoutParams = LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = 6 }
         }
     }
 
