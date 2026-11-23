@@ -117,3 +117,32 @@ test("Stripe webhook route forwards exact raw body and rejects invalid signature
     delete process.env.PAYMENTS_DATA_DIR;
   }
 });
+
+test("checkout rejects orders not explicitly marked payable by the server resolver", async () => {
+  const ctx = setup();
+  try {
+    const { createPaymentRouter } = require("../payments/http-router");
+    const app = express();
+    app.use(express.json({ verify(req, _res, buffer) { req.rawBody = Buffer.from(buffer); } }));
+    app.use("/api/payments", createPaymentRouter({
+      express,
+      runtime: { registry: { getProvider: () => ({ name: "stripe_test" }) }, health: () => ({ enabled: true, mode: "test", provider: "stripe_test" }) },
+      ledger: ctx.ledger,
+      webhookProcessor: { process: async () => ({ received: true }) },
+      requireApiKey(req, res, next) { next(); },
+      resolveDeliveryOrder: async orderId => ({ orderId, payable: false }),
+      successUrl: "https://samurai.example/success",
+      cancelUrl: "https://samurai.example/cancel"
+    }));
+    await withServer(app, async base => {
+      const response = await fetch(base + "/api/payments/delivery/checkout", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ orderId: "order_closed" })
+      });
+      assert.equal(response.status, 409);
+      assert.equal(ctx.ledger.listEvents().length, 0);
+    });
+  } finally {
+    fs.rmSync(ctx.dir, { recursive: true, force: true });
+    delete process.env.PAYMENTS_DATA_DIR;
+  }
+});
