@@ -1,84 +1,58 @@
 # SAMURAI Payments Domain Adapter Contract
 
-This contract is the boundary between the payment subsystem and the real SAMURAI commerce/account domain. It is intentionally not implemented with fake data.
+The Delivery integration now includes a concrete adapter for the existing Samurai Delivery CRM SQLite schema. The SaaS adapter remains optional until real plan/customer/entitlement records exist.
 
-A module selected by `PAYMENTS_DOMAIN_ADAPTER_MODULE` must export these five async functions:
+## Delivery CRM SQLite adapter
 
-```js
-module.exports = {
-  async resolveDeliveryOrder(orderId, request) {},
-  async resolveSaasPlan(planId, request) {},
-  async onDeliveryPaid(paymentRecord, checkoutSession) {},
-  async onDeliveryFailed(paymentRecord, checkoutSession) {},
-  async onSubscriptionStatusChange(subscriptionRecord, stripeEvent) {}
-};
+Module: `core/payments/delivery-crm-sqlite-adapter.js`
+
+Configure:
+
+```dotenv
+PAYMENTS_HTTP_ENABLED=true
+PAYMENTS_DOMAIN_ADAPTER_MODULE=./payments/delivery-crm-sqlite-adapter.js
+DELIVERY_CRM_DB_PATH=/absolute/path/to/existing/data/crm.sqlite3
+PAYMENTS_ENABLED=true
+PAYMENTS_MODE=test
+PAYMENTS_PROVIDER=stripe_test
 ```
 
-## Resolver invariants
+The configured SQLite file must already exist and contain the expected legacy CRM tables/columns:
+- `orders(id, uid, total, status, updated)`
+- `payments(id, order_id, uid, amount, method, status, ts)`
 
-### `resolveDeliveryOrder(orderId, request)`
+The adapter does not create an empty CRM database. It adds only a separate `provider_payment_refs` table for provider IDs, Stripe session/payment-intent references, KZT minor-unit amount, checkout revision, and provider state.
 
-Must load the authoritative order from the real order store and verify that the authenticated caller owns it. Return only a currently payable order:
+### Customer ownership
 
-```js
-{
-  orderId: "internal-order-id",
-  payable: true,
-  customerId: "internal-customer-id",
-  productName: "human-readable item name",
-  amountMinor: 250000,
-  currency: "KZT",
-  version: 4
-}
-```
+The route requires the Core API key and `X-SAMURAI-Telegram-User-ID`. The latter must be supplied by a trusted server-side Telegram bot/backend, never directly trusted from an unauthenticated browser. The adapter loads the order using both `orders.id` and `orders.uid`.
 
-- Return `null` or `payable: false` for missing, already-paid, canceled, expired, or unauthorized orders.
-- Never accept amount, currency, customer ID, or order state from request body.
-- `version` must change when an order is edited or a new payment attempt is intentionally permitted.
-- The current payment router treats this resolver as the only source of payment amount and customer identity.
+### Amount conversion
 
-### `resolveSaasPlan(planId, request)`
+The legacy CRM stores integer KZT amounts (for example, `orders.total`). Stripe treats KZT as a two-decimal currency, so the adapter converts the whole-KZT order total to Stripe minor units by multiplying by 100. The conversion is verified again against the authoritative order when the signed webhook is processed. <https://docs.stripe.com/currencies>
 
-Must authenticate and resolve the caller's SAMURAI customer identity, check that the plan is available, and map the internal plan ID to a Stripe Price ID configured on the server. Return:
+### Safe checkout reservation
 
-```js
-{
-  planId: "pro",
-  customerId: "internal-customer-id",
-  priceId: "price_server_configured_id",
-  version: 2
-}
-```
+Before creating a Stripe Checkout Session, the adapter transactionally:
+1. Verifies the order belongs to the authenticated Telegram user and is `awaiting_payment`.
+2. Creates a `payments` row with method `stripe_test` and status `provider_pending`.
+3. Creates a provider reference using the deterministic SAMURAI payment ID and checkout revision.
+4. Moves the order to `checkout_pending`.
 
-Do not accept a Stripe Price ID or subscription amount from the client.
+This blocks the existing CRM's manual `confirm_payment` path, which only confirms orders still in `awaiting_payment`. Repeated checkout requests reuse the same payment revision and Stripe idempotency key. A definitive provider 4xx error or a signed failed/expired webhook marks the attempt failed and returns the order to `awaiting_payment`. Network/5xx ambiguity deliberately leaves the order reserved for a retry with the same idempotency key.
 
-## Side-effect callback invariants
+After a signed paid webhook, the adapter uses one SQLite `BEGIN IMMEDIATE` transaction to verify the CRM order/payment/session/amount/currency mapping, approve the payment row, mark the provider reference paid, and move the order to `paid`. Repeated paid events are idempotent.
 
-### `onDeliveryPaid(paymentRecord, checkoutSession)`
+The legacy Telegram bot may display the new `checkout_pending` status as a raw status string until its `STATUS_LABELS` map is updated. The state is intentional; do not map it to `paid`.
 
-Must be idempotent by internal order ID/payment ID. In one transaction in the actual order store, transition only a payable order to paid and enqueue fulfillment. If already paid by this payment, return success without creating a second fulfillment task. If paid by another payment, raise a conflict for manual reconciliation.
+## SaaS adapter
 
-### `onDeliveryFailed(paymentRecord, checkoutSession)`
+SaaS Checkout remains disabled unless the configured domain adapter also exports both:
+- `resolveSaasPlan(planId, request)`
+- `onSubscriptionStatusChange(subscriptionRecord, stripeEvent)`
 
-Must update only the matching payment attempt. It must not cancel or overwrite an order that has since been paid by another valid attempt.
+Those functions must resolve a real SAMURAI customer and server-owned Stripe Price ID, and update a real entitlement store idempotently. No placeholder plan or fake entitlement is included.
 
-### `onSubscriptionStatusChange(subscriptionRecord, stripeEvent)`
+## Runtime compatibility
 
-Must map the internal customer and plan to entitlements and apply the canonical subscription status idempotently. Do not grant access based on a browser redirect. Define access policy for `past_due`, `unpaid`, `paused`, and `canceled` explicitly.
-
-## Activation
-
-The Core server mounts payment routes only when all are true:
-
-- `PAYMENTS_HTTP_ENABLED=true`
-- `PAYMENTS_ENABLED=true`
-- `PAYMENTS_MODE=test`
-- `PAYMENTS_PROVIDER=stripe_test`
-- The configured adapter module exports all five functions above.
-- Stripe test secret and webhook signing secret are present.
-
-The server refuses startup if the adapter is missing or incomplete. No routes are mounted by default.
-
-## Current repository limitation
-
-The current `core/store.js` persists leads only. It does not define Delivery orders, customer ownership, SaaS plans, or entitlement records. Until those domain stores and their ownership rules exist, a production-safe concrete adapter cannot be implemented without inventing business data or weakening authorization.
+Core requires Node.js `>=22.13.0` for the built-in `node:sqlite` module. Node documents this module as experimental/release-candidate; payment activation remains explicitly test-only and disabled by default.
