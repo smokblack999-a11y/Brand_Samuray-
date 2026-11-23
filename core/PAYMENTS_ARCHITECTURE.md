@@ -8,7 +8,7 @@
 - File-backed payment and subscription ledger, webhook event deduplication, retry tracking, and signature-first webhook processing are implemented.
 - Delivery and SaaS checkout routes are available through the router factory, but application resolvers and entitlement/fulfillment callbacks are not wired.
 - The ledger is single-process JSON storage. It is not safe for multiple Core replicas and is not production-grade transactional storage. The current Core repository does not yet contain authoritative Delivery order or SaaS customer/plan/entitlement stores, so no concrete domain adapter is shipped.
-- No real charges, refunds, payouts, or connected-account operations have been performed.
+- No real charges, refunds, payouts, or connected-account operations have been performed.\n- Webhook processing is synchronous and is a sandbox integration foundation, not a production-grade durable event queue.
 
 ## Jurisdiction decision
 
@@ -87,9 +87,10 @@ Every provider adapter implements `createOneTimeCheckout(input)`, `createSubscri
 ## Webhook processing primitive
 
 - Signature verification happens before an event ID is claimed or handled.
-- Event IDs are claimed once; duplicate deliveries are acknowledged without re-running the handler.
+- Completed event IDs are deduplicated. An event already being processed returns a retryable server error instead of being acknowledged as completed; stale processing claims can be reclaimed after a bounded lease.
 - Failed handlers are retryable; unknown event types fail explicitly rather than being silently discarded.
-- Business handlers independently verify authoritative payment/subscription state and must implement idempotent state transitions.
+- SaaS webhook snapshots are not trusted as the current subscription state: the handler retrieves the current Stripe Subscription and reconciles local state from it.
+- The current processor runs synchronously inside the HTTP request and the JSON ledger is not a durable queue. Stripe recommends returning 2xx quickly before complex processing; a durable inbox/worker and transactional shared database are required before production use.
 
 ## Security invariants
 
