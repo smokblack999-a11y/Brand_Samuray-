@@ -79,3 +79,49 @@ test("unknown webhook event is failed for provider retry rather than silently di
     delete process.env.PAYMENTS_DATA_DIR;
   }
 });
+
+test("concurrent duplicate delivery is not acknowledged while the first handler is in progress", async () => {
+  const ctx = setup();
+  try {
+    let release;
+    let started;
+    const startedPromise = new Promise(resolve => { started = resolve; });
+    const waitPromise = new Promise(resolve => { release = resolve; });
+    const processor = ctx.create({ "checkout.session.completed": async () => {
+      started();
+      await waitPromise;
+    } });
+    const args = [Buffer.from("{}"), { "stripe-signature": "valid" }];
+    const first = processor.process(...args);
+    await startedPromise;
+    await assert.rejects(() => processor.process(...args),
+      error => error.code === "PAYMENT_WEBHOOK_IN_PROGRESS");
+    release();
+    const result = await first;
+    assert.equal(result.duplicate, false);
+    assert.equal(ctx.ledger.listEvents()[0].status, "completed");
+  } finally {
+    fs.rmSync(ctx.dir, { recursive: true, force: true });
+    delete process.env.PAYMENTS_DATA_DIR;
+  }
+});
+
+test("stale processing claims can be reclaimed after a worker crash", async () => {
+  const ctx = setup();
+  try {
+    const claim = ctx.ledger.claimEvent("evt_abc", "checkout.session.completed", "cs_abc");
+    assert.equal(claim.claimed, true);
+    const file = path.join(ctx.dir, "payments-ledger.json");
+    const state = JSON.parse(fs.readFileSync(file, "utf8"));
+    state.events.evt_abc.updatedAt = new Date(Date.now() - 600_000).toISOString();
+    fs.writeFileSync(file, JSON.stringify(state));
+    const processor = ctx.create({ "checkout.session.completed": async () => {} });
+    const result = await processor.process(Buffer.from("{}"), { "stripe-signature": "valid" });
+    assert.equal(result.duplicate, false);
+    assert.equal(ctx.ledger.listEvents()[0].attempts, 2);
+    assert.equal(ctx.ledger.listEvents()[0].status, "completed");
+  } finally {
+    fs.rmSync(ctx.dir, { recursive: true, force: true });
+    delete process.env.PAYMENTS_DATA_DIR;
+  }
+});
