@@ -1,0 +1,13 @@
+"use strict";
+
+const { REQUIRED_METHODS, assertPaymentProvider, paymentError } = require("./provider-contract");
+const { TEST_PROVIDERS, readPaymentConfig, createPaymentProviderRegistry } = require("./provider-registry");
+
+module.exports = {
+  REQUIRED_METHODS,
+  TEST_PROVIDERS,
+  assertPaymentProvider,
+  paymentError,
+  readPaymentConfig,
+  createPaymentProviderRegistry
+};
