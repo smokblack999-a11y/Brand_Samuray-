@@ -81,7 +81,10 @@ if (String(process.env.PAYMENTS_HTTP_ENABLED || "").trim().toLowerCase() === "tr
   const adapterModule = String(process.env.PAYMENTS_DOMAIN_ADAPTER_MODULE || "").trim();
   if (!adapterModule) throw new Error("Payment HTTP startup blocked: PAYMENTS_DOMAIN_ADAPTER_MODULE is required");
   const { mountPaymentRoutes } = require("./payments/bootstrap");
-  const domainAdapter = require(path.resolve(adapterModule));
+  const domainAdapterModule = require(path.resolve(adapterModule));
+  const domainAdapter = typeof domainAdapterModule.createDomainAdapter === "function"
+    ? domainAdapterModule.createDomainAdapter({ env: process.env })
+    : domainAdapterModule;
   const paymentMount = mountPaymentRoutes({
     app,
     express,
