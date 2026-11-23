@@ -38,14 +38,12 @@ function setup(overrides = {}) {
   return { ...sdk, provider };
 }
 
-test("adapter accepts only test keys and constructs an instance client", () => {
+test("adapter accepts only test keys and constructs an instance client", async () => {
   const { calls, provider } = setup();
   assert.equal(calls.key, "rk_test_sandbox_key");
   assert.equal(calls.options.apiVersion, API_VERSION);
-  assert.deepEqual(awaitable(provider.health()), { ok: true, provider: "stripe_test", mode: "test", apiVersion: API_VERSION });
+  assert.deepEqual(await provider.health(), { ok: true, provider: "stripe_test", mode: "test", apiVersion: API_VERSION });
 });
-
-function awaitable(value) { return value; }
 
 test("live keys are rejected before SDK construction", () => {
   const sdk = makeSdk();
@@ -68,6 +66,7 @@ test("one-time checkout uses server-supplied amount and idempotency", async () =
   assert.equal(calls.checkout[0].params.payment_method_types, undefined);
   assert.equal(calls.checkout[0].opts.idempotencyKey, "delivery:order_123");
   assert.equal(calls.checkout[0].params.metadata.samurai_order_id, "order_123");
+  assert.match(calls.checkout[0].params.integration_identifier, /^samurai_delivery_[A-Z]{8}$/);
 });
 
 test("subscription checkout accepts a Stripe Price ID, not a client amount", async () => {
