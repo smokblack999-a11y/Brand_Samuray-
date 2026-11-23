@@ -56,7 +56,7 @@ function setup() {
       orderId, payable: true, customerId: "customer_123", productName: "Delivery",
       amountMinor: 250000, currency: "KZT", version: 3
     }),
-    resolveSaasPlan: async planId => ({ planId, customerId: "customer_123", priceId: "price_SERVER_123", version: 2 }),
+    resolveSaasPlan: async planId => ({ planId, customerId: "customer_123", priceId: "price_SERVER123", version: 2 }),
     successUrl: "https://samurai.example/payment/success",
     cancelUrl: "https://samurai.example/payment/cancel"
   }));
@@ -164,7 +164,7 @@ test("SaaS checkout uses server-owned Stripe Price ID and ignores client price",
       const body = await response.json();
       assert.equal(response.status, 201);
       assert.equal(body.subscriptionCheckout.sessionId, "cs_saas_http_123");
-      assert.equal(ctx.calls.subscription[0].priceId, "price_SERVER_123");
+      assert.equal(ctx.calls.subscription[0].priceId, "price_SERVER123");
       assert.equal(ctx.calls.subscription[0].customerId, "customer_123");
       assert.equal(ctx.calls.subscription[0].planId, "pro");
     });
