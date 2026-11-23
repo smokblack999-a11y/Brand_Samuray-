@@ -155,6 +155,14 @@ function createPaymentLedger() {
       return state.payments[String(paymentId)] || null;
     },
 
+    findPaymentBySession(providerSessionId) {
+      const sessionId = cleanId(providerSessionId, "providerSessionId", "cs_");
+      const state = readState();
+      const matches = Object.values(state.payments).filter(record => record.providerSessionId === sessionId);
+      if (matches.length > 1) throw paymentError("PAYMENT_LEDGER_SESSION_AMBIGUOUS", "Provider session maps to multiple payment records");
+      return matches[0] || null;
+    },
+
     listEvents(limit = 100) {
       const state = readState();
       const max = Math.max(1, Math.min(Number(limit) || 100, 500));
