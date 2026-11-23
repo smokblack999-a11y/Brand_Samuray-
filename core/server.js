@@ -78,6 +78,12 @@ const dualRateLimit = createRateLimiter({ windowMs: Math.max(1000, Number(proces
 // Payments are not mounted unless an operator explicitly enables the test-only integration
 // and supplies a real SAMURAI domain adapter. No order or entitlement store is fabricated here.
 if (String(process.env.PAYMENTS_HTTP_ENABLED || "").trim().toLowerCase() === "true") {
+  if (String(process.env.PAYMENTS_ENABLED || "").trim().toLowerCase() !== "true" ||
+      String(process.env.PAYMENTS_MODE || "").trim().toLowerCase() !== "test" ||
+      String(process.env.PAYMENTS_PROVIDER || "").trim().toLowerCase() !== "stripe_test" ||
+      String(process.env.NODE_ENV || "").trim().toLowerCase() === "production") {
+    throw new Error("Payment HTTP startup blocked: only explicitly enabled Stripe test mode is permitted");
+  }
   const adapterModule = String(process.env.PAYMENTS_DOMAIN_ADAPTER_MODULE || "").trim();
   if (!adapterModule) throw new Error("Payment HTTP startup blocked: PAYMENTS_DOMAIN_ADAPTER_MODULE is required");
   const { mountPaymentRoutes } = require("./payments/bootstrap");
