@@ -51,3 +51,5 @@ jobs:
           name: samurai-launcher-x1-debug
           path: android/samurai-launcher/build/outputs/apk/debug/samurai-launcher-debug.apk
           if-no-files-found: error
+
+# Rebuild trigger for monochrome launcher and icon revision.
