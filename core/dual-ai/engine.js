@@ -160,7 +160,7 @@ async function next(id) {
       session.phase = "INVALID_STATE";
     }
 
-    return safeSession(store.update(id, session));
+    return safeSession(store.commitRunning(id, session));
   } finally {
     locks.delete(id);
   }
