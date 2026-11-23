@@ -76,3 +76,17 @@ test("duplicate SaaS Checkout completion does not create duplicate subscription 
     delete process.env.PAYMENTS_DATA_DIR;
   }
 });
+
+test("older Stripe invoice events cannot roll back a newer subscription state", async () => {
+  const ctx = setup();
+  try {
+    await ctx.handlers["checkout.session.completed"](ctx.session, { type: "checkout.session.completed", created: 100 });
+    await ctx.handlers["invoice.paid"]({ subscription: "sub_123", customer: "cus_123" }, { type: "invoice.paid", created: 200 });
+    await ctx.handlers["invoice.payment_failed"]({ subscription: "sub_123", customer: "cus_123" }, { type: "invoice.payment_failed", created: 150 });
+    assert.equal(ctx.ledger.getSubscriptionByProviderId("sub_123").status, "active");
+    assert.deepEqual(ctx.calls.map(x => x.status), ["pending", "active"]);
+  } finally {
+    fs.rmSync(ctx.dir, { recursive: true, force: true });
+    delete process.env.PAYMENTS_DATA_DIR;
+  }
+});
