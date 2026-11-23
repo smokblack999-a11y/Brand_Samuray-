@@ -2,13 +2,22 @@
 
 const fs = require("fs");
 const path = require("path");
+const crypto = require("crypto");
 
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, "data");
 const FILE = path.join(DATA_DIR, "leads.json");
 
 function ensure() {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
-  if (!fs.existsSync(FILE)) fs.writeFileSync(FILE, "[]\n");
+  fs.mkdirSync(DATA_DIR, { recursive: true, mode: 0o700 });
+  fs.chmodSync(DATA_DIR, 0o700);
+  if (!fs.existsSync(FILE)) {
+    try {
+      fs.writeFileSync(FILE, "[]\n", { encoding: "utf8", flag: "wx", mode: 0o600 });
+    } catch (error) {
+      if (error.code !== "EEXIST") throw error;
+    }
+  }
+  fs.chmodSync(FILE, 0o600);
 }
 function read() {
   ensure();
@@ -16,9 +25,19 @@ function read() {
 }
 function write(rows) {
   ensure();
-  const tmp = `${FILE}.tmp`;
-  fs.writeFileSync(tmp, JSON.stringify(rows, null, 2) + "\n");
+  const tmp = `${FILE}.${process.pid}.${crypto.randomUUID()}.tmp`;
+  const fd = fs.openSync(tmp, "wx", 0o600);
+  try {
+    fs.writeFileSync(fd, JSON.stringify(rows, null, 2) + "\n");
+    fs.fsyncSync(fd);
+  } catch (error) {
+    try { fs.unlinkSync(tmp); } catch {}
+    throw error;
+  } finally {
+    fs.closeSync(fd);
+  }
   fs.renameSync(tmp, FILE);
+  fs.chmodSync(FILE, 0o600);
 }
 function hasEvent(eventKey) {
   if (!eventKey) return false;
