@@ -45,7 +45,7 @@ function createPaymentRouter({
 
       // The resolver must load the authoritative order and enforce caller ownership.
       const order = await resolveDeliveryOrder(orderId, req);
-      if (!order || String(order.orderId || order.id || "") !== orderId ||
+      if (!order || order.payable !== true || String(order.orderId || order.id || "") !== orderId ||
           typeof order.customerId !== "string" || typeof order.productName !== "string" ||
           !Number.isSafeInteger(order.amountMinor) || order.amountMinor < 1 ||
           typeof order.currency !== "string") {
