@@ -5,6 +5,7 @@ on:
     branches: [ "samurai-launcher-x1" ]
     paths:
       - "android/**"
+      - "android/samurai-launcher/src/main/java/**"
       - ".github/workflows/samurai-launcher-x1.yml"
   pull_request:
     paths:
