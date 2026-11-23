@@ -15,7 +15,9 @@ test("combined payment handlers dispatch completed Checkout by mode", async () =
     const { createPaymentWebhookHandlers } = require("../payments/combined-webhook-handlers");
     const ledger = createPaymentLedger();
     const calls = [];
+    const provider = { async retrieveSubscription(id) { return { id, customer: "cus_combo", status: "active", metadata: { samurai_flow: "saas", samurai_customer_id: "customer_combo", samurai_plan_id: "pro" } }; } };
     const handlers = createPaymentWebhookHandlers({
+      provider,
       ledger,
       onDeliveryPaid: async () => calls.push("delivery"),
       onSubscriptionStatusChange: async record => calls.push(record.status)
@@ -26,7 +28,7 @@ test("combined payment handlers dispatch completed Checkout by mode", async () =
     };
     await handlers["checkout.session.completed"](session, { type: "checkout.session.completed", created: 100 });
     await handlers["invoice.paid"]({ subscription: "sub_combo", customer: "cus_combo" }, { type: "invoice.paid", created: 101 });
-    assert.deepEqual(calls, ["pending", "active"]);
+    assert.deepEqual(calls, ["active"]);
     assert.equal(ledger.getSubscriptionByProviderId("sub_combo").status, "active");
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
