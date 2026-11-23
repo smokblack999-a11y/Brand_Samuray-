@@ -77,7 +77,16 @@ function createPaymentLedger() {
       const type = cleanId(eventType, "eventType");
       const state = readState();
       const current = state.events[id];
-      if (current && current.status !== "failed") return { claimed: false, event: current };
+      if (current?.status === "completed") return { claimed: false, duplicate: true, event: current };
+      if (current?.status === "processing") {
+        const age = Date.now() - Date.parse(current.updatedAt || current.createdAt || "");
+        const leaseMs = Math.max(30_000, Number(process.env.PAYMENTS_WEBHOOK_LEASE_MS || 300_000));
+        if (Number.isFinite(age) && age >= 0 && age < leaseMs) {
+          return { claimed: false, inProgress: true, duplicate: false, event: current };
+        }
+      } else if (current && current.status !== "failed") {
+        throw paymentError("PAYMENT_LEDGER_EVENT_STATE_INVALID", "Webhook event has an invalid persisted state");
+      }
       const event = current || { eventId: id, createdAt: new Date().toISOString(), attempts: 0 };
       event.type = type;
       event.objectId = typeof objectId === "string" ? objectId.slice(0, 200) : null;
