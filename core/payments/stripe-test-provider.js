@@ -111,7 +111,7 @@ function createStripeTestProvider({ StripeClient, apiKey, webhookSecret, apiVers
       if (!event || typeof event.id !== "string" || typeof event.type !== "string" || !event.data || !event.data.object) {
         throw paymentError("STRIPE_WEBHOOK_EVENT_INVALID", "Verified Stripe event has an invalid structure");
       }
-      return { eventId: event.id, type: event.type, object: event.data.object };
+      return { eventId: event.id, type: event.type, object: event.data.object, created: Number.isSafeInteger(event.created) ? event.created : null };
     },
 
     async refund(input = {}) {
