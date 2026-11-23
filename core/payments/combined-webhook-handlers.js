@@ -4,9 +4,16 @@ const { paymentError } = require("./provider-contract");
 const { createDeliveryWebhookHandlers } = require("./delivery-webhook-handlers");
 const { createSaasWebhookHandlers } = require("./saas-webhook-handlers");
 
-function createPaymentWebhookHandlers({ ledger, onDeliveryPaid, onDeliveryFailed, onSubscriptionStatusChange } = {}) {
+function createPaymentWebhookHandlers({ provider, ledger, onDeliveryPaid, onDeliveryFailed, onSubscriptionStatusChange } = {}) {
+  if (!provider || typeof provider.retrieveSubscription !== "function") {
+    throw paymentError("PAYMENT_SUBSCRIPTION_LOOKUP_REQUIRED", "Payment provider must support canonical subscription retrieval");
+  }
   const delivery = createDeliveryWebhookHandlers({ ledger, onPaid: onDeliveryPaid, onFailed: onDeliveryFailed });
-  const saas = createSaasWebhookHandlers({ ledger, onStatusChange: onSubscriptionStatusChange });
+  const saas = createSaasWebhookHandlers({
+    ledger,
+    getCurrentSubscription: id => provider.retrieveSubscription(id),
+    onStatusChange: onSubscriptionStatusChange
+  });
 
   return Object.freeze({
     "checkout.session.completed": async (session, event) => {
@@ -17,6 +24,7 @@ function createPaymentWebhookHandlers({ ledger, onDeliveryPaid, onDeliveryFailed
     "checkout.session.async_payment_succeeded": delivery["checkout.session.async_payment_succeeded"],
     "checkout.session.async_payment_failed": delivery["checkout.session.async_payment_failed"],
     "checkout.session.expired": delivery["checkout.session.expired"],
+    "customer.subscription.created": saas["customer.subscription.created"],
     "invoice.paid": saas["invoice.paid"],
     "invoice.payment_failed": saas["invoice.payment_failed"],
     "customer.subscription.updated": saas["customer.subscription.updated"],
