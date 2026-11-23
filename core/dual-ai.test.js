@@ -36,6 +36,12 @@ test("session lifecycle is serializable and rejects unsupported providers", () =
   const stopped = engine.stop(session.id);
   assert.equal(stopped.status, "STOPPED");
   assert.equal(stopped.phase, "STOPPED");
+
+  // A delayed model response must not overwrite a stop requested mid-turn.
+  const staleRunningSnapshot = { ...session, status: "RUNNING", phase: "B_REVIEW" };
+  const committed = require("./dual-ai/store").commitRunning(session.id, staleRunningSnapshot);
+  assert.equal(committed.status, "STOPPED");
+  assert.equal(committed.phase, "STOPPED");
 });
 
 test("kill critic blocks empty candidate deterministically", async () => {
