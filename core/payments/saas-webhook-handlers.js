@@ -86,9 +86,15 @@ function createSaasWebhookHandlers({ ledger, getCurrentSubscription, onStatusCha
     return updated;
   }
 
-  async function syncFromObjectId(value, expectedCustomer, event, field) {
-    const id = objectId(value, "sub_", field);
-    const customerId = expectedCustomer ? objectId(expectedCustomer, "cus_", "event.customer") : null;
+  function invoiceSubscription(invoice) {
+    const legacy = invoice?.subscription;
+    const nested = invoice?.parent?.subscription_details?.subscription;
+    return legacy || nested;
+  }
+
+  async function syncInvoice(invoice, event) {
+    const id = objectId(invoiceSubscription(invoice), "sub_", "invoice.subscription");
+    const customerId = objectId(invoice.customer, "cus_", "invoice.customer");
     return synchronize(id, customerId, event);
   }
 
@@ -105,11 +111,9 @@ function createSaasWebhookHandlers({ ledger, getCurrentSubscription, onStatusCha
       return synchronize(id, objectId(subscription.customer, "cus_", "subscription.customer"), event);
     },
 
-    "invoice.paid": async (invoice, event) =>
-      syncFromObjectId(invoice.subscription, invoice.customer, event, "invoice.subscription"),
+    "invoice.paid": syncInvoice,
 
-    "invoice.payment_failed": async (invoice, event) =>
-      syncFromObjectId(invoice.subscription, invoice.customer, event, "invoice.subscription"),
+    "invoice.payment_failed": syncInvoice,
 
     "customer.subscription.updated": async (subscription, event) => {
       const id = objectId(subscription.id, "sub_", "subscription.id");
