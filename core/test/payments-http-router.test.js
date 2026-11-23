@@ -23,12 +23,16 @@ function setup() {
   const { createPaymentLedger } = require("../payments/ledger");
   const { createPaymentRouter } = require("../payments/http-router");
   const ledger = createPaymentLedger();
-  const calls = { checkout: [], webhook: [] };
+  const calls = { checkout: [], subscription: [], webhook: [] };
   const provider = {
     name: "stripe_test",
     async createOneTimeCheckout(input) {
       calls.checkout.push(input);
       return { sessionId: "cs_http_123", checkoutUrl: "https://checkout.stripe.com/test", mode: "test" };
+    },
+    async createSubscriptionCheckout(input) {
+      calls.subscription.push(input);
+      return { sessionId: "cs_saas_http_123", checkoutUrl: "https://checkout.stripe.com/subscription", mode: "test" };
     }
   };
   const runtime = {
@@ -52,6 +56,7 @@ function setup() {
       orderId, payable: true, customerId: "customer_123", productName: "Delivery",
       amountMinor: 250000, currency: "KZT", version: 3
     }),
+    resolveSaasPlan: async planId => ({ planId, customerId: "customer_123", priceId: "price_SERVER_123", version: 2 }),
     successUrl: "https://samurai.example/payment/success",
     cancelUrl: "https://samurai.example/payment/cancel"
   }));
@@ -140,6 +145,28 @@ test("checkout rejects orders not explicitly marked payable by the server resolv
       });
       assert.equal(response.status, 409);
       assert.equal(ctx.ledger.listEvents().length, 0);
+    });
+  } finally {
+    fs.rmSync(ctx.dir, { recursive: true, force: true });
+    delete process.env.PAYMENTS_DATA_DIR;
+  }
+});
+
+test("SaaS checkout uses server-owned Stripe Price ID and ignores client price", async () => {
+  const ctx = setup();
+  try {
+    await withServer(ctx.app, async base => {
+      const response = await fetch(base + "/api/payments/saas/checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-API-Key": "internal-test-key" },
+        body: JSON.stringify({ planId: "pro", priceId: "price_attacker", amountMinor: 1 })
+      });
+      const body = await response.json();
+      assert.equal(response.status, 201);
+      assert.equal(body.subscriptionCheckout.sessionId, "cs_saas_http_123");
+      assert.equal(ctx.calls.subscription[0].priceId, "price_SERVER_123");
+      assert.equal(ctx.calls.subscription[0].customerId, "customer_123");
+      assert.equal(ctx.calls.subscription[0].planId, "pro");
     });
   } finally {
     fs.rmSync(ctx.dir, { recursive: true, force: true });
