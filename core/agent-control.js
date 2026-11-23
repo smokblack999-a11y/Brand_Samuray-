@@ -11,8 +11,16 @@ const QUEUE_FILE = path.join(DATA_DIR, "agent-control-queue.jsonl");
 const TERMINAL = new Set(["success", "failure", "timed_out", "startup_failure", "cancelled", "action_required"]);
 
 function ensureStore() {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
-  if (!fs.existsSync(QUEUE_FILE)) fs.writeFileSync(QUEUE_FILE, "", "utf8");
+  fs.mkdirSync(DATA_DIR, { recursive: true, mode: 0o700 });
+  fs.chmodSync(DATA_DIR, 0o700);
+  if (!fs.existsSync(QUEUE_FILE)) {
+    try {
+      fs.writeFileSync(QUEUE_FILE, "", { encoding: "utf8", flag: "wx", mode: 0o600 });
+    } catch (error) {
+      if (error.code !== "EEXIST") throw error;
+    }
+  }
+  fs.chmodSync(QUEUE_FILE, 0o600);
 }
 
 function readAll() {
@@ -24,7 +32,14 @@ function readAll() {
 
 function append(record) {
   ensureStore();
-  fs.appendFileSync(QUEUE_FILE, JSON.stringify(record) + "\n", { encoding: "utf8", flag: "a" });
+  const fd = fs.openSync(QUEUE_FILE, "a", 0o600);
+  try {
+    fs.writeFileSync(fd, JSON.stringify(record) + "\n");
+    fs.fsyncSync(fd);
+  } finally {
+    fs.closeSync(fd);
+  }
+  fs.chmodSync(QUEUE_FILE, 0o600);
 }
 
 function now() {
