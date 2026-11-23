@@ -14,12 +14,18 @@ function setup() {
   const { createSaasWebhookHandlers } = require("../payments/saas-webhook-handlers");
   const ledger = createPaymentLedger();
   const calls = [];
-  const handlers = createSaasWebhookHandlers({ ledger, onStatusChange: async (record, event) => calls.push({ status: record.status, type: event?.type }) });
+  const providerState = { status: "incomplete" };
+  const handlers = createSaasWebhookHandlers({
+    ledger,
+    getCurrentSubscription: async id => ({ id, customer: "cus_123", status: providerState.status,
+      metadata: { samurai_flow: "saas", samurai_customer_id: "customer_123", samurai_plan_id: "pro" } }),
+    onStatusChange: async (record, event) => calls.push({ status: record.status, type: event?.type })
+  });
   const session = {
     id: "cs_saas_123", mode: "subscription", subscription: "sub_123", customer: "cus_123",
     metadata: { samurai_flow: "saas", samurai_customer_id: "customer_123", samurai_plan_id: "pro" }
   };
-  return { dir, ledger, handlers, calls, session };
+  return { dir, ledger, handlers, calls, session, providerState };
 }
 
 test("SaaS Checkout creates a pending local subscription, invoice.paid activates it", async () => {
@@ -27,6 +33,7 @@ test("SaaS Checkout creates a pending local subscription, invoice.paid activates
   try {
     await ctx.handlers["checkout.session.completed"](ctx.session, { type: "checkout.session.completed" });
     assert.equal(ctx.ledger.getSubscriptionByProviderId("sub_123").status, "pending");
+    ctx.providerState.status = "active";
     await ctx.handlers["invoice.paid"]({ subscription: "sub_123", customer: "cus_123" }, { type: "invoice.paid" });
     assert.equal(ctx.ledger.getSubscriptionByProviderId("sub_123").status, "active");
     assert.deepEqual(ctx.calls.map(x => x.status), ["pending", "active"]);
@@ -40,8 +47,10 @@ test("invoice failure and subscription deletion update entitlement state", async
   const ctx = setup();
   try {
     await ctx.handlers["checkout.session.completed"](ctx.session, { type: "checkout.session.completed" });
+    ctx.providerState.status = "past_due";
     await ctx.handlers["invoice.payment_failed"]({ subscription: "sub_123", customer: "cus_123" }, { type: "invoice.payment_failed" });
     assert.equal(ctx.ledger.getSubscriptionByProviderId("sub_123").status, "past_due");
+    ctx.providerState.status = "canceled";
     await ctx.handlers["customer.subscription.deleted"]({ id: "sub_123", customer: "cus_123" }, { type: "customer.subscription.deleted" });
     assert.equal(ctx.ledger.getSubscriptionByProviderId("sub_123").status, "canceled");
   } finally {
@@ -77,14 +86,16 @@ test("duplicate SaaS Checkout completion does not create duplicate subscription 
   }
 });
 
-test("older Stripe invoice events cannot roll back a newer subscription state", async () => {
+test("webhook event timestamps are not trusted; canonical provider state wins", async () => {
   const ctx = setup();
   try {
     await ctx.handlers["checkout.session.completed"](ctx.session, { type: "checkout.session.completed", created: 100 });
+    ctx.providerState.status = "active";
     await ctx.handlers["invoice.paid"]({ subscription: "sub_123", customer: "cus_123" }, { type: "invoice.paid", created: 200 });
-    await ctx.handlers["invoice.payment_failed"]({ subscription: "sub_123", customer: "cus_123" }, { type: "invoice.payment_failed", created: 150 });
+    // A delayed failure event arrives later, but Stripe's current subscription is still active.
+    await ctx.handlers["invoice.payment_failed"]({ subscription: "sub_123", customer: "cus_123" }, { type: "invoice.payment_failed", created: 300 });
     assert.equal(ctx.ledger.getSubscriptionByProviderId("sub_123").status, "active");
-    assert.deepEqual(ctx.calls.map(x => x.status), ["pending", "active"]);
+    assert.deepEqual(ctx.calls.map(x => x.status), ["incomplete", "active"]);
   } finally {
     fs.rmSync(ctx.dir, { recursive: true, force: true });
     delete process.env.PAYMENTS_DATA_DIR;
