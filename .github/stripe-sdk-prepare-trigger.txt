@@ -1,0 +1,1 @@
+Temporary trigger for the one-time Stripe SDK lockfile preparation workflow. Safe to delete after package manifests are committed.
