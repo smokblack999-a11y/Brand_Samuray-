@@ -7,7 +7,6 @@ import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
-import android.view.Window
 import android.os.Bundle
 import android.view.Gravity
 import android.view.View
@@ -18,11 +17,11 @@ import android.widget.ScrollView
 import android.widget.TextView
 
 class LauncherActivity : Activity() {
-    private val bg = Color.rgb(0, 12, 17)
-    private val panel = Color.rgb(5, 27, 34)
-    private val red = Color.rgb(0, 220, 245)
-    private val white = Color.rgb(228, 250, 255)
-    private val muted = Color.rgb(116, 178, 190)
+    private val bg = Color.rgb(15, 16, 18)
+    private val panel = Color.rgb(29, 31, 35)
+    private val accent = Color.rgb(75, 173, 184)
+    private val white = Color.rgb(235, 237, 239)
+    private val muted = Color.rgb(151, 157, 163)
     private val prefs by lazy { getSharedPreferences("samurai_launcher", MODE_PRIVATE) }
     private lateinit var appList: LinearLayout
     private lateinit var favoritesList: LinearLayout
@@ -30,7 +29,10 @@ class LauncherActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        window.statusBarColor = Color.rgb(0, 8, 12)\n        window.navigationBarColor = Color.rgb(0, 8, 12)\n        window.decorView.systemUiVisibility = 0\n        render()
+        window.statusBarColor = Color.rgb(12, 13, 15)
+        window.navigationBarColor = Color.rgb(12, 13, 15)
+        window.decorView.systemUiVisibility = 0
+        render()
     }
 
     override fun onResume() {
@@ -51,19 +53,20 @@ class LauncherActivity : Activity() {
         val content = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         scroll.addView(content)
 
-        content.addView(label("SAMURAI", 30f, red, true))\n        content.addView(label("LIQUID CYAN EDITION", 11f, muted, true))
-        content.addView(label("TACTICAL COMMAND / X1", 12f, muted, true))
+        content.addView(label("SAMURAI", 30f, white, true))
+        content.addView(label("MONOCHROME / X1", 11f, accent, true))
+        content.addView(label("TACTICAL COMMAND", 12f, muted, true))
         content.addView(divider())
         content.addView(label("COMMAND CENTER", 18f, white, true))
         content.addView(card("SYSTEM STATUS", "Launcher interface active • Local-first\nNo telemetry • No background automation"))
         content.addView(card("GHOST SHIELD", "Informational dashboard only. Review and change permissions in Android settings."))
         content.addView(card("NEXUS", "Core API: NOT CONNECTED\nNo fabricated health or job status."))
         content.addView(card("COMMS", "WhatsApp Hybrid / Telegram\nInstalled apps can be opened from the drawer."))
-        content.addView(label("FAVORITES", 18f, red, true).apply { setPadding(0, 20, 0, 8) })
+        content.addView(label("FAVORITES", 18f, accent, true).apply { setPadding(0, 20, 0, 8) })
         content.addView(label("Long-press an app below to add or remove it.", 12f, muted, false))
         favoritesList = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         content.addView(favoritesList)
-        content.addView(label("APP DRAWER", 18f, red, true).apply { setPadding(0, 20, 0, 8) })
+        content.addView(label("APP DRAWER", 18f, accent, true).apply { setPadding(0, 20, 0, 8) })
 
         search = EditText(this).apply {
             hint = "Search apps..."
@@ -72,7 +75,7 @@ class LauncherActivity : Activity() {
             setHintTextColor(muted)
             typeface = Typeface.create("sans-serif", Typeface.NORMAL)
             textSize = 16f
-            setBackgroundColor(panel)
+            background = roundedPanel(12, Color.rgb(65, 72, 78))
             setPadding(16, 12, 16, 12)
         }
         content.addView(search)
@@ -155,7 +158,7 @@ class LauncherActivity : Activity() {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setPadding(14, 10, 14, 10)
-            setBackgroundColor(panel)
+            background = roundedPanel(10, Color.rgb(49, 53, 58))
         }
         row.addView(ImageView(this).apply {
             setImageDrawable(icon ?: getDrawable(android.R.drawable.sym_def_app_icon))
@@ -171,7 +174,7 @@ class LauncherActivity : Activity() {
         row.addView(TextView(this).apply {
             text = if (favorite) "★" else "☆"
             textSize = 22f
-            setTextColor(red)
+            setTextColor(accent)
             contentDescription = if (favorite) "Favorite" else "Not favorite"
         })
         row.setOnClickListener {
@@ -192,9 +195,9 @@ class LauncherActivity : Activity() {
         val box = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(16, 14, 16, 14)
-            setBackgroundColor(panel)
+            background = roundedPanel(12, Color.rgb(58, 64, 69))
         }
-        box.addView(label(title, 13f, red, true))
+        box.addView(label(title, 13f, accent, true))
         box.addView(label(body, 13f, white, false).apply { setPadding(0, 8, 0, 0) })
         return box.apply {
             layoutParams = LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = 8 }
@@ -206,13 +209,23 @@ class LauncherActivity : Activity() {
             this.text = text
             textSize = size
             setTextColor(color)
-            typeface = if (bold) Typeface.create("sans-serif-condensed", Typeface.BOLD) else Typeface.create("sans-serif", Typeface.NORMAL)
+            typeface = if (bold) Typeface.create("sans-serif-condensed", Typeface.BOLD)
+                       else Typeface.create("sans-serif", Typeface.NORMAL)
             setPadding(0, 4, 0, 4)
         }
 
-    private fun roundedPanel(radiusDp: Int, strokeColor: Int): GradientDrawable = GradientDrawable(\n        GradientDrawable.Orientation.TL_BR, intArrayOf(Color.rgb(5, 35, 43), Color.rgb(8, 18, 24))\n    ).apply { cornerRadius = radiusDp * resources.displayMetrics.density; setStroke((1 * resources.displayMetrics.density).toInt().coerceAtLeast(1), strokeColor) }\n\n    private fun divider(): View = View(this).apply {
-        setBackgroundColor(red)
-        layoutParams = LinearLayout.LayoutParams(-1, 2).apply {
+    private fun roundedPanel(radiusDp: Int, strokeColor: Int): GradientDrawable =
+        GradientDrawable(
+            GradientDrawable.Orientation.TL_BR,
+            intArrayOf(Color.rgb(35, 38, 42), Color.rgb(21, 23, 26))
+        ).apply {
+            cornerRadius = radiusDp * resources.displayMetrics.density
+            setStroke((resources.displayMetrics.density).toInt().coerceAtLeast(1), strokeColor)
+        }
+
+    private fun divider(): View = View(this).apply {
+        setBackgroundColor(accent)
+        layoutParams = LinearLayout.LayoutParams(-1, 1).apply {
             topMargin = 12
             bottomMargin = 14
         }
