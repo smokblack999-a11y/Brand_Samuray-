@@ -6,6 +6,8 @@ const { API_VERSION: STRIPE_TEST_API_VERSION, createStripeTestProvider } = requi
 const { createPaymentLedger } = require("./ledger");
 const { createStripeWebhookProcessor } = require("./webhook-processor");
 const { createPaymentRuntime } = require("./runtime");
+const { createDeliveryWebhookHandlers } = require("./delivery-webhook-handlers");
+const { createPaymentRouter } = require("./http-router");
 
 module.exports = {
   REQUIRED_METHODS,
@@ -18,5 +20,7 @@ module.exports = {
   createStripeTestProvider,
   createPaymentLedger,
   createStripeWebhookProcessor,
-  createPaymentRuntime
+  createPaymentRuntime,
+  createDeliveryWebhookHandlers,
+  createPaymentRouter
 };
