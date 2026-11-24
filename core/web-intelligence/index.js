@@ -14,7 +14,7 @@ function fail(code, message) {
 
 function cleanText(value, maxLength, field) {
   if (typeof value !== "string") fail("INVALID_" + field.toUpperCase(), field + " must be a string");
-  const normalized = value.replace(/\\u0000/g, "").trim();
+  const normalized = value.split(String.fromCharCode(0)).join("").trim();
   if (!normalized) fail("EMPTY_" + field.toUpperCase(), field + " must not be empty");
   return normalized.slice(0, maxLength);
 }
@@ -80,7 +80,7 @@ function normalizeEvidence(input, options = {}) {
 
   const offer = normalizeOffer(input.offer);
   const evidenceHash = crypto.createHash("sha256")
-    .update(sourceUrl + "\\n" + selectedText, "utf8")
+    .update(sourceUrl + String.fromCharCode(10) + selectedText, "utf8")
     .digest("hex");
 
   return {
