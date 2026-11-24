@@ -24,17 +24,17 @@ function hasEvent(eventKey) {
   if (!eventKey) return false;
   return read().some(x => x.eventKey === eventKey);
 }
-function saveLead(lead) {
+function saveLead(lead = {}) {
   const rows = read();
   if (lead?.eventKey) {
     const existing = rows.find(x => x.eventKey === lead.eventKey);
     if (existing) return existing;
   }
   const item = {
+    ...lead,
     id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     createdAt: new Date().toISOString(),
-    status: lead?.status || "completed",
-    ...lead
+    status: "completed"
   };
   rows.push(item);
   write(rows);
@@ -51,23 +51,32 @@ function claimEvent(eventKey, lead = {}) {
     write(rows);
     return { claimed: true, item: existing };
   }
+  const now = new Date().toISOString();
   const item = {
+    ...lead,
     id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
+    createdAt: now,
+    updatedAt: now,
     status: "processing",
-    eventKey,
-    ...lead
+    eventKey
   };
   rows.push(item);
   write(rows);
   return { claimed: true, item };
 }
-function updateLead(id, patch) {
+function updateLead(id, patch = {}) {
   const rows = read();
   const index = rows.findIndex(x => x.id === id);
   if (index === -1) throw new Error("lead not found");
-  rows[index] = { ...rows[index], ...patch, updatedAt: new Date().toISOString() };
+  const current = rows[index];
+  rows[index] = {
+    ...current,
+    ...patch,
+    id: current.id,
+    createdAt: current.createdAt,
+    eventKey: current.eventKey,
+    updatedAt: new Date().toISOString()
+  };
   write(rows);
   return rows[index];
 }
