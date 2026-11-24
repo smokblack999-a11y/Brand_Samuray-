@@ -41,7 +41,7 @@ function createLocalStore(options = {}) {
     fs.mkdirSync(path.dirname(filePath), { recursive: true, mode: 0o700 });
     const tempPath = filePath + "." + crypto.randomUUID() + ".tmp";
     try {
-      fs.writeFileSync(tempPath, JSON.stringify(state, null, 2) + "\\n", { encoding: "utf8", mode: 0o600, flag: "wx" });
+      fs.writeFileSync(tempPath, JSON.stringify(state, null, 2) + String.fromCharCode(10), { encoding: "utf8", mode: 0o600, flag: "wx" });
       fs.renameSync(tempPath, filePath);
       try { fs.chmodSync(filePath, 0o600); } catch {}
     } finally {
