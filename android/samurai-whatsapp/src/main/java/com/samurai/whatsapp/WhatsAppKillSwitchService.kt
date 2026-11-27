@@ -206,7 +206,7 @@ class WhatsAppKillSwitchService : VpnService() {
         private val TARGET_PACKAGES = listOf("com.whatsapp", "com.whatsapp.w4b")
         @Volatile private var activeInProcess = false
 
-        fun state(context: android.content.Context): WhatsAppKillSwitchState {
+        internal fun state(context: android.content.Context): WhatsAppKillSwitchState {
             val prefs = context.getSharedPreferences(PREFS, android.content.Context.MODE_PRIVATE)
             val saved = runCatching {
                 val raw = prefs.getString(KEY_STATE, null)
@@ -220,10 +220,10 @@ class WhatsAppKillSwitchService : VpnService() {
             return saved
         }
 
-        fun isEnabled(context: android.content.Context): Boolean =
+        internal fun isEnabled(context: android.content.Context): Boolean =
             state(context) == WhatsAppKillSwitchState.ENABLED && activeInProcess
 
-        fun setRequestedState(context: android.content.Context, value: WhatsAppKillSwitchState) {
+        internal fun setRequestedState(context: android.content.Context, value: WhatsAppKillSwitchState) {
             persistState(context, value)
         }
 
