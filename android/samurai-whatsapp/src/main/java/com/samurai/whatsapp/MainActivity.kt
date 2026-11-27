@@ -1,8 +1,11 @@
 package com.samurai.whatsapp
 
 import android.app.AlertDialog
+import android.content.BroadcastReceiver
 import android.content.ComponentName
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.net.Uri
 import android.os.Bundle
 import android.os.SystemClock
@@ -33,6 +36,12 @@ class MainActivity : FragmentActivity() {
     private var contentRendered = false
     private var authInProgress = false
     private var backgroundedAt = 0L
+    private var vpnReceiverRegistered = false
+    private val vpnStateReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action == WhatsAppKillSwitchService.ACTION_STATE_CHANGED) refreshVpnControl()
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -41,6 +50,20 @@ class MainActivity : FragmentActivity() {
             authenticateAndRender()
         } else {
             render()
+        }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        if (!vpnReceiverRegistered) {
+            val filter = IntentFilter(WhatsAppKillSwitchService.ACTION_STATE_CHANGED)
+            if (android.os.Build.VERSION.SDK_INT >= 33) {
+                registerReceiver(vpnStateReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+            } else {
+                @Suppress("DEPRECATION")
+                registerReceiver(vpnStateReceiver, filter)
+            }
+            vpnReceiverRegistered = true
         }
     }
 
@@ -63,6 +86,10 @@ class MainActivity : FragmentActivity() {
     override fun onStop() {
         if (contentRendered && !isFinishing && !isChangingConfigurations) {
             backgroundedAt = SystemClock.elapsedRealtime()
+        }
+        if (vpnReceiverRegistered) {
+            unregisterReceiver(vpnStateReceiver)
+            vpnReceiverRegistered = false
         }
         super.onStop()
     }
@@ -623,6 +650,7 @@ class MainActivity : FragmentActivity() {
     }
 
     private fun startWhatsAppKillSwitch() {
+        WhatsAppKillSwitchService.setRequestedState(this, WhatsAppKillSwitchState.STARTING)
         runCatching {
             val intent = Intent(this, WhatsAppKillSwitchService::class.java)
                 .setAction(WhatsAppKillSwitchService.ACTION_START)
@@ -634,39 +662,51 @@ class MainActivity : FragmentActivity() {
         }.onSuccess {
             Toast.makeText(this, "Запрос на блокировку WhatsApp отправлен", Toast.LENGTH_SHORT).show()
         }.onFailure { error ->
+            WhatsAppKillSwitchService.setRequestedState(this, WhatsAppKillSwitchState.FAILED)
             Toast.makeText(this, error.message ?: "Не удалось запустить блокировку", Toast.LENGTH_LONG).show()
         }
         refreshVpnControl()
     }
 
     private fun stopWhatsAppKillSwitch() {
+        WhatsAppKillSwitchService.setRequestedState(this, WhatsAppKillSwitchState.STOPPING)
         runCatching {
             startService(
                 Intent(this, WhatsAppKillSwitchService::class.java)
                     .setAction(WhatsAppKillSwitchService.ACTION_STOP)
             )
         }.onFailure { error ->
+            WhatsAppKillSwitchService.setRequestedState(this, WhatsAppKillSwitchState.ENABLED)
             Toast.makeText(this, error.message ?: "Не удалось восстановить сеть", Toast.LENGTH_LONG).show()
         }
-        WhatsAppKillSwitchService.markDisabled(this)
         refreshVpnControl()
     }
 
     private fun refreshVpnControl() {
         if (!::vpnContainer.isInitialized) return
         vpnContainer.removeAllViews()
-        val blocked = WhatsAppKillSwitchService.isEnabled(this)
+        val state = WhatsAppKillSwitchService.state(this)
+        val blocked = state == WhatsAppKillSwitchState.ENABLED
+        val label = when (state) {
+            WhatsAppKillSwitchState.STARTING -> "СОСТОЯНИЕ: ЗАПУСК ЗАЩИТЫ WHATSAPP…"
+            WhatsAppKillSwitchState.ENABLED -> "СОСТОЯНИЕ: WHATSAPP ИНТЕРНЕТ ЗАБЛОКИРОВАН"
+            WhatsAppKillSwitchState.STOPPING -> "СОСТОЯНИЕ: ВОССТАНАВЛИВАЕМ СЕТЬ…"
+            WhatsAppKillSwitchState.FAILED -> "СОСТОЯНИЕ: ЗАПУСК НЕ УДАЛСЯ — СЕТЬ НЕ ЗАБЛОКИРОВАНА"
+            WhatsAppKillSwitchState.DISABLED -> "СОСТОЯНИЕ: ОБЫЧНАЯ СЕТЬ"
+        }
         vpnContainer.addView(TextView(this).apply {
-            text = if (blocked) "СОСТОЯНИЕ: WHATSAPP ИНТЕРНЕТ ЗАБЛОКИРОВАН" else "СОСТОЯНИЕ: ОБЫЧНАЯ СЕТЬ"
+            text = label
             textSize = 13f
             setTextColor(if (blocked) 0xFFFFC66D.toInt() else 0xFF00E68A.toInt())
             setPadding(0, 0, 0, 8)
         })
-        vpnContainer.addView(actionButton(
+        val action = actionButton(
             if (blocked) "ВОССТАНОВИТЬ ИНТЕРНЕТ WHATSAPP" else "ЗАБЛОКИРОВАТЬ ИНТЕРНЕТ WHATSAPP"
         ) {
             if (blocked) stopWhatsAppKillSwitch() else requestWhatsAppKillSwitch()
-        })
+        }
+        action.isEnabled = state != WhatsAppKillSwitchState.STARTING && state != WhatsAppKillSwitchState.STOPPING
+        vpnContainer.addView(action)
     }
 
     private fun applyPrivacyWindowFlags() {
