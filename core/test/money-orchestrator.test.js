@@ -105,3 +105,22 @@ test("does not add different currencies into one misleading total", () => {
   assert.equal(summary.revenueCurrency, "MIXED");
   assert.deepEqual(summary.revenueByCurrency, { KZT: 50000, USD: 1200 });
 });
+
+test("rejects coerced or non-integer payment amounts", () => {
+  const deal = money.createDeal({ id: "strict-amount", leadId: "lead-strict", source: "telegram" });
+  const qualified = money.qualifyDeal(deal, {
+    evidence: [{ kind: "buyer_request", source: "telegram_chat", reference: "message-strict", observedAt: "2026-11-05T10:01:00Z" }]
+  });
+  const offer = { id: "strict-offer", name: "Pilot", scope: "Defined scope", deliveryDays: 3, currency: "KZT" };
+  assert.throws(() => money.attachOffer(qualified, { ...offer, priceMinor: "50000" }), { code: "INVALID_AMOUNT" });
+  assert.throws(() => money.attachOffer(qualified, { ...offer, priceMinor: true }), { code: "INVALID_AMOUNT" });
+  assert.throws(() => money.attachOffer(qualified, { ...offer, priceMinor: 1.5 }), { code: "INVALID_AMOUNT" });
+});
+
+test("rejects non-finite and coerced qualification confidence", () => {
+  const deal = money.createDeal({ id: "strict-confidence", leadId: "lead-confidence", source: "telegram" });
+  const evidence = [{ kind: "buyer_request", source: "telegram_chat", reference: "message-confidence", observedAt: "2026-11-05T10:01:00Z" }];
+  assert.throws(() => money.qualifyDeal(deal, { evidence, confidence: Infinity }), { code: "INVALID_CONFIDENCE" });
+  assert.throws(() => money.qualifyDeal(deal, { evidence, confidence: "0.9" }), { code: "INVALID_CONFIDENCE" });
+  assert.throws(() => money.qualifyDeal(deal, { evidence, confidence: 1.1 }), { code: "INVALID_CONFIDENCE" });
+});
