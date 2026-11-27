@@ -126,3 +126,29 @@ test("rejects an empty tenant identifier before recording or executing", async (
   assert.equal(calls, 0);
   assert.equal(records.length, 0);
 });
+
+test("parallel scheduler calls cannot both reach the provider", async () => {
+  const { runtime, plan, claimStore } = fixture();
+  let calls = 0;
+  let release;
+  const waiting = new Promise(resolve => { release = resolve; });
+  const executor = {
+    enabled: () => true,
+    async executePlan() {
+      calls += 1;
+      await waiting;
+      return { executed: true, status: "ENROLLED" };
+    }
+  };
+
+  const firstPromise = executeApprovedPlans({ plans: [plan] }, "tenant-a", { executor, runtime, claimStore });
+  await Promise.resolve();
+  const second = await executeApprovedPlans({ plans: [plan] }, "tenant-a", { executor, runtime, claimStore });
+  release();
+  const first = await firstPromise;
+
+  assert.equal(calls, 1);
+  assert.equal(first[0].status, "ENROLLED");
+  assert.equal(second[0].status, "SKIPPED");
+  assert.equal(second[0].code, "EXECUTION_CLAIM_EXISTS");
+});
