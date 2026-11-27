@@ -650,8 +650,8 @@ class MainActivity : FragmentActivity() {
     }
 
     private fun startWhatsAppKillSwitch() {
-        WhatsAppKillSwitchService.setRequestedState(this, WhatsAppKillSwitchState.STARTING)
         runCatching {
+            WhatsAppKillSwitchService.setRequestedState(this, WhatsAppKillSwitchState.STARTING)
             val intent = Intent(this, WhatsAppKillSwitchService::class.java)
                 .setAction(WhatsAppKillSwitchService.ACTION_START)
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
@@ -662,21 +662,25 @@ class MainActivity : FragmentActivity() {
         }.onSuccess {
             Toast.makeText(this, "Запрос на блокировку WhatsApp отправлен", Toast.LENGTH_SHORT).show()
         }.onFailure { error ->
-            WhatsAppKillSwitchService.setRequestedState(this, WhatsAppKillSwitchState.FAILED)
+            runCatching {
+                WhatsAppKillSwitchService.setRequestedState(this, WhatsAppKillSwitchState.FAILED)
+            }
             Toast.makeText(this, error.message ?: "Не удалось запустить блокировку", Toast.LENGTH_LONG).show()
         }
         refreshVpnControl()
     }
 
     private fun stopWhatsAppKillSwitch() {
-        WhatsAppKillSwitchService.setRequestedState(this, WhatsAppKillSwitchState.STOPPING)
         runCatching {
+            WhatsAppKillSwitchService.setRequestedState(this, WhatsAppKillSwitchState.STOPPING)
             startService(
                 Intent(this, WhatsAppKillSwitchService::class.java)
                     .setAction(WhatsAppKillSwitchService.ACTION_STOP)
             )
         }.onFailure { error ->
-            WhatsAppKillSwitchService.setRequestedState(this, WhatsAppKillSwitchState.ENABLED)
+            runCatching {
+                WhatsAppKillSwitchService.setRequestedState(this, WhatsAppKillSwitchState.ENABLED)
+            }
             Toast.makeText(this, error.message ?: "Не удалось восстановить сеть", Toast.LENGTH_LONG).show()
         }
         refreshVpnControl()
