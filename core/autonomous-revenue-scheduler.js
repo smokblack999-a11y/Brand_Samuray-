@@ -17,10 +17,6 @@ function boolEnv(name, fallback = false) {
   return v === "true" || v === "1";
 }
 
-function enabled() {
-  return boolEnv("REVENUE_AUTONOMOUS_SCHEDULER_ENABLED", false);
-}
-
 function baseIntervalMs() {
   const n = Number(process.env.REVENUE_AUTONOMOUS_INTERVAL_MS || 30 * 60 * 1000);
   return Math.max(5 * 60 * 1000, Number.isFinite(n) ? n : 30 * 60 * 1000);
@@ -50,38 +46,118 @@ function schedulerConfig() {
   };
 }
 
-async function executeApprovedPlans(result) {
-  if (!outreachExecutor.enabled()) return [];
+function enabled() {
+  return boolEnv("REVENUE_AUTONOMOUS_SCHEDULER_ENABLED", false);
+}
+
+/**
+ * Write-ahead execution intent gives the scheduler at-most-once retry behavior:
+ * once an intent exists, a later cycle will not repeat the external Apollo action.
+ * A STARTED intent without a result requires manual reconciliation; it is never
+ * silently retried because the provider may have accepted the request.
+ */
+async function executeApprovedPlans(result, tenantId = "default", {
+  executor = outreachExecutor,
+  runtime = revenueRuntime
+} = {}) {
+  const tenant = String(tenantId || "").trim();
+  if (!tenant) throw new Error("tenantId is required");
+  if (!executor.enabled()) return [];
+
   const executions = [];
   for (const plan of result?.plans || []) {
     if (plan?.actionPlan?.status !== "READY_FOR_EXECUTION") continue;
-    try {
-      const execution = await outreachExecutor.executePlan(plan);
-      const leadId = plan.lead?.email || plan.lead?.apolloPersonId || null;
-      const executionId = `apollo:${plan.executionAuthorization.decisionId}:${plan.executionAuthorization.reservationId}`;
-      revenueRuntime.recordExecution(tenantId, {
-        executionId,
-        decisionId: plan.executionAuthorization.decisionId,
-        action: plan.actionPlan.action,
-        status: execution.status,
-        provider: "apollo",
-        channel: "email_sequence",
-        reservationId: plan.executionAuthorization.reservationId,
-        riskSizeMicro: plan.executionAuthorization.riskSizeMicro,
-        gateDecision: plan.executionAuthorization.gateDecision
-      });
-      executions.push({
-        leadId,
-        executionId,
-        reservationId: plan.executionAuthorization.reservationId,
-        ...execution
-      });
-    } catch (error) {
+
+    const authorization = plan.executionAuthorization || {};
+    const decisionId = String(authorization.decisionId || "").trim();
+    const reservationId = String(authorization.reservationId || "").trim();
+    if (!decisionId || !reservationId) {
       executions.push({
         leadId: plan.lead?.email || plan.lead?.apolloPersonId || null,
         executed: false,
-        status: "FAILED",
-        code: error.code || "OUTREACH_EXECUTION_FAILED",
+        status: "BLOCKED",
+        code: "EXECUTION_AUTHORIZATION_INCOMPLETE"
+      });
+      continue;
+    }
+
+    const executionId = `apollo:${decisionId}:${reservationId}`;
+    const intentId = `${executionId}:intent`;
+    const leadId = plan.lead?.email || plan.lead?.apolloPersonId || null;
+
+    try {
+      const existing = runtime.list(tenant, "EXECUTION") || [];
+      const hasIntent = existing.some(row => row.executionId === intentId);
+      const hasResult = existing.some(row => row.executionId === executionId);
+      if (hasIntent || hasResult) {
+        executions.push({
+          leadId,
+          executionId,
+          reservationId,
+          executed: false,
+          status: "SKIPPED",
+          code: hasResult ? "EXECUTION_ALREADY_RECORDED" : "EXECUTION_REQUIRES_RECONCILIATION"
+        });
+        continue;
+      }
+
+      // Persist before calling Apollo. This prevents a later scheduler cycle
+      // from blindly repeating an action whose provider outcome is uncertain.
+      runtime.recordExecution(tenant, {
+        executionId: intentId,
+        decisionId,
+        action: plan.actionPlan.action,
+        status: "STARTED",
+        provider: "apollo",
+        channel: "email_sequence",
+        reservationId,
+        riskSizeMicro: authorization.riskSizeMicro,
+        gateDecision: authorization.gateDecision
+      });
+
+      const execution = await executor.executePlan(plan);
+      runtime.recordExecution(tenant, {
+        executionId,
+        decisionId,
+        action: plan.actionPlan.action,
+        status: execution.status || (execution.executed ? "EXECUTED" : "BLOCKED"),
+        provider: "apollo",
+        channel: "email_sequence",
+        reservationId,
+        riskSizeMicro: authorization.riskSizeMicro,
+        gateDecision: authorization.gateDecision,
+        providerContactId: execution.contactId || null,
+        providerSequenceId: execution.sequenceId || null
+      });
+      executions.push({ leadId, executionId, reservationId, ...execution });
+    } catch (error) {
+      // The request may have reached Apollo even when the client saw an error.
+      // Keep the write-ahead intent and record UNKNOWN, never auto-retry it.
+      try {
+        runtime.recordExecution(tenant, {
+          executionId: `${executionId}:outcome-unknown`,
+          decisionId,
+          action: plan.actionPlan.action,
+          status: "UNKNOWN",
+          provider: "apollo",
+          channel: "email_sequence",
+          reservationId,
+          errorCode: error.code || "OUTREACH_EXECUTION_OUTCOME_UNKNOWN"
+        });
+      } catch (ledgerError) {
+        console.error(JSON.stringify({
+          event: "revenue_execution_reconciliation_record_failed",
+          executionId,
+          error: ledgerError.message
+        }));
+      }
+      executions.push({
+        leadId,
+        executionId,
+        reservationId,
+        executed: false,
+        status: "UNKNOWN",
+        code: error.code || "OUTREACH_EXECUTION_OUTCOME_UNKNOWN",
         error: error.message
       });
     }
@@ -111,7 +187,7 @@ async function runOnce({ tenantId = "default" } = {}) {
       enrich: true
     });
 
-    const executions = await executeApprovedPlans(result);
+    const executions = await executeApprovedPlans(result, tenantId);
     consecutiveFailures = 0;
     lastSuccessAt = new Date().toISOString();
 
@@ -122,7 +198,7 @@ async function runOnce({ tenantId = "default" } = {}) {
       qualified: result.qualified || 0,
       plans: result.plans?.length || 0,
       executed: executions.filter(x => x.executed).length,
-      executionFailures: executions.filter(x => x.status === "FAILED").length
+      executionFailures: executions.filter(x => x.status === "FAILED" || x.status === "UNKNOWN").length
     }));
 
     return { ...result, executions };
@@ -184,4 +260,4 @@ function isRunning() {
   return Boolean(timer) && !stopped;
 }
 
-module.exports = { schedulerConfig, runOnce, start, stop, isRunning };
+module.exports = { schedulerConfig, executeApprovedPlans, runOnce, start, stop, isRunning };
