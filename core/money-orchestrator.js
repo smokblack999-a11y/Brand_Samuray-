@@ -36,11 +36,12 @@ function requiredText(value, field) {
 }
 
 function money(amountMinor, currency) {
-  const amount = Number(amountMinor);
+  if (typeof amountMinor !== "number" || !Number.isSafeInteger(amountMinor) || amountMinor <= 0) {
+    fail("INVALID_AMOUNT", "amountMinor must be a positive JSON integer in minor currency units");
+  }
   const code = String(currency || "").trim().toUpperCase();
-  if (!Number.isSafeInteger(amount) || amount <= 0) fail("INVALID_AMOUNT", "amountMinor must be a positive integer in minor currency units");
   if (!/^[A-Z]{3}$/.test(code)) fail("INVALID_CURRENCY", "currency must be a three-letter ISO currency code");
-  return { amountMinor: amount, currency: code };
+  return { amountMinor, currency: code };
 }
 
 function appendEvent(deal, type, actor, at, data = {}) {
@@ -85,7 +86,11 @@ function qualifyDeal(deal, input = {}, options = {}) {
     note: String(item.note || "").trim()
   }));
   const at = isoNow(options.at);
-  const next = { ...deal, stage: STAGES.QUALIFIED, qualification: { evidence: normalized, confidence: Math.max(0, Math.min(1, Number(input.confidence) || 0)) } };
+  const confidence = input.confidence === undefined ? 0 : input.confidence;
+  if (typeof confidence !== "number" || !Number.isFinite(confidence) || confidence < 0 || confidence > 1) {
+    fail("INVALID_CONFIDENCE", "confidence must be a finite number between 0 and 1");
+  }
+  const next = { ...deal, stage: STAGES.QUALIFIED, qualification: { evidence: normalized, confidence } };
   return appendEvent(next, "lead_qualified", options.actor || "operator", at, { evidenceCount: normalized.length });
 }
 
