@@ -1,6 +1,6 @@
 package com.samurai.whatsapp
 
-import android.app.Activity
+import androidx.fragment.app.FragmentActivity
 import android.content.ComponentName
 import android.content.Intent
 import android.graphics.Color
@@ -14,12 +14,19 @@ import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import android.widget.Toast
+import android.view.WindowManager
+import android.os.SystemClock
 
 /**
  * SAMURAI command center. All metrics are read from local app state.
  * Feature workflows intentionally remain in MainActivity until migrated.
  */
-class LauncherActivity : Activity() {
+class LauncherActivity : FragmentActivity() {
+    private var authInProgress = false
+    private var contentRendered = false
+    private var backgroundedAt = 0L
+    private val appLockTimeoutMs = 30_000L
     private lateinit var summary: TextView
     private lateinit var notificationMetric: TextView
     private lateinit var vaultMetric: TextView
@@ -40,12 +47,56 @@ class LauncherActivity : Activity() {
         window.statusBarColor = ink
         window.navigationBarColor = ink
         window.decorView.systemUiVisibility = 0
-        render()
+        if (AppLock.isEnabled(this)) {
+            window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+            authenticateAndRender()
+        } else render()
     }
 
     override fun onResume() {
         super.onResume()
+        if (AppLock.isEnabled(this)) window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        else window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        if (contentRendered && AppLock.isEnabled(this) && backgroundedAt > 0L &&
+            SystemClock.elapsedRealtime() - backgroundedAt >= appLockTimeoutMs
+        ) {
+            backgroundedAt = 0L
+            authenticateAndRender()
+            return
+        }
         if (::summary.isInitialized) refreshSummary()
+    }
+
+    override fun onStop() {
+        if (contentRendered && !isFinishing && !isChangingConfigurations) {
+            backgroundedAt = SystemClock.elapsedRealtime()
+        }
+        super.onStop()
+    }
+
+    private fun authenticateAndRender() {
+        if (authInProgress) return
+        authInProgress = true
+        contentRendered = false
+        val gate = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            setPadding(dp(28), dp(28), dp(28), dp(28))
+            setBackgroundColor(ink)
+        }
+        gate.addView(label("SAMURAI LOCK", 24f, mint, true))
+        gate.addView(label("Confirm with Android biometrics or device credential.", 14f, white, false).apply {
+            gravity = Gravity.CENTER
+            setPadding(0, dp(12), 0, dp(18))
+        })
+        setContentView(gate)
+        AppLock.authenticate(this, "SAMURAI", "Unlock your local workspace",
+            onSuccess = { authInProgress = false; backgroundedAt = 0L; render() },
+            onError = { _, message ->
+                authInProgress = false
+                Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+                finish()
+            })
     }
 
     private fun render() {
@@ -129,15 +180,17 @@ class LauncherActivity : Activity() {
             setPadding(0, dp(22), 0, dp(10))
         })
         moduleCard(page, "01", "MESSAGE INTELLIGENCE",
-            "Notification archive · event timeline", "OPEN WORKSPACE") { openWorkspace() }
-        moduleCard(page, "02", "PRIVATE MEDIA VAULT",
-            "AES-GCM encrypted local media storage", "MANAGE MEDIA") { openWorkspace() }
-        moduleCard(page, "03", "CHAT IMPORT",
-            "Inspect your own TXT / ZIP exports", "OPEN ARCHIVES") { openWorkspace() }
-        moduleCard(page, "04", "STATUS SAVER",
-            "Access only media available through granted folders", "OPEN STATUS TOOLS") { openWorkspace() }
-        moduleCard(page, "05", "SECURITY & NETWORK",
-            "App Lock · screenshot protection · local VPN switch", "SECURITY CONTROLS") { openWorkspace() }
+            "Encrypted notification archive", "OPEN INBOX") { openModule("INBOX") }
+        moduleCard(page, "02", "EVIDENCE TIMELINE",
+            "Time-stamped events from verified sources", "OPEN TIMELINE") { openModule("TIMELINE") }
+        moduleCard(page, "03", "PRIVATE MEDIA VAULT",
+            "AES-GCM encrypted local media storage", "MANAGE MEDIA") { openModule("VAULT") }
+        moduleCard(page, "04", "CHAT IMPORT",
+            "Inspect your own TXT / ZIP exports", "OPEN ARCHIVES") { openModule("CHATS") }
+        moduleCard(page, "05", "STATUS SAVER",
+            "Access only media available through granted folders", "BROWSE STATUSES") { openModule("STATUS") }
+        moduleCard(page, "06", "SECURITY & NETWORK",
+            "App Lock · screenshot protection · local VPN switch", "SECURITY CENTER") { openModule("SECURITY") }
 
         page.addView(label("QUICK ACCESS", 10f, muted, true).apply {
             letterSpacing = 0.12f
@@ -154,7 +207,7 @@ class LauncherActivity : Activity() {
         }
 
         page.addView(label(
-            "SAMURAI / HYBRID V1     •     LOCAL-FIRST CONTROL\nFeature screens are being migrated. Emulator CI is not physical-device validation.",
+            "SAMURAI / HYBRID V1     •     LOCAL-FIRST CONTROL\nIndependent module screens use the existing local stores. Emulator CI is not physical-device validation.",
             10f, muted, false
         ).apply { setPadding(0, dp(20), 0, 0); setLineSpacing(dp(3).toFloat(), 1f) })
         setContentView(scroll)
@@ -269,6 +322,11 @@ class LauncherActivity : Activity() {
         width: Int, height: Int, left: Int, top: Int, right: Int, bottom: Int, after: Int
     ) = LinearLayout.LayoutParams(width, height).apply {
         setMargins(left, top, right, bottom + after)
+    }
+
+    private fun openModule(module: String) {
+        startActivity(Intent(this, ModuleCenterActivity::class.java)
+            .putExtra(ModuleCenterActivity.EXTRA_MODULE, module))
     }
 
     private fun openWorkspace() {
