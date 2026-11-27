@@ -66,6 +66,9 @@ jobs:
           DEX_LIST="$(unzip -Z1 "$APK" | grep -E '^classes([0-9]+)?[.]dex$')"
           test -n "$DEX_LIST"
           DEX_CONTENT="$(while IFS= read -r dex; do unzip -p "$APK" "$dex"; done <<< "$DEX_LIST" | strings)"
+          grep -Fq 'com/samurai/whatsapp/LauncherActivity' <<< "$DEX_CONTENT"
+          grep -Fq 'com/samurai/whatsapp/ModuleCenterActivity' <<< "$DEX_CONTENT"
+          grep -Fq 'com/samurai/whatsapp/SamuraiCoreView' <<< "$DEX_CONTENT"
           grep -Fq 'com/samurai/whatsapp/MainActivity' <<< "$DEX_CONTENT"
           grep -Fq 'com/samurai/whatsapp/WhatsAppNotificationListener' <<< "$DEX_CONTENT"
           grep -Fq 'com/samurai/whatsapp/NotificationArchive' <<< "$DEX_CONTENT"
@@ -80,7 +83,10 @@ jobs:
           grep -Fq 'com/samurai/whatsapp/WhatsAppKillSwitchService' <<< "$DEX_CONTENT"
           MANIFEST="samurai-whatsapp/src/main/AndroidManifest.xml"
           grep -Fq 'android:name="com.whatsapp"' "$MANIFEST"
-          grep -Fq 'android:name="com.whatsapp.w4b"' "$MANIFEST"
+          grep -Fq 'android:name="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"' "$MANIFEST"
+          grep -Fq 'android:name=".LauncherActivity"' "$MANIFEST"
+          grep -Fq 'android:name=".ModuleCenterActivity"' "$MANIFEST"
+          grep -Fq 'android:exported="false"' "$MANIFEST"
           if grep -Fq 'android.permission.QUERY_ALL_PACKAGES' "$MANIFEST"; then
             echo "Broad QUERY_ALL_PACKAGES permission is not allowed"
             exit 1
