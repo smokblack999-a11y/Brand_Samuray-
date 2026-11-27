@@ -157,7 +157,10 @@ async function executeApprovedPlans(result, tenantId = "default", {
         providerContactId: execution.contactId || null,
         providerSequenceId: execution.sequenceId || null
       });
-      claimStore.complete(tenant, executionId, execution.status === "BLOCKED" ? "BLOCKED" : "ENROLLED", {
+      const claimStatus = execution.status === "BLOCKED" ? "BLOCKED"
+        : execution.status === "FAILED" ? "FAILED"
+        : execution.executed ? "ENROLLED" : "UNKNOWN";
+      claimStore.complete(tenant, executionId, claimStatus, {
         providerContactId: execution.contactId || null,
         providerSequenceId: execution.sequenceId || null
       });
