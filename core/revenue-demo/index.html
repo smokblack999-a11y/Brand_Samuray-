@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#10151d"><title>SAMURAI Revenue — Demo</title>
+<link rel="stylesheet" href="./style.css">
+</head>
+<body>
+<header class="top"><div class="brand"><span class="mark">S</span><div><b>SAMURAI REVENUE</b><small>Панель автосервиса</small></div></div><span class="demo">DEMO · ТЕСТОВЫЕ ДАННЫЕ</span></header>
+<main>
+<section class="welcome"><div><p class="eyebrow">РАБОЧЕЕ ПРОСТРАНСТВО</p><h1>Заявки и клиенты</h1><p class="muted">Контроль обращений, записи и статусов обслуживания.</p></div><button id="newLead" class="primary">＋ Новая заявка</button></section>
+<section class="metrics" aria-label="Показатели">
+<article><span>Всего заявок</span><strong id="mTotal">—</strong><small>За демонстрационный период</small></article>
+<article><span>Новые</span><strong id="mNew">—</strong><small>Требуют обработки</small></article>
+<article><span>Записаны</span><strong id="mBooked">—</strong><small>Подтверждённые записи</small></article>
+<article><span>Потенциальная сумма</span><strong id="mValue">—</strong><small>Не является фактической выручкой</small></article>
+</section>
+<section class="panel">
+<div class="toolbar"><div><h2>Входящие заявки</h2><p class="muted">Данные вымышлены и хранятся только в браузере.</p></div><input id="search" type="search" placeholder="Поиск: имя, телефон, авто…" aria-label="Поиск заявок"></div>
+<div class="filters" id="filters"><button class="filter active" data-status="all">Все</button><button class="filter" data-status="new">Новые</button><button class="filter" data-status="contacted">Связались</button><button class="filter" data-status="booked">Записаны</button><button class="filter" data-status="done">Завершены</button></div>
+<div class="tablewrap"><table><thead><tr><th>Клиент</th><th>Автомобиль</th><th>Услуга</th><th>Дата</th><th>Статус</th><th>Оценка</th></tr></thead><tbody id="leads"></tbody></table></div>
+<p id="empty" class="empty" hidden>Заявок по выбранному фильтру нет.</p>
+</section>
+<p class="foot">SAMURAI Revenue · Изолированный UI-прототип. Не подключён к SAMURAI Core, Telegram или платёжной системе.</p>
+</main>
+<dialog id="leadDialog"><form method="dialog" id="leadForm"><div class="dialoghead"><h2>Новая тестовая заявка</h2><button class="close" value="cancel" aria-label="Закрыть">×</button></div>
+<label>Имя клиента<input name="name" required maxlength="70" placeholder="Например, Арман"></label>
+<label>Телефон<input name="phone" required maxlength="24" placeholder="+7 7XX XXX XX XX"></label>
+<label>Автомобиль<input name="car" required maxlength="80" placeholder="Марка, модель, год"></label>
+<label>Услуга<input name="service" required maxlength="100" placeholder="Например, полировка кузова"></label>
+<label>Ориентировочная стоимость, ₸<input name="value" type="number" min="0" max="100000000" required></label>
+<div class="actions"><button class="secondary" value="cancel">Отмена</button><button class="primary" id="saveLead" value="default">Добавить в DEMO</button></div>
+</form></dialog>
+<script src="./app.js"></script>
+</body></html>
