@@ -195,25 +195,45 @@ internal object MediaVault {
 
     @Synchronized
     fun delete(context: Context, id: String) {
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val file = dataFile(context, id)
+        check(!file.exists() || file.delete()) {
+            "Media Vault could not delete the encrypted file"
+        }
+        val saved = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit()
             .remove(ITEM_PREFIX + id)
             .commit()
-        dataFile(context, id).delete()
+        check(saved) { "Media Vault could not update its encrypted index" }
     }
 
     @Synchronized
     fun clear(context: Context) {
+        val keyStore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+        if (keyStore.containsAlias(KEY_ALIAS)) {
+            keyStore.deleteEntry(KEY_ALIAS)
+            check(!keyStore.containsAlias(KEY_ALIAS)) {
+                "Media Vault could not destroy its encryption key"
+            }
+        }
+
         val directory = vaultDirectory(context)
-        directory.listFiles()?.forEach { it.delete() }
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val files = directory.listFiles()
+            ?: if (directory.exists()) {
+                throw IllegalStateException("Media Vault directory could not be inspected")
+            } else {
+                emptyArray()
+            }
+        files.forEach { file ->
+            check(file.delete() || !file.exists()) {
+                "Media Vault could not delete encrypted file: " + file.name
+            }
+        }
+
+        val cleared = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit()
             .clear()
             .commit()
-        runCatching {
-            KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
-                .deleteEntry(KEY_ALIAS)
-        }
+        check(cleared) { "Media Vault could not clear its encrypted index" }
     }
 
     internal fun ciphertextFileForTest(context: Context, id: String): File =
