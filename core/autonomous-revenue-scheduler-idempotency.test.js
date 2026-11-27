@@ -108,7 +108,7 @@ test("marks uncertain provider outcomes and blocks automatic retry", async () =>
 
   assert.equal(first[0].status, "UNKNOWN");
   assert.equal(second[0].status, "SKIPPED");
-  assert.equal(second[0].code, "EXECUTION_REQUIRES_RECONCILIATION");
+  assert.equal(second[0].code, "EXECUTION_CLAIM_EXISTS");
   assert.equal(calls, 1);
   assert.ok(records.some(row => row.executionId.endsWith(":outcome-unknown") && row.status === "UNKNOWN"));
   assert.equal(claimStore.acquire("tenant-a", "apollo:decision-1:reservation-1").record.status, "UNKNOWN");
