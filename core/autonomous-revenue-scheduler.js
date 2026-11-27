@@ -3,6 +3,7 @@
 const orchestrator = require("./autonomous-revenue-orchestrator");
 const outreachExecutor = require("./apollo-outreach-executor");
 const revenueRuntime = require("./x27-runtime");
+const executionClaims = require("./revenue-execution-claims");
 
 let timer = null;
 let busy = false;
@@ -58,7 +59,8 @@ function enabled() {
  */
 async function executeApprovedPlans(result, tenantId = "default", {
   executor = outreachExecutor,
-  runtime = revenueRuntime
+  runtime = revenueRuntime,
+  claimStore = executionClaims
 } = {}) {
   const tenant = String(tenantId || "").trim();
   if (!tenant) throw new Error("tenantId is required");
@@ -85,11 +87,36 @@ async function executeApprovedPlans(result, tenantId = "default", {
     const intentId = `${executionId}:intent`;
     const leadId = plan.lead?.email || plan.lead?.apolloPersonId || null;
 
+    let providerCallStarted = false;
+    let claimAcquired = false;
     try {
+      const claim = claimStore.acquire(tenant, executionId, {
+        decisionId,
+        reservationId,
+        provider: "apollo",
+        channel: "email_sequence"
+      });
+      claimAcquired = Boolean(claim.acquired);
+      if (!claimAcquired) {
+        executions.push({
+          leadId,
+          executionId,
+          reservationId,
+          executed: false,
+          status: "SKIPPED",
+          code: "EXECUTION_CLAIM_EXISTS",
+          claimStatus: claim.record?.status || "UNKNOWN"
+        });
+        continue;
+      }
+
       const existing = runtime.list(tenant, "EXECUTION") || [];
       const hasIntent = existing.some(row => row.executionId === intentId);
       const hasResult = existing.some(row => row.executionId === executionId);
       if (hasIntent || hasResult) {
+        claimStore.complete(tenant, executionId, "BLOCKED", {
+          reason: hasResult ? "EXECUTION_ALREADY_RECORDED" : "EXECUTION_REQUIRES_RECONCILIATION"
+        });
         executions.push({
           leadId,
           executionId,
@@ -101,8 +128,8 @@ async function executeApprovedPlans(result, tenantId = "default", {
         continue;
       }
 
-      // Persist before calling Apollo. This prevents a later scheduler cycle
-      // from blindly repeating an action whose provider outcome is uncertain.
+      // Both the durable atomic claim and the tenant-scoped ledger intent
+      // must exist before the external provider request is attempted.
       runtime.recordExecution(tenant, {
         executionId: intentId,
         decisionId,
@@ -115,6 +142,7 @@ async function executeApprovedPlans(result, tenantId = "default", {
         gateDecision: authorization.gateDecision
       });
 
+      providerCallStarted = true;
       const execution = await executor.executePlan(plan);
       runtime.recordExecution(tenant, {
         executionId,
@@ -129,16 +157,38 @@ async function executeApprovedPlans(result, tenantId = "default", {
         providerContactId: execution.contactId || null,
         providerSequenceId: execution.sequenceId || null
       });
+      const claimStatus = execution.status === "BLOCKED" ? "BLOCKED"
+        : execution.status === "FAILED" ? "FAILED"
+        : execution.executed ? "ENROLLED" : "UNKNOWN";
+      claimStore.complete(tenant, executionId, claimStatus, {
+        providerContactId: execution.contactId || null,
+        providerSequenceId: execution.sequenceId || null
+      });
       executions.push({ leadId, executionId, reservationId, ...execution });
     } catch (error) {
-      // The request may have reached Apollo even when the client saw an error.
-      // Keep the write-ahead intent and record UNKNOWN, never auto-retry it.
+      const outcomeStatus = providerCallStarted ? "UNKNOWN" : "FAILED";
+      if (claimAcquired) {
+        try {
+          claimStore.complete(tenant, executionId, outcomeStatus, {
+            errorCode: error.code || "OUTREACH_EXECUTION_OUTCOME_UNKNOWN",
+            message: String(error.message || "").slice(0, 500)
+          });
+        } catch (claimError) {
+          console.error(JSON.stringify({
+            event: "revenue_execution_claim_update_failed",
+            executionId,
+            error: claimError.message
+          }));
+        }
+      }
+      // Once the provider call has started, its outcome may be ambiguous.
+      // Retain the claim and never automatically repeat the action.
       try {
         runtime.recordExecution(tenant, {
-          executionId: `${executionId}:outcome-unknown`,
+          executionId: `${executionId}:${providerCallStarted ? "outcome-unknown" : "preflight-failed"}`,
           decisionId,
           action: plan.actionPlan.action,
-          status: "UNKNOWN",
+          status: outcomeStatus,
           provider: "apollo",
           channel: "email_sequence",
           reservationId,
@@ -156,7 +206,7 @@ async function executeApprovedPlans(result, tenantId = "default", {
         executionId,
         reservationId,
         executed: false,
-        status: "UNKNOWN",
+        status: outcomeStatus,
         code: error.code || "OUTREACH_EXECUTION_OUTCOME_UNKNOWN",
         error: error.message
       });
