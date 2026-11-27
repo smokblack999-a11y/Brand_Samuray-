@@ -54,6 +54,12 @@ class ModuleCenterActivity : FragmentActivity() {
     @Deprecated("Uses Android document picker result callbacks")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == VPN_CONSENT) {
+            if (resultCode == RESULT_OK) startNetworkBlock()
+            else Toast.makeText(this, "VPN permission was not granted.", Toast.LENGTH_LONG).show()
+            render()
+            return
+        }
         if (resultCode != RESULT_OK) {
             pendingExportId = null
             return
@@ -76,11 +82,6 @@ class ModuleCenterActivity : FragmentActivity() {
                     .onSuccess { render() }.onFailure { fail(it) }
             }
             PICK_CHAT -> importChat(uri)
-            VPN_CONSENT -> {
-                if (resultCode == RESULT_OK) startNetworkBlock()
-                else Toast.makeText(this, "VPN permission was not granted.", Toast.LENGTH_LONG).show()
-                render()
-            }
         }
     }
 
