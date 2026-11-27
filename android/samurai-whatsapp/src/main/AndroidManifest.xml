@@ -24,6 +24,10 @@
         </activity>
 
         <activity
+            android:name=".ModuleCenterActivity"
+            android:exported="false" />
+
+        <activity
             android:name=".MainActivity"
             android:exported="false" />
 
