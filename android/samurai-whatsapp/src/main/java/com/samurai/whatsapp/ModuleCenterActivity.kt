@@ -30,25 +30,52 @@ class ModuleCenterActivity : FragmentActivity() {
     private val muted = Color.rgb(145, 161, 178)
     private val mint = Color.rgb(0, 235, 157)
     private var pendingExportId: String? = null
+    private var contentReady = false
+    private var authenticating = false
+    private var backgroundedAt = 0L
+    private val lockTimeoutMs = 30_000L
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.statusBarColor = bg
         window.navigationBarColor = bg
         applySecureFlag()
-        if (AppLock.isEnabled(this)) {
-            AppLock.authenticate(this, "SAMURAI", "Unlock local module",
-                onSuccess = { render() },
-                onError = { _, message ->
-                    Toast.makeText(this, message, Toast.LENGTH_LONG).show()
-                    finish()
-                })
-        } else render()
+        if (AppLock.isEnabled(this)) authenticateAndRender() else render()
     }
 
     override fun onResume() {
         super.onResume()
         applySecureFlag()
+        if (contentReady && AppLock.isEnabled(this) && backgroundedAt > 0L &&
+            android.os.SystemClock.elapsedRealtime() - backgroundedAt >= lockTimeoutMs
+        ) {
+            backgroundedAt = 0L
+            authenticateAndRender()
+        }
+    }
+
+    override fun onStop() {
+        if (contentReady && !isFinishing && !isChangingConfigurations) {
+            backgroundedAt = android.os.SystemClock.elapsedRealtime()
+        }
+        super.onStop()
+    }
+
+    private fun authenticateAndRender() {
+        if (authenticating) return
+        authenticating = true
+        contentReady = false
+        AppLock.authenticate(this, "SAMURAI", "Unlock local module",
+            onSuccess = {
+                authenticating = false
+                backgroundedAt = 0L
+                render()
+            },
+            onError = { _, message ->
+                authenticating = false
+                Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+                finish()
+            })
     }
 
     @Deprecated("Uses Android document picker result callbacks")
@@ -125,6 +152,7 @@ class ModuleCenterActivity : FragmentActivity() {
             10f, muted, false
         ).apply { setPadding(0, dp(24), 0, 0) })
         setContentView(scroll)
+        contentReady = true
     }
 
     private fun title(): String = when (module) {
