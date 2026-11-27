@@ -215,7 +215,9 @@ class WhatsAppKillSwitchService : VpnService() {
         fun state(context: android.content.Context): WhatsAppKillSwitchState {
             val prefs = context.getSharedPreferences(PREFS, android.content.Context.MODE_PRIVATE)
             val saved = runCatching {
-                WhatsAppKillSwitchState.valueOf(prefs.getString(KEY_STATE, null) ?: "DISABLED")
+                val raw = prefs.getString(KEY_STATE, null)
+                    ?: if (prefs.getBoolean(KEY_ENABLED, false)) "ENABLED" else "DISABLED"
+                WhatsAppKillSwitchState.valueOf(raw)
             }.getOrDefault(WhatsAppKillSwitchState.DISABLED)
             if (!activeInProcess && (saved == WhatsAppKillSwitchState.ENABLED || saved == WhatsAppKillSwitchState.STOPPING)) {
                 persistState(context, WhatsAppKillSwitchState.DISABLED)
