@@ -26,6 +26,7 @@ internal object StatusSaver {
     private const val MAX_RESULTS = 300
     private const val MAX_SEARCH_DEPTH = 4
     private const val MAX_SEARCH_DIRECTORIES = 500
+    private const val MAX_SEARCH_ENTRIES = 5000
     private val projection = arrayOf(
         DocumentsContract.Document.COLUMN_DOCUMENT_ID,
         DocumentsContract.Document.COLUMN_DISPLAY_NAME,
@@ -198,8 +199,13 @@ internal object StatusSaver {
         pending.add(PendingFolder(parentDocumentId, 0))
         visited.add(parentDocumentId)
         var examinedDirectories = 0
+        var examinedEntries = 0
 
-        while (pending.isNotEmpty() && examinedDirectories < MAX_SEARCH_DIRECTORIES) {
+        while (
+            pending.isNotEmpty() &&
+            examinedDirectories < MAX_SEARCH_DIRECTORIES &&
+            examinedEntries < MAX_SEARCH_ENTRIES
+        ) {
             val current = pending.removeFirst()
             if (current.depth >= MAX_SEARCH_DEPTH) continue
             val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(
@@ -222,6 +228,8 @@ internal object StatusSaver {
                 val mimeColumn = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_MIME_TYPE)
                 if (idColumn >= 0 && nameColumn >= 0 && mimeColumn >= 0) {
                     while (cursor.moveToNext()) {
+                        examinedEntries += 1
+                        if (examinedEntries > MAX_SEARCH_ENTRIES) break
                         val documentId = cursor.getString(idColumn) ?: continue
                         val name = cursor.getString(nameColumn).orEmpty()
                         val mime = cursor.getString(mimeColumn).orEmpty()
