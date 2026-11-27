@@ -24,6 +24,8 @@ internal object StatusSaver {
     private const val PREFS = "samurai_status_saver"
     private const val TREE_URI_KEY = "selected_status_tree_uri"
     private const val MAX_RESULTS = 300
+    private const val MAX_SEARCH_DEPTH = 4
+    private const val MAX_SEARCH_DIRECTORIES = 500
     private val projection = arrayOf(
         DocumentsContract.Document.COLUMN_DOCUMENT_ID,
         DocumentsContract.Document.COLUMN_DISPLAY_NAME,
@@ -83,7 +85,7 @@ internal object StatusSaver {
         } else {
             findStatusesFolder(context, treeUri, rootDocumentId)
                 ?: throw IllegalStateException(
-                    "Папка .Statuses не найдена. Выбери папку WhatsApp/Media или саму .Statuses."
+                    "Папка .Statuses не найдена среди доступных каталогов. Выбери WhatsApp/Media или саму .Statuses. Если Android не показывает скрытую папку, этот SAF-провайдер не предоставляет к ней доступ."
                 )
         }
 
@@ -188,31 +190,49 @@ internal object StatusSaver {
         treeUri: Uri,
         parentDocumentId: String
     ): String? {
-        val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(
-            treeUri,
-            parentDocumentId
-        )
-        context.contentResolver.query(
-            childrenUri,
-            arrayOf(
-                DocumentsContract.Document.COLUMN_DOCUMENT_ID,
-                DocumentsContract.Document.COLUMN_DISPLAY_NAME,
-                DocumentsContract.Document.COLUMN_MIME_TYPE
-            ),
-            null,
-            null,
-            null
-        )?.use { cursor ->
-            val idColumn = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_DOCUMENT_ID)
-            val nameColumn = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
-            val mimeColumn = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_MIME_TYPE)
-            if (idColumn < 0 || nameColumn < 0 || mimeColumn < 0) return null
+        // SAF providers may expose intermediate directories. Search a bounded
+        // tree instead of assuming .Statuses is an immediate child.
+        data class PendingFolder(val documentId: String, val depth: Int)
+        val pending = ArrayDeque<PendingFolder>()
+        val visited = HashSet<String>()
+        pending.add(PendingFolder(parentDocumentId, 0))
+        visited.add(parentDocumentId)
+        var examinedDirectories = 0
 
-            while (cursor.moveToNext()) {
-                val name = cursor.getString(nameColumn).orEmpty()
-                val mime = cursor.getString(mimeColumn).orEmpty()
-                if (isStatusesFolder(name) && mime == DocumentsContract.Document.MIME_TYPE_DIR) {
-                    return cursor.getString(idColumn)
+        while (pending.isNotEmpty() && examinedDirectories < MAX_SEARCH_DIRECTORIES) {
+            val current = pending.removeFirst()
+            if (current.depth >= MAX_SEARCH_DEPTH) continue
+            val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(
+                treeUri,
+                current.documentId
+            )
+            context.contentResolver.query(
+                childrenUri,
+                arrayOf(
+                    DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+                    DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+                    DocumentsContract.Document.COLUMN_MIME_TYPE
+                ),
+                null,
+                null,
+                null
+            )?.use { cursor ->
+                val idColumn = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_DOCUMENT_ID)
+                val nameColumn = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
+                val mimeColumn = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_MIME_TYPE)
+                if (idColumn < 0 || nameColumn < 0 || mimeColumn < 0) continue
+
+                while (cursor.moveToNext()) {
+                    val documentId = cursor.getString(idColumn) ?: continue
+                    val name = cursor.getString(nameColumn).orEmpty()
+                    val mime = cursor.getString(mimeColumn).orEmpty()
+                    if (mime != DocumentsContract.Document.MIME_TYPE_DIR) continue
+                    if (isStatusesFolder(name)) return documentId
+                    if (visited.add(documentId)) {
+                        pending.add(PendingFolder(documentId, current.depth + 1))
+                        examinedDirectories += 1
+                        if (examinedDirectories >= MAX_SEARCH_DIRECTORIES) break
+                    }
                 }
             }
         }
