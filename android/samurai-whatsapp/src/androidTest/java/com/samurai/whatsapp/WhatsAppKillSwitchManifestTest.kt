@@ -41,13 +41,33 @@ class WhatsAppKillSwitchManifestTest {
     }
 
     @Test
+    fun lifecycleTransitionsArePersisted() {
+        WhatsAppKillSwitchService.setRequestedState(context, WhatsAppKillSwitchState.STARTING)
+        assertEquals(WhatsAppKillSwitchState.STARTING, WhatsAppKillSwitchService.state(context))
+
+        WhatsAppKillSwitchService.setRequestedState(context, WhatsAppKillSwitchState.FAILED)
+        assertEquals(WhatsAppKillSwitchState.FAILED, WhatsAppKillSwitchService.state(context))
+        assertFalse(WhatsAppKillSwitchService.isEnabled(context))
+    }
+
+    @Test
+    fun staleStoppingStateResolvesToDisabledWhenNoTunnelIsActive() {
+        WhatsAppKillSwitchService.setRequestedState(context, WhatsAppKillSwitchState.STOPPING)
+        assertEquals(WhatsAppKillSwitchState.DISABLED, WhatsAppKillSwitchService.state(context))
+    }
+
+    @Test
     fun stalePersistedStateIsNotPresentedAsAnActiveVpn() {
         val prefs = context.getSharedPreferences(
             "samurai_whatsapp_kill_switch",
             Context.MODE_PRIVATE
         )
-        prefs.edit().putBoolean("enabled", true).commit()
+        prefs.edit()
+            .putString("state", "ENABLED")
+            .putBoolean("enabled", true)
+            .commit()
         assertFalse(WhatsAppKillSwitchService.isEnabled(context))
+        assertEquals(WhatsAppKillSwitchState.DISABLED, WhatsAppKillSwitchService.state(context))
         assertFalse(prefs.getBoolean("enabled", true))
     }
 }

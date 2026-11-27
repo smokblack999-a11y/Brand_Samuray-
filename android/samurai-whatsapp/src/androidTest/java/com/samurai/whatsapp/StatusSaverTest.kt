@@ -26,6 +26,20 @@ class StatusSaverTest {
     }
 
     @Test
+    fun matchesHiddenStatusesDirectoryNamesWithoutCaseOrWhitespaceSensitivity() {
+        assertTrue(StatusSaver.isStatusesFolder(" .STATUSES "))
+        assertTrue(StatusSaver.isStatusesFolder(" Statuses "))
+        assertFalse(StatusSaver.isStatusesFolder(".Statuses-backup"))
+    }
+
+    @Test
+    fun normalizesStatusExtensionsWithoutCaseSensitivity() {
+        assertEquals("image/jpeg", StatusSaver.normalizeMimeType("", "IMG-4.JPEG"))
+        assertEquals("video/mp4", StatusSaver.normalizeMimeType("", "VID-5.MP4"))
+        assertEquals("application/octet-stream", StatusSaver.normalizeMimeType("", "unknown.BIN"))
+    }
+
+    @Test
     fun ignoresUnknownFileExtensions() {
         assertEquals(
             "application/octet-stream",
