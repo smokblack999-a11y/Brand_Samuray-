@@ -220,18 +220,18 @@ internal object StatusSaver {
                 val idColumn = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_DOCUMENT_ID)
                 val nameColumn = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
                 val mimeColumn = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_MIME_TYPE)
-                if (idColumn < 0 || nameColumn < 0 || mimeColumn < 0) continue
-
-                while (cursor.moveToNext()) {
-                    val documentId = cursor.getString(idColumn) ?: continue
-                    val name = cursor.getString(nameColumn).orEmpty()
-                    val mime = cursor.getString(mimeColumn).orEmpty()
-                    if (mime != DocumentsContract.Document.MIME_TYPE_DIR) continue
-                    if (isStatusesFolder(name)) return documentId
-                    if (visited.add(documentId)) {
-                        pending.add(PendingFolder(documentId, current.depth + 1))
-                        examinedDirectories += 1
-                        if (examinedDirectories >= MAX_SEARCH_DIRECTORIES) break
+                if (idColumn >= 0 && nameColumn >= 0 && mimeColumn >= 0) {
+                    while (cursor.moveToNext()) {
+                        val documentId = cursor.getString(idColumn) ?: continue
+                        val name = cursor.getString(nameColumn).orEmpty()
+                        val mime = cursor.getString(mimeColumn).orEmpty()
+                        if (mime != DocumentsContract.Document.MIME_TYPE_DIR) continue
+                        if (isStatusesFolder(name)) return documentId
+                        if (visited.add(documentId)) {
+                            pending.add(PendingFolder(documentId, current.depth + 1))
+                            examinedDirectories += 1
+                            if (examinedDirectories >= MAX_SEARCH_DIRECTORIES) break
+                        }
                     }
                 }
             }
