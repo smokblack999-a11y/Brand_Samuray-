@@ -20,6 +20,24 @@ function fixture() {
       return { inserted: true, record: row };
     }
   };
+  const claims = new Map();
+  const claimStore = {
+    acquire(tenantId, executionId, metadata) {
+      const key = tenantId + ":" + executionId;
+      if (claims.has(key)) return { acquired: false, record: claims.get(key) };
+      const record = { tenantId, executionId, status: "STARTED", metadata };
+      claims.set(key, record);
+      return { acquired: true, record };
+    },
+    complete(tenantId, executionId, status, details) {
+      const key = tenantId + ":" + executionId;
+      const record = claims.get(key);
+      if (!record) throw new Error("claim missing");
+      const updated = { ...record, status, details };
+      claims.set(key, updated);
+      return updated;
+    }
+  };
   const plan = {
     lead: { email: "lead@example.test" },
     actionPlan: { status: "READY_FOR_EXECUTION", action: "FOLLOW_UP" },
@@ -30,11 +48,11 @@ function fixture() {
       gateDecision: "EXECUTE"
     }
   };
-  return { records, runtime, plan };
+  return { records, runtime, plan, claimStore, claims };
 }
 
 test("persists tenant-scoped write-ahead intent before Apollo execution", async () => {
-  const { records, runtime, plan } = fixture();
+  const { records, runtime, plan, claimStore } = fixture();
   let observedIntentBeforeCall = false;
   const executor = {
     enabled: () => true,
@@ -48,24 +66,25 @@ test("persists tenant-scoped write-ahead intent before Apollo execution", async 
     }
   };
 
-  const result = await executeApprovedPlans({ plans: [plan] }, "tenant-a", { executor, runtime });
+  const result = await executeApprovedPlans({ plans: [plan] }, "tenant-a", { executor, runtime, claimStore });
 
   assert.equal(observedIntentBeforeCall, true);
   assert.equal(result[0].status, "ENROLLED");
   assert.equal(records.length, 2);
   assert.ok(records.every(row => row.tenantId === "tenant-a"));
   assert.equal(records.find(row => row.executionId === "apollo:decision-1:reservation-1").status, "ENROLLED");
+  assert.equal(claims.get("tenant-a:apollo:decision-1:reservation-1").status, "ENROLLED");
 });
 
 test("does not repeat a provider action when a prior intent already exists", async () => {
-  const { runtime, plan } = fixture();
+  const { runtime, plan, claimStore } = fixture();
   let calls = 0;
   const executor = {
     enabled: () => true,
     async executePlan() { calls += 1; return { executed: true, status: "ENROLLED" }; }
   };
 
-  await executeApprovedPlans({ plans: [plan] }, "tenant-a", { executor, runtime });
+  await executeApprovedPlans({ plans: [plan] }, "tenant-a", { executor, runtime, claimStore });
   const retry = await executeApprovedPlans({ plans: [plan] }, "tenant-a", { executor, runtime });
 
   assert.equal(calls, 1);
@@ -74,7 +93,7 @@ test("does not repeat a provider action when a prior intent already exists", asy
 });
 
 test("marks uncertain provider outcomes and blocks automatic retry", async () => {
-  const { records, runtime, plan } = fixture();
+  const { records, runtime, plan, claimStore } = fixture();
   let calls = 0;
   const executor = {
     enabled: () => true,
@@ -92,10 +111,11 @@ test("marks uncertain provider outcomes and blocks automatic retry", async () =>
   assert.equal(second[0].code, "EXECUTION_REQUIRES_RECONCILIATION");
   assert.equal(calls, 1);
   assert.ok(records.some(row => row.executionId.endsWith(":outcome-unknown") && row.status === "UNKNOWN"));
+  assert.equal(claimStore.acquire("tenant-a", "apollo:decision-1:reservation-1").record.status, "UNKNOWN");
 });
 
 test("rejects an empty tenant identifier before recording or executing", async () => {
-  const { records, runtime, plan } = fixture();
+  const { records, runtime, plan, claimStore } = fixture();
   let calls = 0;
   const executor = { enabled: () => true, async executePlan() { calls += 1; return {}; } };
 
