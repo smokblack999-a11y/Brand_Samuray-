@@ -13,6 +13,10 @@ import java.io.FileInputStream
 import java.io.IOException
 import java.util.concurrent.atomic.AtomicBoolean
 
+internal enum class WhatsAppKillSwitchState {
+    DISABLED, STARTING, ENABLED, STOPPING, FAILED
+}
+
 /**
  * User-consented, local-only network stop for WhatsApp packages.
  * Only WhatsApp traffic is routed to this TUN interface; packets are discarded,
@@ -40,6 +44,7 @@ class WhatsAppKillSwitchService : VpnService() {
         if (tunnel != null) return
         stopping.set(false)
         runCatching {
+            persistState(this, WhatsAppKillSwitchState.STARTING)
             createNotificationChannel()
             val notification = buildNotification()
             val builder = Builder()
@@ -84,6 +89,7 @@ class WhatsAppKillSwitchService : VpnService() {
                     .commit()
             ) { "Could not persist VPN state" }
             activeInProcess = true
+            persistState(this, WhatsAppKillSwitchState.ENABLED)
 
             readerThread = Thread({
                 val buffer = ByteArray(32 * 1024)
@@ -102,8 +108,8 @@ class WhatsAppKillSwitchService : VpnService() {
                         stopping.set(true)
                         tunnel = null
                         activeInProcess = false
-                        getSharedPreferences(PREFS, MODE_PRIVATE)
-                            .edit().putBoolean(KEY_ENABLED, false).commit()
+                        runCatching { persistState(this@WhatsAppKillSwitchService, WhatsAppKillSwitchState.DISABLED) }
+                            .onFailure { android.util.Log.e(TAG, "Could not persist VPN shutdown", it) }
                         stopForeground(STOP_FOREGROUND_REMOVE)
                         stopSelf()
                     }
@@ -114,8 +120,8 @@ class WhatsAppKillSwitchService : VpnService() {
             }
         }.onFailure { error ->
             stopTunnel()
-            getSharedPreferences(PREFS, MODE_PRIVATE)
-                .edit().putBoolean(KEY_ENABLED, false).commit()
+            runCatching { persistState(this, WhatsAppKillSwitchState.FAILED) }
+                .onFailure { android.util.Log.e(TAG, "Could not persist VPN failure", it) }
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
             android.util.Log.e(TAG, "Could not start WhatsApp network block", error)
@@ -124,13 +130,16 @@ class WhatsAppKillSwitchService : VpnService() {
 
     private fun stopTunnel() {
         stopping.set(true)
+        val wasActive = activeInProcess || tunnel != null
         activeInProcess = false
         val current = tunnel
         tunnel = null
         runCatching { current?.close() }
         readerThread = null
-        getSharedPreferences(PREFS, MODE_PRIVATE)
-            .edit().putBoolean(KEY_ENABLED, false).commit()
+        if (wasActive || state(this) != WhatsAppKillSwitchState.FAILED) {
+            runCatching { persistState(this, WhatsAppKillSwitchState.DISABLED) }
+                .onFailure { android.util.Log.e(TAG, "Could not persist VPN shutdown", it) }
+        }
         stopForeground(STOP_FOREGROUND_REMOVE)
     }
 
@@ -192,28 +201,48 @@ class WhatsAppKillSwitchService : VpnService() {
     companion object {
         const val ACTION_START = "com.samurai.whatsapp.action.BLOCK_WHATSAPP"
         const val ACTION_STOP = "com.samurai.whatsapp.action.UNBLOCK_WHATSAPP"
+        const val ACTION_STATE_CHANGED = "com.samurai.whatsapp.action.STATE_CHANGED"
+        const val EXTRA_STATE = "state"
         private const val PREFS = "samurai_whatsapp_kill_switch"
         private const val KEY_ENABLED = "enabled"
+        private const val KEY_STATE = "state"
         private const val CHANNEL_ID = "samurai_whatsapp_network_block"
         private const val NOTIFICATION_ID = 771
         private const val TAG = "SamuraiWhatsAppVPN"
         private val TARGET_PACKAGES = listOf("com.whatsapp", "com.whatsapp.w4b")
         @Volatile private var activeInProcess = false
 
-        fun isEnabled(context: android.content.Context): Boolean {
+        fun state(context: android.content.Context): WhatsAppKillSwitchState {
             val prefs = context.getSharedPreferences(PREFS, android.content.Context.MODE_PRIVATE)
-            val stored = prefs.getBoolean(KEY_ENABLED, false)
-            if (stored && !activeInProcess) {
-                // A persisted flag alone cannot prove that VPN survived process death.
-                prefs.edit().putBoolean(KEY_ENABLED, false).apply()
+            val saved = runCatching {
+                WhatsAppKillSwitchState.valueOf(prefs.getString(KEY_STATE, null) ?: "DISABLED")
+            }.getOrDefault(WhatsAppKillSwitchState.DISABLED)
+            if (!activeInProcess && (saved == WhatsAppKillSwitchState.ENABLED || saved == WhatsAppKillSwitchState.STOPPING)) {
+                persistState(context, WhatsAppKillSwitchState.DISABLED)
+                return WhatsAppKillSwitchState.DISABLED
             }
-            return stored && activeInProcess
+            return saved
         }
 
-        fun markDisabled(context: android.content.Context) {
-            activeInProcess = false
-            context.getSharedPreferences(PREFS, android.content.Context.MODE_PRIVATE)
-                .edit().putBoolean(KEY_ENABLED, false).commit()
+        fun isEnabled(context: android.content.Context): Boolean =
+            state(context) == WhatsAppKillSwitchState.ENABLED && activeInProcess
+
+        fun setRequestedState(context: android.content.Context, value: WhatsAppKillSwitchState) {
+            persistState(context, value)
+        }
+
+        private fun persistState(context: android.content.Context, value: WhatsAppKillSwitchState) {
+            val saved = context.getSharedPreferences(PREFS, android.content.Context.MODE_PRIVATE)
+                .edit()
+                .putString(KEY_STATE, value.name)
+                .putBoolean(KEY_ENABLED, value == WhatsAppKillSwitchState.ENABLED)
+                .commit()
+            check(saved) { "Could not persist WhatsApp VPN state" }
+            context.sendBroadcast(
+                Intent(ACTION_STATE_CHANGED)
+                    .setPackage(context.packageName)
+                    .putExtra(EXTRA_STATE, value.name)
+            )
         }
     }
 }
