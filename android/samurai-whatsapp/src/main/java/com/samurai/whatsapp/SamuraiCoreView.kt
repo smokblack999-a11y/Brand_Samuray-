@@ -128,9 +128,7 @@ internal class SamuraiCoreView(context: Context) : View(context) {
         canvas.drawText("S", cx, cy + radius * 0.24f, paint)
         paint.color = Color.rgb(0, 235, 157)
         paint.textSize = dp(8f)
-        paint.letterSpacing = 0.18f
         canvas.drawText("SAMURAI CORE", cx, cy + radius * 0.54f, paint)
-        paint.letterSpacing = 0f
         paint.textAlign = Paint.Align.LEFT
     }
 
