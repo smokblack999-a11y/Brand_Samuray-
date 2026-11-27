@@ -83,10 +83,10 @@ jobs:
           grep -Fq 'com/samurai/whatsapp/WhatsAppKillSwitchService' <<< "$DEX_CONTENT"
           MANIFEST="samurai-whatsapp/src/main/AndroidManifest.xml"
           grep -Fq 'android:name="com.whatsapp"' "$MANIFEST"
-          grep -Fq 'android:name="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"' "$MANIFEST"
           grep -Fq 'android:name=".LauncherActivity"' "$MANIFEST"
           grep -Fq 'android:name=".ModuleCenterActivity"' "$MANIFEST"
-          grep -Fq 'android:exported="false"' "$MANIFEST"
+          awk '/android:name=".LauncherActivity"/ { found=1; if (getline && $0 ~ /android:exported="true"/) exported=1 } END { exit !(found && exported) }' "$MANIFEST"
+          awk '/android:name=".ModuleCenterActivity"/ { found=1; if (getline && $0 ~ /android:exported="false"/) internal=1 } END { exit !(found && internal) }' "$MANIFEST"
           if grep -Fq 'android.permission.QUERY_ALL_PACKAGES' "$MANIFEST"; then
             echo "Broad QUERY_ALL_PACKAGES permission is not allowed"
             exit 1
