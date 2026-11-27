@@ -52,7 +52,7 @@ function fixture() {
 }
 
 test("persists tenant-scoped write-ahead intent before Apollo execution", async () => {
-  const { records, runtime, plan, claimStore } = fixture();
+  const { records, runtime, plan, claimStore, claims } = fixture();
   let observedIntentBeforeCall = false;
   const executor = {
     enabled: () => true,
@@ -85,11 +85,11 @@ test("does not repeat a provider action when a prior intent already exists", asy
   };
 
   await executeApprovedPlans({ plans: [plan] }, "tenant-a", { executor, runtime, claimStore });
-  const retry = await executeApprovedPlans({ plans: [plan] }, "tenant-a", { executor, runtime });
+  const retry = await executeApprovedPlans({ plans: [plan] }, "tenant-a", { executor, runtime, claimStore });
 
   assert.equal(calls, 1);
   assert.equal(retry[0].status, "SKIPPED");
-  assert.equal(retry[0].code, "EXECUTION_ALREADY_RECORDED");
+  assert.equal(retry[0].code, "EXECUTION_CLAIM_EXISTS");
 });
 
 test("marks uncertain provider outcomes and blocks automatic retry", async () => {
@@ -103,8 +103,8 @@ test("marks uncertain provider outcomes and blocks automatic retry", async () =>
     }
   };
 
-  const first = await executeApprovedPlans({ plans: [plan] }, "tenant-a", { executor, runtime });
-  const second = await executeApprovedPlans({ plans: [plan] }, "tenant-a", { executor, runtime });
+  const first = await executeApprovedPlans({ plans: [plan] }, "tenant-a", { executor, runtime, claimStore });
+  const second = await executeApprovedPlans({ plans: [plan] }, "tenant-a", { executor, runtime, claimStore });
 
   assert.equal(first[0].status, "UNKNOWN");
   assert.equal(second[0].status, "SKIPPED");
