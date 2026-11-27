@@ -50,6 +50,12 @@ class WhatsAppKillSwitchManifestTest {
     }
 
     @Test
+    fun staleStoppingStateResolvesToDisabledWhenNoTunnelIsActive() {
+        WhatsAppKillSwitchService.setRequestedState(context, WhatsAppKillSwitchState.STOPPING)
+        assertEquals(WhatsAppKillSwitchState.DISABLED, WhatsAppKillSwitchService.state(context))
+    }
+
+    @Test
     fun stalePersistedStateIsNotPresentedAsAnActiveVpn() {
         val prefs = context.getSharedPreferences(
             "samurai_whatsapp_kill_switch",
