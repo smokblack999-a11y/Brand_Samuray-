@@ -24,6 +24,7 @@ internal object StatusSaver {
     private const val PREFS = "samurai_status_saver"
     private const val TREE_URI_KEY = "selected_status_tree_uri"
     private const val MAX_RESULTS = 300
+    private const val MAX_LIST_ENTRIES = 5000
     private const val MAX_SEARCH_DEPTH = 4
     private const val MAX_SEARCH_DIRECTORIES = 500
     private const val MAX_SEARCH_ENTRIES = 5000
@@ -96,13 +97,19 @@ internal object StatusSaver {
         )
         val items = ArrayList<CachedStatusFile>()
         context.contentResolver.query(childrenUri, projection, null, null, null)?.use { cursor ->
+            var examinedEntries = 0
             val idColumn = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_DOCUMENT_ID)
             val nameColumn = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
             val mimeColumn = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_MIME_TYPE)
             val sizeColumn = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_SIZE)
             val modifiedColumn = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_LAST_MODIFIED)
 
-            while (cursor.moveToNext() && items.size < MAX_RESULTS) {
+            while (
+                items.size < MAX_RESULTS &&
+                examinedEntries < MAX_LIST_ENTRIES &&
+                cursor.moveToNext()
+            ) {
+                examinedEntries += 1
                 if (idColumn < 0 || nameColumn < 0 || mimeColumn < 0) break
                 val documentId = cursor.getString(idColumn) ?: continue
                 val name = cursor.getString(nameColumn) ?: continue
