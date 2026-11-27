@@ -19,8 +19,8 @@ import android.view.WindowManager
 import android.os.SystemClock
 
 /**
- * SAMURAI command center. All metrics are read from local app state.
- * Feature workflows intentionally remain in MainActivity until migrated.
+ * SAMURAI command center. Metrics and module screens use existing local app state.
+ * Remaining legacy controls stay available in MainActivity during migration.
  */
 class LauncherActivity : FragmentActivity() {
     private var authInProgress = false
@@ -134,6 +134,7 @@ class LauncherActivity : FragmentActivity() {
             "PRIVATE BY DESIGN. BUILT AROUND YOUR DEVICE.",
             10f, muted, true
         ).apply { letterSpacing = 0.08f })
+        page.addView(SamuraiCoreView(this), LinearLayout.LayoutParams(-1, dp(178)))
 
         val hero = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
