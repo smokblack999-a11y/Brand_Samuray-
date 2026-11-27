@@ -1,7 +1,7 @@
 # SAMURAI Revenue — Read-only code audit (2026-11-27)
 
 ## Scope and method
-Remote inspection of the repository default branch `main`; files reviewed: `core/server.js`, `core/package.json`, `core/business-bot.js`, `core/.env.example`. This is a static source review only. No local runtime, deployment, database, secrets, or end-to-end Telegram/payment tests were executed in this audit.
+Remote inspection of the repository default branch `main`; files reviewed: `core/server.js`, `core/package.json`, `core/business-bot.js`, `core/.env.example`, `core/store.js`, `core/lead-engine.js`, `core/rate-limit.js`, `core/openai.js`. This is a static source review only. No local runtime, deployment, database, secrets, or end-to-end Telegram/payment tests were executed in this audit.
 
 ## Verified assets
 - Node.js / Express core, package scripts: `start`, `test`, `verify-config`, `set-webhook`.
@@ -13,7 +13,7 @@ Remote inspection of the repository default branch `main`; files reviewed: `core
 - dual-AI endpoints, sessions, export, and rate limiting.
 - Core uses environment configuration and production startup checks for API key and webhook secret.
 
-## Risks / gaps for commercial MVP
+## Additional code-level findings\n- Lead storage is a local JSON file (`leads.json`) with atomic temp-file rename, but no database transactions, tenant field enforcement, retention policy or concurrency guarantees for multi-instance deployments were verified.\n- Lead scoring is heuristic keyword matching, not a validated conversion predictor; treat it as triage only.\n- AI reply generation uses business name and lead score, but reviewed prompt has no verified service catalog/pricing/appointment availability context. It instructs the model not to invent these facts, but factual grounding is limited by supplied context.\n- OpenAI client uses a configured timeout and two retries; errors are sanitized into general categories.\n\n## Risks / gaps for commercial MVP
 1. **No multi-tenant boundary visible in reviewed routes:** current endpoints appear core-wide; do not expose as shared SaaS until tenant authorization/data isolation is designed and tested.
 2. **No customer-facing web panel verified:** no web dashboard implementation was reviewed in this scope.
 3. **Billing lifecycle unverified:** no subscription/payment webhook reconciliation or subscription entitlement enforcement was reviewed.
