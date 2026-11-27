@@ -13,6 +13,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
+import java.util.UUID
 
 @RunWith(AndroidJUnit4::class)
 class MediaVaultTest {
@@ -88,6 +89,29 @@ class MediaVaultTest {
 
         assertTrue(MediaVault.list(context).isEmpty())
         assertFalse(MediaVault.ciphertextFileForTest(context, item.id).exists())
+    }
+
+    @Test
+    fun clearDeletesOrphanedCiphertextFilesNotPresentInTheIndex() {
+        val orphanId = UUID.randomUUID().toString()
+        val orphanFile = MediaVault.ciphertextFileForTest(context, orphanId)
+        orphanFile.writeBytes(byteArrayOf(4, 3, 2, 1))
+
+        MediaVault.clear(context)
+
+        assertFalse(orphanFile.exists())
+        assertTrue(MediaVault.list(context).isEmpty())
+    }
+
+    @Test
+    fun rejectsInvalidIdsBeforeBuildingVaultFilePaths() {
+        var rejected = false
+        try {
+            MediaVault.ciphertextFileForTest(context, "../../outside")
+        } catch (_: IllegalArgumentException) {
+            rejected = true
+        }
+        assertTrue("Vault IDs must not permit path traversal", rejected)
     }
 
     @Test
