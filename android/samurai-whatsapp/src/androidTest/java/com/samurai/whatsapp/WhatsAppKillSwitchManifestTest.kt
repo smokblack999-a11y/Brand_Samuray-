@@ -41,12 +41,13 @@ class WhatsAppKillSwitchManifestTest {
     }
 
     @Test
-    fun lifecycleTransitionsArePersistedAndBroadcastable() {
+    fun lifecycleTransitionsArePersisted() {
         WhatsAppKillSwitchService.setRequestedState(context, WhatsAppKillSwitchState.STARTING)
         assertEquals(WhatsAppKillSwitchState.STARTING, WhatsAppKillSwitchService.state(context))
 
         WhatsAppKillSwitchService.setRequestedState(context, WhatsAppKillSwitchState.FAILED)
         assertEquals(WhatsAppKillSwitchState.FAILED, WhatsAppKillSwitchService.state(context))
+        assertFalse(WhatsAppKillSwitchService.isEnabled(context))
     }
 
     @Test
