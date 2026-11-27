@@ -82,12 +82,6 @@ class WhatsAppKillSwitchService : VpnService() {
                 startForeground(NOTIFICATION_ID, notification)
             }
 
-            check(
-                getSharedPreferences(PREFS, MODE_PRIVATE)
-                    .edit()
-                    .putBoolean(KEY_ENABLED, true)
-                    .commit()
-            ) { "Could not persist VPN state" }
             activeInProcess = true
             persistState(this, WhatsAppKillSwitchState.ENABLED)
 
